@@ -290,6 +290,10 @@ body::after {
   border-bottom: 2px solid rgba(94, 243, 140, 0.65);
   box-shadow: inset 0 -6px 14px rgba(94, 243, 140, 0.18);
 }
+.card__art--boop {
+  border-bottom: 2px solid rgba(255, 210, 63, 0.7);
+  box-shadow: inset 0 -6px 14px rgba(255, 210, 63, 0.18);
+}
 .card__art--soon {
   border-bottom: 2px solid rgba(138, 144, 177, 0.4);
   opacity: 0.7;

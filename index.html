@@ -19,7 +19,7 @@
         <h1>Web Games</h1>
         <p class="hub__tagline">Quick-hit browser games. No installs. Press play.</p>
         <div class="hub__chips">
-          <span class="hub__chip hub__chip--live">LIVE · 3 GAMES</span>
+          <span class="hub__chip hub__chip--live">LIVE · 4 GAMES</span>
           <span class="hub__chip hub__chip--free">FREE · NO ACCOUNT</span>
           <span class="hub__chip">PIXEL · NEON</span>
         </div>
@@ -469,6 +469,63 @@
           </div>
         </a>
 
+        <a class="card" href="/games/boop-snoot/index.html">
+          <div class="card__art card__art--boop">
+            <svg class="card__svg" viewBox="0 0 280 160" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">
+              <defs>
+                <radialGradient id="boopBg" cx="0.5" cy="0.3" r="0.7">
+                  <stop offset="0" stop-color="#2a1255"/>
+                  <stop offset="1" stop-color="#0a0716"/>
+                </radialGradient>
+              </defs>
+              <rect width="280" height="160" fill="url(#boopBg)"/>
+              <!-- big pug head with target ring -->
+              <g transform="translate(140,90)">
+                <!-- shrinking ring (animated via SMIL — fallback static OK) -->
+                <circle cx="0" cy="0" r="58" fill="none" stroke="#ffd23f" stroke-width="3" opacity="0.5">
+                  <animate attributeName="r" values="68;38;68" dur="1.8s" repeatCount="indefinite"/>
+                  <animate attributeName="opacity" values="0.2;0.85;0.2" dur="1.8s" repeatCount="indefinite"/>
+                </circle>
+                <circle cx="0" cy="0" r="42" fill="none" stroke="#ffd23f" stroke-width="1" opacity="0.3"/>
+                <!-- ears -->
+                <rect x="-44" y="-46" width="14" height="14" fill="#8a5a2c"/>
+                <rect x="30" y="-46" width="14" height="14" fill="#8a5a2c"/>
+                <!-- head -->
+                <circle cx="0" cy="0" r="38" fill="#e0a566"/>
+                <ellipse cx="0" cy="22" rx="38" ry="18" fill="#c8854a"/>
+                <!-- mask -->
+                <ellipse cx="0" cy="8" rx="30" ry="20" fill="#1a0d05"/>
+                <!-- eyes -->
+                <rect x="-16" y="-2" width="6" height="6" fill="#fff"/>
+                <rect x="10" y="-2" width="6" height="6" fill="#fff"/>
+                <rect x="-13" y="1" width="3" height="3" fill="#000"/>
+                <rect x="13" y="1" width="3" height="3" fill="#000"/>
+                <!-- SNOOT (target) -->
+                <circle cx="0" cy="16" r="9" fill="#1a0d05"/>
+                <circle cx="-2" cy="14" r="3" fill="#ff8aa8"/>
+              </g>
+              <!-- finger/cursor about to boop -->
+              <g transform="translate(195,55)">
+                <text x="0" y="0" font-size="22">👆</text>
+              </g>
+              <!-- score popups (decorative) -->
+              <text x="50" y="40" font-family="'Press Start 2P', monospace" font-size="8" fill="#ffd23f">PERFECT!</text>
+              <text x="42" y="56" font-family="'Press Start 2P', monospace" font-size="6" fill="#4cc9f0">x3 COMBO</text>
+              <!-- pill -->
+              <g transform="translate(8,8)">
+                <rect width="64" height="12" rx="2" fill="#000" opacity="0.55"/>
+                <rect width="64" height="12" rx="2" fill="none" stroke="#ff3aa1" stroke-width="1"/>
+                <text x="32" y="9" text-anchor="middle" font-family="'Press Start 2P', monospace" font-size="6" fill="#ff3aa1">RHYTHM</text>
+              </g>
+            </svg>
+          </div>
+          <div class="card__body">
+            <h2 class="card__title">BOOP THE SNOOT</h2>
+            <p class="card__desc">Reaction rhythm. Tap snoots inside their shrinking rings. Chain PERFECTs for combo multipliers.</p>
+            <span class="card__cta">Boop →</span>
+          </div>
+        </a>
+
         <div class="card card--coming">
           <div class="card__art card__art--soon">
             <svg class="card__svg" viewBox="0 0 280 160" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">
@@ -553,6 +610,7 @@
       <div class="hub-modal__panel">
         <h2>WHAT'S NEW</h2>
         <ul class="hub-changelog">
+          <li><b>v0.5</b> · BOOP THE SNOOT released (4th game, ORIGINAL reaction-rhythm mechanic), mobile bug fixes, haptic feedback, daily seed badge, 4000-item wishlist doc</li>
           <li><b>v0.4</b> · PUG SNAKE released (3rd game), gamepad support, aim assist, photo mode, Ko-fi tip jar, profile name</li>
           <li><b>v0.3</b> · Mobile/touch dual-stick controls, pause menu, high scores, combo system, background music, PWA install, settings panel, Konami code</li>
           <li><b>v0.2</b> · 12 new BORK BATTLE characters (46 total), full audio system, mute button, SVG game thumbnails, polished overlays</li>

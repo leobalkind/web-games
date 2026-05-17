@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="theme-color" content="#0a0716" />
+    <title>BOOP THE SNOOT</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <canvas id="game-canvas"></canvas>
+    <button id="mute-btn" class="mute-btn" type="button" title="Toggle sound (M)">🔊</button>
+    <button id="pause-btn" class="mute-btn" type="button" title="Pause (Esc)" style="right:62px;font-size:14px;">⏸</button>
+
+    <div id="overlay" class="overlay overlay--start">
+      <div class="overlay__panel">
+        <div class="overlay__tag">REACTION · RHYTHM · ORIGINAL</div>
+        <h1 class="overlay__title">BOOP THE SNOOT</h1>
+        <p class="overlay__sub">
+          Snoots appear with a glowing ring. Tap when the ring shrinks to the snoot — PERFECT scores chain combos.
+          Miss the timing and the pug walks away annoyed.
+        </p>
+        <ul class="overlay__controls">
+          <li><b>CLICK / TAP</b> the snoot inside its shrinking ring</li>
+          <li><b>SPACE</b> to instantly boop the nearest active snoot</li>
+          <li>Chain PERFECTs to build combo multiplier</li>
+        </ul>
+        <p class="overlay__tip">
+          <span class="pip pip--perfect">PERFECT</span> ×3 ·
+          <span class="pip pip--good">GOOD</span> ×1 ·
+          <span class="pip pip--miss">MISS</span> = combo break
+        </p>
+        <button id="start-btn" class="overlay__btn">PLAY</button>
+        <a class="overlay__back" href="../../index.html">← back to hub</a>
+      </div>
+    </div>
+
+    <div id="hud" hidden>
+      <div class="hud-card">
+        <div class="hud-row"><b>SCORE</b> <span id="hud-score">0</span></div>
+        <div class="hud-row"><b>COMBO</b> <span id="hud-combo">x1</span></div>
+        <div class="hud-row hud-row--small"><b>BEST</b> <span id="hud-best">0</span></div>
+        <div class="hud-row hud-row--small"><b>TIME</b> <span id="hud-time">60</span></div>
+      </div>
+    </div>
+
+    <div id="end-overlay" class="overlay overlay--end is-hidden" hidden>
+      <div class="overlay__panel">
+        <h2 id="end-title" class="overlay__title">TIME'S UP</h2>
+        <p class="overlay__sub" id="end-sub">Such boop. Many snoots.</p>
+        <ul class="end-stats">
+          <li>Score: <b id="end-score">0</b></li>
+          <li>Max combo: <b id="end-combo">x1</b></li>
+          <li>Perfect boops: <b id="end-perfect">0</b></li>
+          <li id="end-best">Best: <b>—</b></li>
+        </ul>
+        <button id="end-restart" class="overlay__btn">REMATCH</button>
+        <button id="end-share" class="overlay__btn overlay__btn--ghost" type="button">📋 SHARE</button>
+        <a class="overlay__back" href="../../index.html">← back to hub</a>
+      </div>
+    </div>
+
+    <div id="pause-overlay" class="pause-overlay" hidden>
+      <div class="pause-panel">
+        <h2>PAUSED</h2>
+        <button id="pause-resume">RESUME</button>
+        <button id="pause-quit">BACK TO HUB</button>
+      </div>
+    </div>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

@@ -20,6 +20,7 @@ export default defineConfig(({ command }) => ({
         borkBattle: resolve(__dirname, 'games/bork-battle/index.html'),
         pugfort: resolve(__dirname, 'games/pugfort/index.html'),
         pugSnake: resolve(__dirname, 'games/pug-snake/index.html'),
+        boopSnoot: resolve(__dirname, 'games/boop-snoot/index.html'),
       },
     },
   },
