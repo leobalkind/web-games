@@ -170,9 +170,10 @@ export function createTouchControls(opts = {}) {
     }
 
     stickEl.addEventListener('touchstart', start, { passive: false });
-    stickEl.addEventListener('touchmove', moveById, { passive: false });
-    stickEl.addEventListener('touchend', endById, { passive: false });
-    stickEl.addEventListener('touchcancel', endById, { passive: false });
+    // Document-level move/end so finger leaving the stick element keeps tracking.
+    document.addEventListener('touchmove', moveById, { passive: false });
+    document.addEventListener('touchend', endById, { passive: false });
+    document.addEventListener('touchcancel', endById, { passive: false });
   }
 
   bindStick(left, false);

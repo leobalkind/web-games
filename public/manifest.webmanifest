@@ -1,11 +1,11 @@
 {
-  "name": "Web Games — Bork Battle & PugFort",
+  "name": "Web Games — Bork Battle, PugFort & Pug Snake",
   "short_name": "Web Games",
   "description": "Quick-hit browser games. No installs. Just play.",
   "start_url": "./",
   "scope": "./",
-  "display": "fullscreen",
-  "orientation": "landscape",
+  "display": "standalone",
+  "orientation": "any",
   "background_color": "#0a0716",
   "theme_color": "#0a0716",
   "icons": [

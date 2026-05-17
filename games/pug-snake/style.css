@@ -38,8 +38,8 @@ html, body {
 
 .mute-btn {
   position: fixed;
-  top: 12px;
-  right: 12px;
+  top: calc(12px + env(safe-area-inset-top, 0));
+  right: calc(12px + env(safe-area-inset-right, 0));
   z-index: 200;
   width: 40px;
   height: 40px;

@@ -16,15 +16,15 @@
 
 .touch-stick {
   position: fixed;
-  bottom: 30px;
+  bottom: calc(30px + env(safe-area-inset-bottom, 0));
   width: 140px;
   height: 140px;
   pointer-events: auto;
   touch-action: none;
 }
 
-.touch-stick--left  { left: 24px; }
-.touch-stick--right { right: 24px; }
+.touch-stick--left  { left: calc(24px + env(safe-area-inset-left, 0)); }
+.touch-stick--right { right: calc(24px + env(safe-area-inset-right, 0)); }
 
 .touch-stick__base {
   position: absolute;
@@ -83,8 +83,8 @@
 
 .touch-ability {
   position: fixed;
-  right: 24px;
-  bottom: 200px;
+  right: calc(24px + env(safe-area-inset-right, 0));
+  bottom: calc(200px + env(safe-area-inset-bottom, 0));
   width: 84px;
   height: 84px;
   border-radius: 50%;
