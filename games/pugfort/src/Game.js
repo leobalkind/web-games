@@ -59,7 +59,7 @@ export class Game {
       resolution: 1,
     });
     rootEl.appendChild(this.app.canvas);
-    this.input = new Input(this.app.canvas, this.touchControls || null);
+    this.input = new Input(this.app.canvas, this.touchControls || null, this.gamepad || null);
     this.hud = new Hud();
   }
 
@@ -131,6 +131,7 @@ export class Game {
 
   _update(ticker) {
     if (!this.running) return;
+    if (this.gamepad) this.gamepad.pump();
     const dt = Math.min(ticker.deltaMS / 1000, 1 / 30);
     this.matchTime += dt;
     this.phaseT += dt;

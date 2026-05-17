@@ -2,9 +2,11 @@ import { Game } from './src/Game.js';
 import { Sfx } from './src/Sfx.js';
 import { createTouchControls } from '../../src/touch/touchControls.js';
 import '../../src/touch/touchControls.css';
+import { getGamepad } from '../../src/gamepad/gamepad.js';
 
 const touch = createTouchControls({ enableAbility: true, abilityLabel: 'BUILD' });
 if (touch.enabled) document.body.classList.add('is-touch');
+const gp = getGamepad();
 
 const root = document.getElementById('game-root');
 const startBtn = document.getElementById('start-btn');
@@ -37,6 +39,7 @@ window.addEventListener('keydown', (e) => {
 
 const game = new Game();
 game.touchControls = touch;
+game.gamepad = gp;
 
 function hide(el) { el.hidden = true; el.classList.add('is-hidden'); }
 function show(el) { el.hidden = false; el.classList.remove('is-hidden'); }
@@ -79,6 +82,14 @@ pauseLarge?.addEventListener('click', () => {
   pauseLarge.textContent = on ? 'LARGE TEXT: ON' : 'LARGE TEXT: OFF';
 });
 pauseQuit?.addEventListener('click', () => { window.location.href = '../../index.html'; });
+document.getElementById('pause-photo')?.addEventListener('click', () => {
+  const canvas = document.querySelector('canvas');
+  if (!canvas) return;
+  const a = document.createElement('a');
+  a.download = `pugfort-${new Date().toISOString().replace(/[:.]/g, '-')}.png`;
+  a.href = canvas.toDataURL('image/png');
+  a.click();
+});
 window.addEventListener('keydown', (e) => {
   if ((e.key === 'Escape' || e.key === 'p' || e.key === 'P') && startOverlay.classList.contains('is-hidden') && endOverlay.classList.contains('is-hidden')) {
     e.preventDefault();

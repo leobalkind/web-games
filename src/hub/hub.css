@@ -449,6 +449,34 @@ body::after {
   accent-color: var(--neon-pink);
 }
 .hub-toggle span { color: var(--text); font-size: 0.95rem; }
+
+.hub-profile-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 14px 0 6px;
+}
+.hub-profile-label {
+  font-family: var(--font-display);
+  font-size: 0.55rem;
+  color: var(--neon-cyan);
+  letter-spacing: 0.1em;
+}
+.hub-profile-row input[type="text"] {
+  background: rgba(0, 0, 0, 0.5);
+  border: 2px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 0.7rem;
+  padding: 8px 10px;
+  letter-spacing: 0.06em;
+  outline: none;
+}
+.hub-profile-row input[type="text"]:focus {
+  border-color: var(--neon-cyan);
+  box-shadow: 0 0 12px rgba(76, 201, 240, 0.3);
+}
 .hub-modal__close {
   display: block;
   margin: 20px auto 0;

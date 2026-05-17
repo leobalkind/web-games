@@ -439,6 +439,7 @@
         <span>Built with PixiJS + Vite</span>
         <button id="settings-btn" type="button" class="hub__icon-btn" title="Settings" aria-label="Settings">⚙</button>
         <button id="changelog-btn" type="button" class="hub__icon-btn" title="What's new" aria-label="What's new">★</button>
+        <a id="kofi-btn" href="https://ko-fi.com/" target="_blank" rel="noopener" class="hub__icon-btn" title="Tip the dev" aria-label="Tip the dev">☕</a>
       </footer>
     </main>
 
@@ -466,6 +467,18 @@
           <input id="opt-colorblind" type="checkbox" />
           <span>Color-blind friendly palette</span>
         </label>
+        <label class="hub-toggle">
+          <input id="opt-aim-assist" type="checkbox" />
+          <span>Aim assist (auto-aim nearest target)</span>
+        </label>
+        <label class="hub-toggle">
+          <input id="opt-auto-fire" type="checkbox" />
+          <span>Auto-fire (hold to shoot continuously)</span>
+        </label>
+        <div class="hub-profile-row">
+          <label for="opt-profile-name" class="hub-profile-label">Display name</label>
+          <input id="opt-profile-name" type="text" maxlength="16" placeholder="PUGGO" />
+        </div>
         <button id="settings-close" type="button" class="hub-modal__close">DONE</button>
       </div>
     </div>
@@ -516,7 +529,17 @@
         'large-text': { el: $('opt-large-text'), key: 'large-text', apply: (on) => document.body.classList.toggle('large-text', on) },
         'reduced-motion': { el: $('opt-reduced-motion'), key: 'reduced-motion', apply: (on) => document.body.classList.toggle('reduced-motion', on) },
         colorblind: { el: $('opt-colorblind'), key: 'colorblind', apply: (on) => document.body.classList.toggle('colorblind', on) },
+        'aim-assist': { el: $('opt-aim-assist'), key: 'aim-assist', apply: () => {} },
+        'auto-fire': { el: $('opt-auto-fire'), key: 'auto-fire', apply: () => {} },
       };
+      // Profile name
+      const nameEl = $('opt-profile-name');
+      if (nameEl) {
+        nameEl.value = localStorage.getItem('wg:profile-name') || '';
+        nameEl.addEventListener('input', () => {
+          localStorage.setItem('wg:profile-name', nameEl.value.trim().slice(0, 16));
+        });
+      }
       // Initial state — music/sfx default to ON (so check unless explicitly 0)
       function initOpts() {
         for (const [k, o] of Object.entries(opts)) {

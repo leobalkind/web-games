@@ -1,9 +1,10 @@
 // Centralized input for PUGFORT — WASD + mouse + build hotkeys.
 // Optional touchControls overlays virtual joysticks for mobile.
 export class Input {
-  constructor(canvas, touchControls = null) {
+  constructor(canvas, touchControls = null, gamepad = null) {
     this.canvas = canvas;
     this.touch = touchControls;
+    this.gp = gamepad;
     this._touchPrevFiring = false;
     this.codes = new Set();
     this.mouse = { x: 0, y: 0, screenX: 0, screenY: 0 };
@@ -69,14 +70,18 @@ export class Input {
       const len = Math.hypot(x, y);
       return { x: x / len, y: y / len };
     }
+    if (this.gp?.connected && (this.gp.move.x || this.gp.move.y)) return this.gp.move;
     if (this.touch?.enabled) return this.touch.getMove();
     return { x: 0, y: 0 };
   }
 
-  // Touch-only aim vector (unit) or null
-  touchAim() { return this.touch?.enabled ? this.touch.getAim() : null; }
+  touchAim() {
+    if (this.gp?.connected && this.gp.aim) return this.gp.aim;
+    return this.touch?.enabled ? this.touch.getAim() : null;
+  }
   isFiring() {
     if (this.mouseDown) return true;
+    if (this.gp?.connected && this.gp.firing) return true;
     return this.touch?.enabled && this.touch.isFiring();
   }
 

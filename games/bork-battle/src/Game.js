@@ -76,7 +76,7 @@ export class Game {
     // Pixel-perfect rendering style
     this.app.canvas.style.imageRendering = 'pixelated';
 
-    this.input = new Input(this.app.canvas, this.touchControls || null);
+    this.input = new Input(this.app.canvas, this.touchControls || null, this.gamepad || null);
     this.hud = new Hud();
   }
 
@@ -247,6 +247,7 @@ export class Game {
     }
     this.matchTime += dt;
     this._tickCombo();
+    if (this.gamepad) this.gamepad.pump();
 
     // World + items
     this.world.update(dt, this.matchTime);
@@ -451,6 +452,27 @@ export class Game {
       const wx = (screen.screenX - cam.x) / cam.scale.x;
       const wy = (screen.screenY - cam.y) / cam.scale.y;
       p.setAimToward(wx, wy);
+    }
+    // Aim assist — snap toward nearest enemy if within 240px of cursor
+    if (localStorage.getItem('wg:aim-assist') === '1') {
+      let nearest = null;
+      let bestD = 240 * 240;
+      const ax = p.x + Math.cos(p.aim) * 200;
+      const ay = p.y + Math.sin(p.aim) * 200;
+      for (const o of this.pugs) {
+        if (o === p || !o.alive) continue;
+        const dx = o.x - ax, dy = o.y - ay;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < bestD) { bestD = d2; nearest = o; }
+      }
+      if (nearest) {
+        const desired = Math.atan2(nearest.y - p.y, nearest.x - p.x);
+        // Blend toward target — soft assist, not lock
+        let diff = desired - p.aim;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        p.aim += diff * 0.35;
+      }
     }
 
     // Move (with speed bonus from upgrades + power-up buffs)

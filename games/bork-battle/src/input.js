@@ -2,9 +2,10 @@
 // Optional touchControls (from src/touch/touchControls.js) supplies move/aim/fire
 // state on mobile devices; desktop keyboard+mouse takes precedence when active.
 export class Input {
-  constructor(canvas, touchControls = null) {
+  constructor(canvas, touchControls = null, gamepad = null) {
     this.canvas = canvas;
     this.touch = touchControls;
+    this.gp = gamepad;
     this.keys = new Set();
     this.mouse = { x: 0, y: 0, screenX: 0, screenY: 0 };
     this.mouseDown = false;
@@ -44,7 +45,7 @@ export class Input {
     window.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
-  // Movement direction — keyboard wins if any WASD pressed; else touch joystick.
+  // Movement direction — keyboard → gamepad → touch joystick.
   moveVector() {
     let x = 0, y = 0;
     if (this.keys.has('w')) y -= 1;
@@ -55,22 +56,22 @@ export class Input {
       const len = Math.hypot(x, y);
       return { x: x / len, y: y / len };
     }
-    if (this.touch?.enabled) {
-      const m = this.touch.getMove();
-      return m;
+    if (this.gp?.connected && (this.gp.move.x || this.gp.move.y)) {
+      return this.gp.move;
     }
+    if (this.touch?.enabled) return this.touch.getMove();
     return { x: 0, y: 0 };
   }
 
-  // Aim vector from touch right stick (mobile), or null on desktop.
-  // Desktop uses mouse position via input.mouse.screenX/Y (existing code).
+  // Aim vector — gamepad right stick OR touch right stick; null otherwise.
   touchAim() {
+    if (this.gp?.connected && this.gp.aim) return this.gp.aim;
     return this.touch?.enabled ? this.touch.getAim() : null;
   }
 
-  // Is the player firing? (desktop mouseDown OR touch right-stick deflected)
   isFiring() {
     if (this.mouseDown) return true;
+    if (this.gp?.connected && this.gp.firing) return true;
     return this.touch?.enabled && this.touch.isFiring();
   }
 
@@ -83,6 +84,7 @@ export class Input {
 
   spaceDown() {
     if (this._spaceDown) return true;
+    if (this.gp?.connected && this.gp.abilityDown) return true;
     return this.touch?.enabled && this.touch.abilityDown;
   }
   spaceJustReleased() {
@@ -91,6 +93,7 @@ export class Input {
   }
   spaceJustPressed() {
     if (this._spaceJustPressed) return true;
+    if (this.gp?.connected && this.gp.justAbility) return true;
     return this.touch?.enabled && this.touch.consumeAbilityPressed();
   }
   eJustPressed() { return this._eJustPressed; }

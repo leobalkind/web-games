@@ -5,10 +5,12 @@ import { DIFFICULTIES } from './src/difficulty.js';
 import { Sfx } from './src/Sfx.js';
 import { createTouchControls } from '../../src/touch/touchControls.js';
 import '../../src/touch/touchControls.css';
+import { getGamepad } from '../../src/gamepad/gamepad.js';
 
 // Detect touch device + create overlay controls (no-op on desktop)
 const touch = createTouchControls({ enableAbility: true, abilityLabel: 'BORK' });
 if (touch.enabled) document.body.classList.add('is-touch');
+const gp = getGamepad();
 
 const root = document.getElementById('game-root');
 const startOverlay = document.getElementById('overlay');
@@ -43,6 +45,7 @@ window.addEventListener('keydown', (e) => {
 
 const game = new Game();
 game.touchControls = touch;
+game.gamepad = gp;
 // Boot is async; wrapped in IIFE so production build doesn't need top-level await.
 // Once init resolves the Pixi app exists, so re-render the starter cards with real
 // per-character previews (replacing the emoji fallback shown during boot).
@@ -201,6 +204,14 @@ pauseLarge?.addEventListener('click', () => {
   pauseLarge.textContent = on ? 'LARGE TEXT: ON' : 'LARGE TEXT: OFF';
 });
 pauseQuit?.addEventListener('click', () => { window.location.href = '../../index.html'; });
+document.getElementById('pause-photo')?.addEventListener('click', () => {
+  const canvas = document.querySelector('canvas');
+  if (!canvas) return;
+  const a = document.createElement('a');
+  a.download = `bork-battle-${new Date().toISOString().replace(/[:.]/g, '-')}.png`;
+  a.href = canvas.toDataURL('image/png');
+  a.click();
+});
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && !startOverlay || (e.key === 'Escape' && startOverlay.classList.contains('is-hidden'))) {
     // Only pause if game is actually running (start overlay is hidden)
