@@ -1,0 +1,812 @@
+import { Application, Container, Graphics, Text } from 'pixi.js';
+import { COLORS, shade } from './Colors.js';
+import { World } from './World.js';
+import { Pug } from './Pug.js';
+import { Zombie, ZOMBIE_TYPES, pickZombieType, waveLineup } from './Zombie.js';
+import { ProjectileManager } from './Projectile.js';
+import { WoodManager } from './Wood.js';
+import { Build, BUILDABLES, WALL_COST, TURRET_COST } from './Build.js';
+import { Hud } from './Hud.js';
+import { Input } from './Input.js';
+import { Sfx } from './Sfx.js';
+import { Generator } from './Generator.js';
+import { Boss } from './Boss.js';
+
+const DAY_DURATION = 30;
+const NIGHT_DURATION = 50;
+const TRANSITION_DURATION = 3;
+const TOTAL_NIGHTS = 3;
+
+const PISTOL_DAMAGE = 20;
+const PISTOL_SPEED = 620;
+const PISTOL_COOLDOWN = 0.25;
+
+export class Game {
+  constructor() {
+    this.app = null;
+    this.world = null;
+    this.player = null;
+    this.zombies = [];
+    this.projectiles = null;
+    this.wood = null;
+    this.build = null;
+    this.hud = null;
+    this.input = null;
+    this.acidBalls = [];
+    this.running = false;
+    this.matchTime = 0;
+    this.phase = 'day';
+    this.phaseT = 0;
+    this.phaseTotal = DAY_DURATION;
+    this.nightIdx = 0;
+    this.nightsSurvived = 0;
+    this.nightSpawnTimer = 0;
+    this.nightTotalSpawned = 0;
+    this.nightSpawnTarget = 0;
+    this.playerWood = 0;
+    this.playerKills = 0;
+    this.wallsBuilt = 0;
+    this.turretsBuilt = 0;
+    this.fireCooldown = 0;
+  }
+
+  async init(rootEl) {
+    this.app = new Application();
+    await this.app.init({
+      background: COLORS.bgDeep,
+      resizeTo: window,
+      antialias: true,
+      resolution: 1,
+    });
+    rootEl.appendChild(this.app.canvas);
+    this.input = new Input(this.app.canvas);
+    this.hud = new Hud();
+  }
+
+  async start() {
+    this._teardown();
+
+    // Bigger map
+    this.world = new World({ width: 3600, height: 2700 });
+    this.app.stage.addChild(this.world.container);
+    // Zoom-in for closer FOV — feels more intimate/cinematic
+    this.app.stage.scale.set(1.5);
+
+    this.projectiles = new ProjectileManager(this.world.effectsLayer);
+    this.wood = new WoodManager(this.world.itemsLayer);
+    this.wood.scatter(36, this.world.width, this.world.height);
+
+    // Generator at center of map — zombies target it, destroy = game over
+    this.generator = new Generator(this.world.width / 2, this.world.height / 2, 900);
+    this.world.entitiesLayer.addChild(this.generator.container);
+
+    // Player spawns near (but not on) the generator
+    this.player = new Pug({ x: this.world.width / 2 - 120, y: this.world.height / 2 - 80 });
+    this.world.entitiesLayer.addChild(this.player.container);
+
+    this.build = new Build({ scene: this.world.mapLayer });
+
+    this.zombies = [];
+    this.acidBalls = [];
+    this.boss = null;
+    this.bossSpawned = false;
+    this.matchTime = 0;
+    this.phase = 'day';
+    this.phaseT = 0;
+    this.phaseTotal = DAY_DURATION;
+    this.nightIdx = 0;
+    this.nightsSurvived = 0;
+    this.playerWood = 8; // small starting stash so player can immediately build a wall
+    this.playerKills = 0;
+    this.wallsBuilt = 0;
+    this.turretsBuilt = 0;
+    this.fireCooldown = 0;
+    this.running = true;
+
+    this.hud.show();
+    this.hud.updatePlayer(this.player);
+    this.hud.updateResources(this.playerWood, 0);
+    this.hud.updatePhase('day', 1, TOTAL_NIGHTS, 0);
+    this.hud.toastMessage('DAY 1 — gather wood, build defenses. Night brings horde.', 'good');
+
+    if (!this._tickerBound) {
+      this.app.ticker.add((tk) => this._update(tk));
+      this._tickerBound = true;
+    }
+    window.__PUGFORT = this;
+  }
+
+  _teardown() {
+    if (this.world) {
+      this.app.stage.removeChild(this.world.container);
+      this.world.container.destroy({ children: true });
+      this.world = null;
+    }
+    this.zombies = [];
+    this.acidBalls = [];
+    this.boss = null;
+    this.bossSpawned = false;
+  }
+
+  _update(ticker) {
+    if (!this.running) return;
+    const dt = Math.min(ticker.deltaMS / 1000, 1 / 30);
+    this.matchTime += dt;
+    this.phaseT += dt;
+
+    this._updatePhase();
+    this._updatePlayer(dt);
+    this._updateZombies(dt);
+    this._updateTurrets(dt);
+    this._updateAcidBalls(dt);
+    this._updateProjectiles(dt);
+    this._updateBuild();
+    this._updateWood(dt);
+    if (this.generator) this.generator.update(dt);
+    this._updateCamera();
+    this._updateHud();
+    this._checkEndConditions();
+
+    this.input.postFrame();
+  }
+
+  // ---------- Phase / day-night ----------
+  _updatePhase() {
+    if (this.phaseT < this.phaseTotal) return;
+    if (this.phase === 'day') {
+      this.phase = 'sunset';
+      this.phaseTotal = TRANSITION_DURATION;
+      this.phaseT = 0;
+      this.hud.toastMessage('☀️ → 🌅 Sunset...', 'warn');
+    } else if (this.phase === 'sunset') {
+      this.phase = 'night';
+      this.phaseTotal = NIGHT_DURATION;
+      this.phaseT = 0;
+      this.nightIdx += 1;
+      this.nightTotalSpawned = 0;
+      this.nightSpawnTarget = waveLineup(this.nightIdx);
+      this.nightSpawnTimer = 0;
+      this._announceWave();
+      Sfx.phaseNight();
+    } else if (this.phase === 'night') {
+      this.nightsSurvived += 1;
+      for (const z of this.zombies) z.alive = false;
+      this.phase = 'dawn';
+      this.phaseTotal = TRANSITION_DURATION;
+      this.phaseT = 0;
+      this.hud.toastMessage(`🌅 Survived night ${this.nightIdx} / ${TOTAL_NIGHTS}`, 'good');
+    } else if (this.phase === 'dawn') {
+      this.phase = 'day';
+      this.phaseTotal = DAY_DURATION;
+      this.phaseT = 0;
+      this.wood.scatter(18, this.world.width, this.world.height);
+      this.hud.toastMessage(`☀️ DAY ${this.nightIdx + 1} — fortify!`, 'good');
+      Sfx.phaseDay();
+    }
+    const k = this.phaseT / this.phaseTotal;
+    this.world.setPhaseTint(this.phase, k);
+  }
+
+  _announceWave() {
+    const enemies = {
+      1: 'Walkers + Runners',
+      2: 'Walkers + Runners + 🛡️ Tanks + 🦠 Spitters',
+      3: 'EVERYTHING — Tanks, Spitters, 💣 Exploders incoming',
+    }[this.nightIdx] || 'EVERYTHING';
+    this.hud.toastMessage(`🌙 NIGHT ${this.nightIdx} — ${enemies}`, 'warn');
+  }
+
+  // ---------- Player ----------
+  _updatePlayer(dt) {
+    const p = this.player;
+    if (!p.alive) return;
+
+    const screen = this.input.mouse;
+    const cam = this.app.stage;
+    const wx = (screen.screenX - cam.x) / cam.scale.x;
+    const wy = (screen.screenY - cam.y) / cam.scale.y;
+    p.setAimToward(wx, wy);
+
+    const mv = this.input.moveVector();
+    let sprintMult = 1;
+    if (this.input.sprintDown() && p.stam > 1 && (mv.x !== 0 || mv.y !== 0)) {
+      sprintMult = p.sprintMult;
+      p.stam = Math.max(0, p.stam - 28 * dt);
+    } else {
+      p.stam = Math.min(p.maxStam, p.stam + 14 * dt);
+    }
+    p.move(mv.x, mv.y, dt, sprintMult);
+
+    p.x = Math.max(p.radius, Math.min(this.world.width - p.radius, p.x));
+    p.y = Math.max(p.radius, Math.min(this.world.height - p.radius, p.y));
+
+    // Resolve generator collision (push out of generator footprint)
+    if (this.generator && this.generator.alive) {
+      const gx = this.generator.x, gy = this.generator.y + 6;
+      const gw = 34, gh = 26; // half-extents
+      const cx = Math.max(gx - gw, Math.min(p.x, gx + gw));
+      const cy = Math.max(gy - gh, Math.min(p.y, gy + gh));
+      const dx = p.x - cx, dy = p.y - cy;
+      const d = Math.hypot(dx, dy);
+      if (d < p.radius) {
+        if (d > 0.01) {
+          const overlap = p.radius - d;
+          p.x += (dx / d) * overlap;
+          p.y += (dy / d) * overlap;
+        } else { p.x += 1; }
+      }
+    }
+
+    // Resolve wall collisions
+    for (const w of this.build.placed) {
+      const cx = Math.max(w.x, Math.min(p.x, w.x + w.width));
+      const cy = Math.max(w.y, Math.min(p.y, w.y + w.height));
+      const dx = p.x - cx, dy = p.y - cy;
+      const d = Math.hypot(dx, dy);
+      if (d < p.radius) {
+        if (d > 0.01) {
+          const overlap = p.radius - d;
+          p.x += (dx / d) * overlap;
+          p.y += (dy / d) * overlap;
+        } else { p.x += 1; }
+      }
+    }
+
+    // Fire
+    this.fireCooldown -= dt;
+    if (!this.build.selected && this.input.mouseDown && this.fireCooldown <= 0) {
+      this.fireCooldown = PISTOL_COOLDOWN;
+      const angle = p.aim;
+      const offX = Math.cos(angle) * (p.radius + 8);
+      const offY = Math.sin(angle) * (p.radius + 8);
+      this.projectiles.spawn({
+        x: p.x + offX, y: p.y + offY,
+        vx: Math.cos(angle) * PISTOL_SPEED,
+        vy: Math.sin(angle) * PISTOL_SPEED,
+        damage: PISTOL_DAMAGE,
+        color: COLORS.neonYellow,
+      });
+      this._spawnMuzzleFlash(p.x + offX, p.y + offY, angle);
+      Sfx.pistol();
+    }
+
+    p.syncVisual(dt);
+
+    const gained = this.wood.tryCollect(p.x, p.y);
+    if (gained > 0) {
+      this.playerWood += gained;
+      this.hud.toastMessage(`+${gained} 🪵`, 'good');
+      Sfx.woodCollect();
+    }
+  }
+
+  _spawnMuzzleFlash(x, y, angle) {
+    const g = new Graphics();
+    g.x = x; g.y = y; g.rotation = angle;
+    g.circle(0, 0, 12).fill({ color: 0xffffff, alpha: 0.95 });
+    g.circle(0, 0, 6).fill(COLORS.neonYellow);
+    g.rect(0, -3, 22, 6).fill({ color: COLORS.neonYellow, alpha: 0.7 });
+    this.world.effectsLayer.addChild(g);
+    setTimeout(() => g.destroy(), 80);
+  }
+
+  // ---------- Zombies ----------
+  _updateZombies(dt) {
+    if (this.phase === 'night' && this.nightTotalSpawned < this.nightSpawnTarget) {
+      this.nightSpawnTimer -= dt;
+      if (this.nightSpawnTimer <= 0) {
+        this._spawnZombie();
+        this.nightTotalSpawned += 1;
+        this.nightSpawnTimer = (NIGHT_DURATION * 0.75) / this.nightSpawnTarget;
+      }
+    }
+    // BOSS spawn: night 3, halfway through. Only spawns once.
+    if (this.phase === 'night' && this.nightIdx === TOTAL_NIGHTS && !this.bossSpawned
+        && this.phaseT > NIGHT_DURATION * 0.4) {
+      this._spawnBoss();
+    }
+    // Update boss
+    if (this.boss && this.boss.alive) {
+      const target = (this.generator && this.generator.alive) ? this.generator : this.player;
+      this.boss.update(dt, target, this.build.placed);
+      if (this.boss.wantsToStomp) {
+        this._bossStomp(this.boss.x, this.boss.y);
+        this.boss.wantsToStomp = null;
+      }
+      if (this.boss.wantsToSummon) {
+        for (let i = 0; i < 3; i++) {
+          const a = Math.random() * Math.PI * 2;
+          const d = 80 + Math.random() * 40;
+          this._spawnZombieAt(this.boss.x + Math.cos(a) * d, this.boss.y + Math.sin(a) * d, 'walker');
+        }
+        this.boss.wantsToSummon = false;
+        Sfx.zombieDeath(); // a screamy noise for the summon
+      }
+      this.boss.syncVisual(dt);
+      // contact damage handled inside boss.update via target.takeDamage
+      // generator special damage from boss
+      if (this.generator && this.generator.alive) {
+        const dx = this.boss.x - this.generator.x, dy = this.boss.y - this.generator.y;
+        const d = Math.hypot(dx, dy);
+        if (d < this.boss.radius + this.generator.radius - 4) {
+          this.boss.contactT += dt;
+          if (this.boss.contactT > 0.45) {
+            this.generator.takeDamage(this.boss.contactDamage * 1.5);
+            this.boss.contactT = 0;
+            Sfx.generatorHit();
+          }
+        }
+      }
+    } else if (this.boss && !this.boss.alive) {
+      // boss death
+      this._bossDeath(this.boss);
+      this.boss = null;
+    }
+
+    const walls = this.build.placed;
+    for (let i = this.zombies.length - 1; i >= 0; i--) {
+      const z = this.zombies[i];
+      if (!z.alive) {
+        if (z.def.explodes) this._explode(z);
+        this._spawnDeathPoof(z.x, z.y, z.def.color);
+        const dropAmt = z.def.armored ? 4 : (z.def.isRanged ? 3 : 1 + Math.floor(Math.random() * 2));
+        this.wood.spawnAt(z.x, z.y, dropAmt);
+        z.destroy();
+        this.zombies.splice(i, 1);
+        this.playerKills += 1;
+        Sfx.zombieDeath();
+        continue;
+      }
+      // Zombies ALWAYS target the generator — player is now a free defender.
+      // (Fallback to player only if generator already destroyed.)
+      const target = (this.generator && this.generator.alive) ? this.generator : this.player;
+      z.update(dt, target, walls);
+      // Generator contact damage (only zombies that can do melee)
+      if (this.generator && this.generator.alive && !z.def.isRanged) {
+        const dx = z.x - this.generator.x, dy = z.y - this.generator.y;
+        const d = Math.hypot(dx, dy);
+        if (d < this.generator.radius + z.radius) {
+          // Damage generator at attack interval (reuse zombie.contactT)
+          z.contactT += dt;
+          if (z.contactT > 0.6) {
+            this.generator.takeDamage(z.damage * 0.7);
+            z.contactT = 0;
+            Sfx.generatorHit();
+          }
+        }
+      }
+      // Spitter shoots at chosen target (player or generator)
+      if (z.wantsToSpit) {
+        const aim = Math.atan2(target.y - z.y, target.x - z.x);
+        this._spawnAcidBall(z.x, z.y, aim, z.def.projectileSpeed, z.def.projectileDamage);
+        z.wantsToSpit = null;
+        Sfx.acidSpit();
+      }
+      // Screamer summons walkers around it
+      if (z.wantsToScream) {
+        z.wantsToScream = false;
+        // visual scream ring
+        this._spawnRing(z.x, z.y, 80, 0xff3aa1);
+        Sfx.zombieDeath();
+        for (let i = 0; i < z.def.summonsPerScream; i++) {
+          const a = Math.random() * Math.PI * 2;
+          const d = 40 + Math.random() * 30;
+          this._spawnZombieAt(z.x + Math.cos(a) * d, z.y + Math.sin(a) * d, 'walker');
+        }
+      }
+      // cloakers fade based on PLAYER view, not target
+      z.syncVisual(dt, this.player);
+    }
+  }
+
+  _spawnZombie() {
+    const edge = Math.floor(Math.random() * 4);
+    let x, y;
+    const M = 20;
+    if (edge === 0)      { x = Math.random() * this.world.width; y = M; }
+    else if (edge === 1) { x = Math.random() * this.world.width; y = this.world.height - M; }
+    else if (edge === 2) { x = M; y = Math.random() * this.world.height; }
+    else                 { x = this.world.width - M; y = Math.random() * this.world.height; }
+    const type = pickZombieType(this.nightIdx);
+    this._spawnZombieAt(x, y, type);
+  }
+
+  _spawnZombieAt(x, y, type) {
+    const z = new Zombie({ x, y, type, tier: this.nightIdx });
+    this.zombies.push(z);
+    this.world.entitiesLayer.addChild(z.container);
+  }
+
+  _spawnBoss() {
+    this.bossSpawned = true;
+    // pick spawn edge opposite the player
+    const cx = this.world.width / 2;
+    const cy = this.world.height / 2;
+    const angleAway = Math.atan2(cy - this.player.y, cx - this.player.x);
+    const spawnDist = 600;
+    const bx = Math.max(80, Math.min(this.world.width - 80, cx + Math.cos(angleAway) * spawnDist));
+    const by = Math.max(80, Math.min(this.world.height - 80, cy + Math.sin(angleAway) * spawnDist));
+    this.boss = new Boss({ x: bx, y: by });
+    this.world.entitiesLayer.addChild(this.boss.container);
+    this.hud.showBoss(this.boss);
+    // CINEMATIC INTRO — big toast, screen flash, sound
+    this.hud.toastMessage(`👑 THE KENNEL KING HAS RISEN 👑`, 'warn');
+    Sfx.lose(); // dramatic descending tone as intro stinger
+    setTimeout(() => Sfx.phaseNight(), 600);
+    // multiple screen-shake style toasts spread over a beat
+    setTimeout(() => this.hud.toastMessage('PROTECT THE GENERATOR', 'warn'), 800);
+  }
+
+  _bossStomp(x, y) {
+    Sfx.explosion();
+    const radius = 220;
+    const damage = 50;
+    // visual ring
+    this._spawnRing(x, y, radius, COLORS.zombieEye);
+    this._spawnRing(x, y, radius * 0.6, 0xff8a8a);
+    // damage + knockback player
+    if (this.player.alive) {
+      const dx = this.player.x - x, dy = this.player.y - y;
+      const d = Math.hypot(dx, dy);
+      if (d < radius) {
+        const k = 1 - d / radius;
+        this.player.takeDamage(damage * k);
+        if (d > 1) {
+          this.player.vx += (dx / d) * 500 * k;
+          this.player.vy += (dy / d) * 500 * k;
+        }
+        this.hud.toastMessage(`🦶 STOMP -${Math.round(damage * k)} HP`, 'warn');
+      }
+    }
+    // damage walls in radius
+    for (const w of [...this.build.placed]) {
+      const wx = w.cx ?? (w.x + (w.width || 0) / 2);
+      const wy = w.cy ?? (w.y + (w.height || 0) / 2);
+      const dx = wx - x, dy = wy - y;
+      const d = Math.hypot(dx, dy);
+      if (d < radius) {
+        if (w.hp != null) {
+          w.hp -= damage * 0.6 * (1 - d / radius);
+          if (w.hp <= 0) this.build.removePlaced(w);
+        }
+      }
+    }
+  }
+
+  _bossDeath(boss) {
+    Sfx.win();
+    this.hud.toastMessage(`👑 KENNEL KING SLAIN`, 'good');
+    // big explosion + many drops
+    this._spawnRing(boss.x, boss.y, 300, COLORS.neonYellow);
+    this._spawnRing(boss.x, boss.y, 220, 0xff8a3a);
+    for (let i = 0; i < 30; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const dst = 30 + Math.random() * 80;
+      this.wood.spawnAt(boss.x + Math.cos(a) * dst, boss.y + Math.sin(a) * dst, 2 + Math.floor(Math.random() * 3));
+    }
+    this._spawnDeathPoof(boss.x, boss.y, 0xc8281f);
+    boss.destroy();
+    // Boss death = instantly win the night (kills all remaining zombies)
+    for (const z of this.zombies) z.alive = false;
+    this.nightsSurvived = TOTAL_NIGHTS; // triggers SUCH SURVIVAL on next check
+  }
+
+  _spawnRing(x, y, targetR, color = COLORS.neonCyan) {
+    const ring = new Graphics();
+    ring.x = x; ring.y = y;
+    this.world.effectsLayer.addChild(ring);
+    let t = 0; const life = 0.5;
+    const animate = () => {
+      t += 1 / 60;
+      const k = t / life;
+      ring.clear();
+      ring.circle(0, 0, 10 + (targetR - 10) * k).stroke({ color, width: 4 * (1 - k), alpha: 1 - k });
+      if (t < life) requestAnimationFrame(animate);
+      else ring.destroy();
+    };
+    requestAnimationFrame(animate);
+  }
+
+  // ---------- Explosions ----------
+  _explode(zombie) {
+    Sfx.explosion();
+    const x = zombie.x, y = zombie.y;
+    const r = zombie.def.explodeRadius;
+    const dmg = zombie.def.explodeDamage;
+    // Visual: big orange ring + particles + flash
+    const ring = new Graphics();
+    ring.x = x; ring.y = y;
+    this.world.effectsLayer.addChild(ring);
+    let t = 0; const life = 0.45;
+    const animate = () => {
+      t += 1/60;
+      const k = t / life;
+      ring.clear();
+      ring.circle(0, 0, 5 + (r - 5) * k).stroke({ color: 0xff8a3a, width: 4 * (1 - k), alpha: 1 - k });
+      ring.circle(0, 0, 3 + (r - 5) * k * 0.7).fill({ color: 0xffd23f, alpha: (1 - k) * 0.4 });
+      if (t < life) requestAnimationFrame(animate);
+      else ring.destroy();
+    };
+    requestAnimationFrame(animate);
+    // Sparks
+    for (let i = 0; i < 24; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = 200 + Math.random() * 200;
+      const g = new Graphics();
+      const c = [0xff8a3a, 0xffd23f, 0xff3a3a, 0xffffff][Math.floor(Math.random() * 4)];
+      g.rect(-3, -3, 6, 6).fill(c);
+      g.x = x; g.y = y;
+      this.world.effectsLayer.addChild(g);
+      let life2 = 0.5 + Math.random() * 0.3;
+      const vx = Math.cos(a) * sp, vy = Math.sin(a) * sp;
+      const tick = () => {
+        if (life2 <= 0) { g.destroy(); return; }
+        life2 -= 1/60;
+        g.x += vx / 60; g.y += vy / 60;
+        g.alpha = Math.max(0, life2 / 0.8);
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }
+    // Damage player if in radius
+    const dx = this.player.x - x, dy = this.player.y - y;
+    const d = Math.hypot(dx, dy);
+    if (d < r && this.player.alive) {
+      const k = 1 - d / r;
+      this.player.takeDamage(dmg * k);
+      // knockback
+      if (d > 1) {
+        this.player.vx += (dx / d) * 400 * k;
+        this.player.vy += (dy / d) * 400 * k;
+      }
+      this.hud.toastMessage(`💥 -${Math.round(dmg * k)} HP`, 'warn');
+    }
+    // Damage nearby zombies too (chain reaction is funny)
+    for (const other of this.zombies) {
+      if (other === zombie || !other.alive) continue;
+      const ox = other.x - x, oy = other.y - y;
+      const od = Math.hypot(ox, oy);
+      if (od < r) {
+        const k = 1 - od / r;
+        other.takeDamage(dmg * k * 0.5);
+      }
+    }
+  }
+
+  _spawnDeathPoof(x, y, color = COLORS.zombieGreen) {
+    for (let i = 0; i < 10; i++) {
+      const g = new Graphics();
+      const angle = Math.random() * Math.PI * 2;
+      const sp = 80 + Math.random() * 140;
+      const c = [color, COLORS.bloodRed, COLORS.zombieEye, 0xffffff][Math.floor(Math.random() * 4)];
+      g.rect(-2, -2, 4, 4).fill(c);
+      g.x = x; g.y = y;
+      this.world.effectsLayer.addChild(g);
+      const vx = Math.cos(angle) * sp;
+      const vy = Math.sin(angle) * sp;
+      let life = 0.6 + Math.random() * 0.3;
+      const tick = () => {
+        if (life <= 0) { g.destroy(); return; }
+        life -= 1 / 60;
+        g.x += vx / 60;
+        g.y += vy / 60;
+        g.alpha = Math.max(0, life / 0.8);
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }
+  }
+
+  // ---------- Acid balls (Spitter projectiles) ----------
+  _spawnAcidBall(x, y, angle, speed = 280, damage = 18) {
+    const g = new Graphics();
+    g.x = x; g.y = y;
+    g.circle(0, 0, 6).fill(0x6aaa3a);
+    g.circle(0, 0, 4).fill(0x9af09a);
+    g.circle(-1, -1, 1.5).fill(0xffffff);
+    this.world.effectsLayer.addChild(g);
+    this.acidBalls.push({
+      g, x, y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      damage,
+      lifetime: 2.5,
+      trail: 0,
+    });
+  }
+
+  _updateAcidBalls(dt) {
+    for (let i = this.acidBalls.length - 1; i >= 0; i--) {
+      const b = this.acidBalls[i];
+      b.x += b.vx * dt; b.y += b.vy * dt;
+      b.lifetime -= dt;
+      b.g.x = b.x; b.g.y = b.y;
+      b.trail += dt;
+      // small drip trail
+      if (b.trail > 0.04) {
+        b.trail = 0;
+        const drip = new Graphics();
+        drip.circle(0, 0, 3).fill({ color: 0x6aaa3a, alpha: 0.5 });
+        drip.x = b.x; drip.y = b.y;
+        this.world.effectsLayer.addChild(drip);
+        setTimeout(() => drip.destroy(), 250);
+      }
+      let hit = false;
+      // wall collision
+      for (const w of this.build.placed) {
+        if (b.x >= w.x && b.x <= w.x + w.width && b.y >= w.y && b.y <= w.y + w.height) {
+          this._splashAcid(b.x, b.y);
+          hit = true; break;
+        }
+      }
+      // player hit
+      if (!hit && this.player.alive) {
+        const dx = b.x - this.player.x, dy = b.y - this.player.y;
+        if (dx * dx + dy * dy < (this.player.radius + 6) * (this.player.radius + 6)) {
+          this.player.takeDamage(b.damage);
+          this._splashAcid(b.x, b.y);
+          hit = true;
+        }
+      }
+      if (hit || b.lifetime <= 0 ||
+          b.x < 0 || b.x > this.world.width || b.y < 0 || b.y > this.world.height) {
+        b.g.destroy();
+        this.acidBalls.splice(i, 1);
+      }
+    }
+  }
+
+  _splashAcid(x, y) {
+    const splash = new Graphics();
+    splash.x = x; splash.y = y;
+    splash.circle(0, 0, 12).fill({ color: 0x6aaa3a, alpha: 0.55 });
+    this.world.effectsLayer.addChild(splash);
+    setTimeout(() => splash.destroy(), 350);
+  }
+
+  // ---------- Turret AI ----------
+  _updateTurrets(dt) {
+    for (const t of this.build.placed) {
+      if (t.id !== 'turret') continue;
+      // find nearest alive zombie in range
+      let nearest = null, nearestD2 = (t.def.range || 280) ** 2;
+      for (const z of this.zombies) {
+        if (!z.alive) continue;
+        const dx = z.x - t.cx, dy = z.y - t.cy;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < nearestD2) { nearestD2 = d2; nearest = z; }
+      }
+      if (nearest) {
+        const aim = Math.atan2(nearest.y - t.cy, nearest.x - t.cx);
+        // smoothly rotate toward target
+        let dA = aim - t.rotation;
+        while (dA > Math.PI) dA -= Math.PI * 2;
+        while (dA < -Math.PI) dA += Math.PI * 2;
+        t.rotation += dA * Math.min(1, 10 * dt);
+        t.mesh.rotation = t.rotation;
+        t.fireCd -= dt;
+        if (t.fireCd <= 0 && Math.abs(dA) < 0.3) {
+          t.fireCd = t.def.fireCooldown;
+          const muzzleX = t.cx + Math.cos(t.rotation) * 22;
+          const muzzleY = t.cy + Math.sin(t.rotation) * 22;
+          this.projectiles.spawn({
+            x: muzzleX, y: muzzleY,
+            vx: Math.cos(t.rotation) * t.def.projectileSpeed,
+            vy: Math.sin(t.rotation) * t.def.projectileSpeed,
+            damage: t.def.damage,
+            color: COLORS.neonCyan,
+          });
+          this._spawnMuzzleFlash(muzzleX, muzzleY, t.rotation);
+          Sfx.turretFire();
+        }
+      } else {
+        t.fireCd = Math.max(0, t.fireCd - dt);
+      }
+    }
+  }
+
+  // ---------- Projectiles ----------
+  _updateProjectiles(dt) {
+    // Combine zombies + boss into one targets array so player bullets can hit both
+    const targets = this.boss && this.boss.alive
+      ? [...this.zombies, this.boss]
+      : this.zombies;
+    this.projectiles.update(dt, targets, this.build.placed,
+      (p, z) => {
+        z.takeDamage(p.damage);
+        if (z === this.boss) Sfx.zombieHit();
+      },
+      (p, w) => { /* could damage wall */ });
+  }
+
+  // ---------- Build ----------
+  _updateBuild() {
+    if (this.input.takeOnePress()) { this.build.toggle('wall');   this.hud.setBuildActive(!!this.build.selected, this.build.selected); }
+    if (this.input.takeTwoPress()) { this.build.toggle('turret'); this.hud.setBuildActive(!!this.build.selected, this.build.selected); }
+    if (this.input.takeBPress())   { this.build.toggle('wall');   this.hud.setBuildActive(!!this.build.selected, this.build.selected); }
+    if (this.input.takeEscPress()) { this.build.cancel();         this.hud.setBuildActive(false); }
+    // rotation
+    if (this.input.takeQPress()) this.build.rotate(-Math.PI / 8);
+    if (this.input.takeEPress()) this.build.rotate(Math.PI / 8);
+    if (this.input.takeRPress()) this.build.rotate(Math.PI / 2);
+    if (!this.build.selected) return;
+
+    const screen = this.input.mouse;
+    const cam = this.app.stage;
+    const wx = (screen.screenX - cam.x) / cam.scale.x;
+    const wy = (screen.screenY - cam.y) / cam.scale.y;
+    const cost = BUILDABLES[this.build.selected].cost;
+    const canAfford = this.playerWood >= cost;
+    this.build.update({ x: wx, y: wy }, canAfford);
+
+    if (this.input.takeClick()) {
+      if (!canAfford) {
+        this.hud.toastMessage(`Need ${cost} 🪵`, 'warn');
+        return;
+      }
+      this.build.placeAt({ x: wx, y: wy });
+      this.playerWood -= cost;
+      Sfx.buildPlace();
+      if (this.build.selected === 'wall') {
+        this.wallsBuilt += 1;
+        this.hud.toastMessage('🧱 Wall placed', 'good');
+      } else if (this.build.selected === 'turret') {
+        this.turretsBuilt += 1;
+        this.hud.toastMessage('🔫 Turret deployed', 'good');
+      }
+    }
+  }
+
+  _updateWood(dt) { this.wood.update(dt); }
+
+  _updateCamera() {
+    const cam = this.app.stage;
+    const screen = this.app.screen;
+    const scale = cam.scale.x; // accounts for zoom
+    const px = this.player.x, py = this.player.y;
+    let camX = -px * scale + screen.width / 2;
+    let camY = -py * scale + screen.height / 2;
+    // clamp to world bounds (in screen-space, so multiply by scale)
+    camX = Math.min(0, Math.max(-this.world.width * scale + screen.width, camX));
+    camY = Math.min(0, Math.max(-this.world.height * scale + screen.height, camY));
+    cam.x = camX;
+    cam.y = camY;
+  }
+
+  _updateHud() {
+    this.hud.updatePlayer(this.player);
+    this.hud.updateResources(Math.floor(this.playerWood), this.playerKills);
+    const showNight = this.phase === 'night' ? this.nightIdx : Math.min(TOTAL_NIGHTS, this.nightIdx + 1);
+    this.hud.updatePhase(this.phase, showNight, TOTAL_NIGHTS, this.phaseT / this.phaseTotal);
+    this.hud.updatePhaseTime(this.phaseTotal - this.phaseT);
+    if (this.generator) this.hud.updateGenerator(this.generator);
+    if (this.boss) this.hud.updateBoss(this.boss);
+    else this.hud.hideBoss();
+    this.world.setPhaseTint(this.phase, this.phaseT / this.phaseTotal);
+  }
+
+  _checkEndConditions() {
+    if (!this.player.alive) { this._endMatch(false, 'YOU GOT BONKED'); return; }
+    if (this.generator && !this.generator.alive) { this._endMatch(false, 'GENERATOR DESTROYED'); return; }
+    if (this.nightsSurvived >= TOTAL_NIGHTS) { this._endMatch(true); }
+  }
+
+  _endMatch(won, loseReason = null) {
+    if (!this.running) return;
+    this.running = false;
+    document.getElementById('end-title').textContent = won ? 'SUCH SURVIVAL' : (loseReason || 'GAME OVER');
+    document.getElementById('end-sub').textContent = won
+      ? 'The pug + generator survived. Such victory.'
+      : (loseReason === 'GENERATOR DESTROYED'
+        ? 'The core fell. The horde wins.'
+        : 'The horde won. Bork lives on.');
+    if (won) Sfx.win(); else Sfx.lose();
+    document.getElementById('end-nights').textContent = this.nightsSurvived;
+    document.getElementById('end-kills').textContent = this.playerKills;
+    document.getElementById('end-walls').textContent = this.wallsBuilt + this.turretsBuilt;
+    const overlay = document.getElementById('end-overlay');
+    overlay.hidden = false;
+    overlay.classList.remove('is-hidden');
+    this.hud.hide();
+  }
+}

@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PUGFORT.EXE</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div id="game-root"></div>
+
+    <div id="overlay" class="overlay overlay--start">
+      <div class="overlay__panel">
+        <div class="overlay__tag">SURVIVAL DEFENSE</div>
+        <h1 class="overlay__title">PUGFORT.EXE</h1>
+        <p class="overlay__sub">Survive the bork-pocalypse. 3 nights to victory.</p>
+        <ul class="overlay__controls">
+          <li><b>WASD</b> move &nbsp;·&nbsp; <b>MOUSE</b> aim &nbsp;·&nbsp; <b>CLICK</b> fire</li>
+          <li><b>B</b> build mode &nbsp;·&nbsp; <b>1</b> wall &nbsp;·&nbsp; <b>ESC</b> cancel</li>
+          <li><b>SHIFT</b> sprint (uses stamina)</li>
+        </ul>
+        <p class="overlay__tip">Collect <span class="wood-pip">wood</span> by day · Build <span class="wall-pip">walls</span> · Survive the <span class="night-pip">night</span></p>
+        <button id="start-btn" class="overlay__btn">PLAY</button>
+        <a class="overlay__back" href="/index.html">← back to hub</a>
+      </div>
+    </div>
+
+    <div id="hud" class="hud" hidden>
+      <div class="hud-card hud-card--player">
+        <div class="hud-row"><b>HP</b> <span id="hud-hp">100/100</span></div>
+        <div class="hud-bar hud-bar--hp"><div id="hud-hp-fill" class="hud-bar__fill"></div></div>
+        <div class="hud-bar hud-bar--stam"><div id="hud-stam-fill" class="hud-bar__fill"></div></div>
+        <div class="hud-row hud-row--small"><b>STAMINA</b> <span id="hud-stam-text">100</span></div>
+      </div>
+      <div class="hud-card hud-card--resources">
+        <div class="hud-row"><b>🪵 WOOD</b> <span id="hud-wood">0</span></div>
+        <div class="hud-row"><b>🧟 KILLS</b> <span id="hud-kills">0</span></div>
+      </div>
+      <div class="hud-card hud-card--match">
+        <div class="hud-row"><b>NIGHT</b> <span id="hud-night">1/3</span></div>
+        <div class="hud-row"><b>PHASE</b> <span id="hud-phase">DAY</span></div>
+        <div class="hud-bar hud-bar--phase"><div id="hud-phase-fill" class="hud-bar__fill"></div></div>
+        <div class="hud-row hud-row--small"><span id="hud-phase-time">0:30</span></div>
+      </div>
+      <div class="hud-card hud-card--gen">
+        <div class="hud-row"><b>⚡ GENERATOR</b> <span id="hud-gen-hp">900/900</span></div>
+        <div class="hud-bar hud-bar--gen"><div id="hud-gen-fill" class="hud-bar__fill"></div></div>
+        <div class="hud-row hud-row--small">PROTECT IT OR LOSE</div>
+      </div>
+      <div class="hud-hotbar">
+        <div class="hud-slot" id="slot-wall">
+          <div class="hud-slot__num">1</div>
+          <div class="hud-slot__icon">🧱</div>
+          <div class="hud-slot__name">WALL</div>
+          <div class="hud-slot__cost">5 🪵</div>
+        </div>
+        <div class="hud-slot" id="slot-turret">
+          <div class="hud-slot__num">2</div>
+          <div class="hud-slot__icon">🔫</div>
+          <div class="hud-slot__name">TURRET</div>
+          <div class="hud-slot__cost">18 🪵</div>
+        </div>
+      </div>
+      <div class="hud-build-hint" id="hud-build-hint" hidden>
+        <b>Q</b>/<b>E</b> rotate · <b>R</b> snap 90° · <b>ESC</b> cancel · <b>CLICK</b> place
+      </div>
+      <div id="hud-toast" class="hud-toast"></div>
+
+      <div id="hud-boss" class="hud-boss" hidden>
+        <div class="hud-boss__title">👑 THE KENNEL KING 👑</div>
+        <div class="hud-bar hud-bar--boss"><div id="hud-boss-fill" class="hud-bar__fill"></div></div>
+        <div class="hud-boss__hp"><span id="hud-boss-hp">4500</span> / <span id="hud-boss-max">4500</span></div>
+      </div>
+    </div>
+
+    <div id="end-overlay" class="overlay overlay--end is-hidden" hidden>
+      <div class="overlay__panel">
+        <h2 id="end-title" class="overlay__title">SUCH SURVIVAL</h2>
+        <p id="end-sub" class="overlay__sub">The pug lives to bork another day.</p>
+        <ul class="end-stats">
+          <li>Nights survived: <b id="end-nights">0</b></li>
+          <li>Zombies dispatched: <b id="end-kills">0</b></li>
+          <li>Walls built: <b id="end-walls">0</b></li>
+        </ul>
+        <button id="end-restart" class="overlay__btn">PLAY AGAIN</button>
+        <a class="overlay__back" href="/index.html">← back to hub</a>
+      </div>
+    </div>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

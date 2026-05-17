@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Web Games</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/src/hub/hub.css" />
+  </head>
+  <body>
+    <main class="hub">
+      <header class="hub__header">
+        <h1>Web Games</h1>
+        <p class="hub__tagline">Quick-hit browser games. No installs. Press play.</p>
+      </header>
+
+      <section class="hub__grid">
+        <a class="card" href="/games/bork-battle/index.html">
+          <div class="card__art card__art--bork">
+            <div class="card__shape card__shape--pug"></div>
+          </div>
+          <div class="card__body">
+            <h2 class="card__title">BORK BATTLE</h2>
+            <p class="card__desc">Meme pugs in custom vehicles. Evolve, brawl, survive the shrinking neon dog park.</p>
+            <span class="card__cta">Play →</span>
+          </div>
+        </a>
+
+        <a class="card" href="/games/pugfort/index.html">
+          <div class="card__art card__art--pugfort">
+            <div class="card__shape card__shape--fort"></div>
+          </div>
+          <div class="card__body">
+            <h2 class="card__title">PUGFORT.EXE</h2>
+            <p class="card__desc">Survival defense. Build a fortress, fight zombie hordes, keep the pug alive.</p>
+            <span class="card__cta">Enter →</span>
+          </div>
+        </a>
+
+        <div class="card card--coming">
+          <div class="card__art card__art--soon"></div>
+          <div class="card__body">
+            <h2 class="card__title">More games coming</h2>
+            <p class="card__desc">Snake.io, brick breaker, and more on the way.</p>
+            <span class="card__cta card__cta--muted">Soon</span>
+          </div>
+        </div>
+      </section>
+
+      <footer class="hub__footer">
+        <span>Built with PixiJS + Vite</span>
+      </footer>
+    </main>
+  </body>
+</html>

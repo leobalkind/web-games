@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BORK BATTLE</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div id="game-root"></div>
+
+    <div id="overlay" class="overlay overlay--start">
+      <div class="overlay__panel overlay__panel--evolve">
+        <h1 class="overlay__title">BORK BATTLE</h1>
+        <p class="overlay__sub">Pugs. Vehicles. Pure chaos. Pick your loadout.</p>
+
+        <div class="loadout">
+          <div class="loadout__row">
+            <span class="loadout__label">DIFFICULTY</span>
+            <div id="difficulty-choices" class="loadout__choices"></div>
+          </div>
+          <div class="loadout__row">
+            <span class="loadout__label">WEAPON</span>
+            <div id="weapon-choices" class="loadout__choices"></div>
+          </div>
+          <div class="loadout__row">
+            <span class="loadout__label">SKIN</span>
+            <div id="skin-choices" class="loadout__choices"></div>
+          </div>
+        </div>
+
+        <div id="starter-choices" class="evolve-choices starter-choices"></div>
+
+        <ul class="overlay__controls">
+          <li><b>WASD</b> drive &nbsp;·&nbsp; <b>MOUSE</b> aim &nbsp;·&nbsp; <b>CLICK</b> fire</li>
+          <li><b>SPACE</b> hold to charge BORK · release to blast</li>
+        </ul>
+        <p class="overlay__tip">Collect <span class="energy-pip">treats</span> · Evolve · Survive the <span class="zone-pip">PINK ZONE</span></p>
+        <a class="overlay__back" href="/index.html">← back to hub</a>
+      </div>
+    </div>
+
+    <div id="screen-flash" class="screen-flash"></div>
+
+    <div id="hud-overlay" class="hud-overlay is-hidden" hidden>
+      <div class="hud-top">
+        <div class="hud-card hud-card--player">
+          <div class="hud-row">
+            <span id="hud-form-name">Bork Pup</span>
+            <span>
+              <span id="hud-level-pip" class="tier-pip tier-pip--level">LV 1</span>
+              <span id="hud-tier-pip" class="tier-pip">T0</span>
+            </span>
+          </div>
+          <div class="hud-bar hud-bar--hp"><div id="hud-hp-fill" class="hud-bar__fill"></div></div>
+          <div class="hud-bar hud-bar--xp"><div id="hud-xp-fill" class="hud-bar__fill"></div></div>
+          <div class="hud-bar-labels">
+            <span><b>HP</b> <span id="hud-hp-text">100/100</span></span>
+            <span><b>ENERGY</b> <span id="hud-xp-text">0/30</span></span>
+          </div>
+          <div class="hud-ammo-row">
+            <span id="hud-weapon-name">PISTOL</span>
+            <div class="hud-bar hud-bar--ammo"><div id="hud-ammo-fill" class="hud-bar__fill"></div></div>
+            <span id="hud-ammo-text">12/12</span>
+          </div>
+        </div>
+        <div class="hud-card hud-card--match">
+          <div class="hud-row"><b>TIME</b> <span id="hud-timer">00:00</span></div>
+          <div class="hud-row"><b>KILLS</b> <span id="hud-kills">0</span></div>
+          <div class="hud-row"><b>BOTS LEFT</b> <span id="hud-bots-left">11</span></div>
+          <div class="hud-row hud-row--money"><b>$</b> <span id="hud-money">0</span></div>
+          <div class="hud-row hud-row--zone"><b>ZONE</b> <span id="hud-zone">SAFE</span></div>
+        </div>
+      </div>
+
+      <div class="hud-leaderboard hud-card">
+        <div class="hud-lb__title">LEADERBOARD</div>
+        <ol id="hud-lb-list"></ol>
+      </div>
+
+      <div class="hud-minimap-card hud-card">
+        <div class="hud-lb__title">RADAR</div>
+        <canvas id="hud-minimap" width="160" height="120"></canvas>
+      </div>
+
+      <div id="hud-event" class="hud-event" hidden></div>
+
+      <div id="hud-ability" class="hud-ability">
+        <div class="ability-key">SPACE</div>
+        <div class="ability-bar"><div id="hud-bork-fill"></div></div>
+        <div class="ability-name">BORK</div>
+      </div>
+
+      <div id="hud-toast" class="hud-toast"></div>
+    </div>
+
+    <div id="evolve-overlay" class="overlay overlay--evolve is-hidden" hidden>
+      <div class="overlay__panel overlay__panel--evolve">
+        <h2 class="overlay__title overlay__title--small">EVOLVE!</h2>
+        <p class="overlay__sub">Pick your next form. Such choice.</p>
+        <div id="evolve-choices" class="evolve-choices"></div>
+      </div>
+    </div>
+
+    <div id="end-overlay" class="overlay overlay--end is-hidden" hidden>
+      <div class="overlay__panel">
+        <h2 id="end-title" class="overlay__title">SUCH WIN</h2>
+        <p id="end-sub" class="overlay__sub">You did the bork.</p>
+        <ul class="end-stats">
+          <li>Final form: <b id="end-form">—</b></li>
+          <li>Kills: <b id="end-kills">0</b></li>
+          <li>Survived: <b id="end-time">00:00</b></li>
+        </ul>
+        <button id="end-restart" class="overlay__btn">PLAY AGAIN</button>
+        <a class="overlay__back" href="/index.html">← back to hub</a>
+      </div>
+    </div>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

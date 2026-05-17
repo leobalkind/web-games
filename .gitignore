@@ -1,0 +1,10 @@
+node_modules
+dist
+.vite
+*.log
+.DS_Store
+
+# Playwright + dev screenshots
+.playwright-mcp/
+*.png
+!docs/**/*.png

@@ -1,0 +1,391 @@
+/* =========================================================================
+   WEB GAMES — Hub site (5 polish passes baked in)
+   ========================================================================= */
+
+:root {
+  /* === unified design tokens (mirrored in games/bork-battle/style.css) === */
+  --bg: #0a0716;
+  --bg-deep: #050310;
+  --bg-elev: #161024;
+  --bg-elev-2: #1d1535;
+  --park-deep: #110a26;
+  --park-mid: #1a0f2e;
+  --park-light: #2a1a44;
+  --neon-pink: #ff3aa1;
+  --neon-pink-soft: #ff8fc8;
+  --neon-cyan: #4cc9f0;
+  --neon-cyan-soft: #b0e8ff;
+  --neon-yellow: #ffd23f;
+  --neon-yellow-soft: #fff0a0;
+  --neon-green: #5ef38c;
+  --neon-orange: #ff8e3c;
+  --neon-purple: #b055ff;
+  --magenta: #ff2bd6;
+  --crimson: #ff3a3a;
+  --text: #f8f5ff;
+  --text-soft: #c8c0e8;
+  --muted: #8a90b1;
+  --gold: #ffd700;
+  --border: #2a2540;
+
+  /* spacing scale (token-driven for consistency) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  /* radius scale */
+  --radius-sm: 3px;
+  --radius-md: 6px;
+  --radius-lg: 12px;
+
+  /* shadows */
+  --glow-pink: 0 0 30px rgba(255, 58, 161, 0.4);
+  --glow-cyan: 0 0 30px rgba(76, 201, 240, 0.4);
+  --glow-yellow: 0 0 28px rgba(255, 210, 63, 0.4);
+
+  --font-display: 'Press Start 2P', 'Courier New', monospace;
+  --font-body: 'Segoe UI', Roboto, system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0; padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  min-height: 100vh;
+  overflow-x: hidden;
+  letter-spacing: 0.01em;
+}
+
+/* Pass 5 — animated parallax background of pixel stars */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image:
+    radial-gradient(2px 2px at 12% 14%, var(--neon-pink), transparent 50%),
+    radial-gradient(1px 1px at 32% 65%, var(--neon-cyan), transparent 50%),
+    radial-gradient(2px 2px at 78% 22%, var(--neon-yellow), transparent 50%),
+    radial-gradient(1px 1px at 88% 78%, var(--neon-green), transparent 50%),
+    radial-gradient(1px 1px at 50% 8%, #ffffff, transparent 50%),
+    radial-gradient(1px 1px at 22% 88%, var(--neon-purple), transparent 50%),
+    radial-gradient(2px 2px at 65% 45%, var(--magenta), transparent 50%),
+    radial-gradient(1px 1px at 5% 50%, var(--neon-cyan), transparent 50%),
+    radial-gradient(1px 1px at 95% 50%, var(--neon-pink), transparent 50%),
+    radial-gradient(2px 2px at 40% 30%, #ffffff, transparent 50%),
+    radial-gradient(1px 1px at 60% 92%, var(--neon-yellow), transparent 50%);
+  background-size: 100% 100%;
+  pointer-events: none;
+  z-index: 0;
+  animation: bgTwinkle 6s ease-in-out infinite alternate;
+}
+
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 20% 20%, rgba(255, 58, 161, 0.12), transparent 50%),
+    radial-gradient(ellipse at 80% 70%, rgba(76, 201, 240, 0.12), transparent 50%),
+    radial-gradient(ellipse at 50% 100%, rgba(176, 85, 255, 0.08), transparent 60%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+@keyframes bgTwinkle {
+  from { opacity: 0.3; }
+  to { opacity: 0.7; }
+}
+
+.hub {
+  position: relative;
+  z-index: 1;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 80px 24px 56px;
+}
+
+.hub__header {
+  text-align: center;
+  margin-bottom: 56px;
+}
+
+.hub__header h1 {
+  font-family: var(--font-display);
+  font-size: clamp(1.8rem, 5vw, 3.2rem);
+  margin: 0;
+  letter-spacing: 0.06em;
+  background: linear-gradient(90deg, var(--neon-pink), var(--neon-cyan), var(--neon-yellow), var(--neon-pink));
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow: 0 0 30px rgba(255, 58, 161, 0.4);
+  animation: titleShimmer 5s linear infinite;
+}
+
+@keyframes titleShimmer {
+  from { background-position: 0% 50%; }
+  to { background-position: 200% 50%; }
+}
+
+.hub__tagline {
+  color: var(--text-soft);
+  margin-top: 16px;
+  font-size: 1.05rem;
+}
+
+.hub__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 22px;
+}
+
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background:
+    linear-gradient(135deg, rgba(76, 201, 240, 0.06), transparent 50%),
+    linear-gradient(180deg, var(--bg-elev), var(--park-mid));
+  border: 2px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  text-decoration: none;
+  color: inherit;
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+/* Pass 5 — corner glints */
+.card::before,
+.card::after {
+  content: '';
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--neon-pink);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s;
+  z-index: 2;
+}
+.card::before {
+  top: 6px; left: 6px;
+  border-right: none;
+  border-bottom: none;
+}
+.card::after {
+  bottom: 6px; right: 6px;
+  border-left: none;
+  border-top: none;
+}
+
+.card:hover {
+  transform: translateY(-6px) scale(1.02);
+  border-color: var(--neon-pink);
+  box-shadow:
+    0 14px 40px rgba(255, 58, 161, 0.3),
+    0 0 0 1px var(--neon-pink),
+    inset 0 0 30px rgba(255, 58, 161, 0.06);
+}
+
+.card:hover::before,
+.card:hover::after {
+  opacity: 1;
+}
+
+.card--coming {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.card--coming:hover {
+  transform: none;
+  border-color: var(--border);
+  box-shadow: none;
+}
+
+.card__art {
+  height: 160px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.card__art--bork {
+  background:
+    radial-gradient(circle at 30% 30%, rgba(247, 37, 133, 0.35), transparent 50%),
+    radial-gradient(circle at 70% 70%, rgba(76, 201, 240, 0.3), transparent 50%),
+    radial-gradient(circle at 50% 50%, rgba(176, 85, 255, 0.2), transparent 60%),
+    linear-gradient(135deg, #1a0f2e 0%, #0d1218 100%);
+}
+
+/* Mini pug-like silhouette */
+.card__art--bork::before {
+  content: '';
+  position: absolute;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: #c8854a;
+  box-shadow:
+    0 -8px 0 -2px #6b3a1c,
+    -22px -2px 0 -2px #6b3a1c,
+    22px -2px 0 -2px #6b3a1c,
+    0 0 30px rgba(244, 162, 97, 0.5);
+  top: 60px;
+  z-index: 1;
+}
+
+.card__art--bork::after {
+  content: '';
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background: #ffffff;
+  box-shadow:
+    20px 0 0 #ffffff,
+    -8px 4px 0 -3px #1a0d05,
+    24px 4px 0 -3px #1a0d05;
+  top: 80px;
+  left: calc(50% - 16px);
+  z-index: 2;
+}
+
+.card__shape--pug {
+  position: absolute;
+  width: 80px;
+  height: 22px;
+  background: linear-gradient(180deg, #2a3a55, #1a2030);
+  border: 2px solid #1a2330;
+  border-radius: 4px;
+  bottom: 24px;
+  z-index: 1;
+  box-shadow:
+    -28px -4px 0 -6px #4cc9f0,
+     28px -4px 0 -6px #4cc9f0,
+    -28px -4px 0 -3px #000000,
+     28px -4px 0 -3px #000000,
+    0 0 20px rgba(76, 201, 240, 0.4);
+}
+
+.card__art--soon {
+  background:
+    repeating-linear-gradient(45deg, #1a1230, #1a1230 10px, #161020 10px, #161020 20px);
+}
+
+/* ---- PUGFORT card art (foggy neon street + fort wall silhouette) ---- */
+.card__art--pugfort {
+  background:
+    radial-gradient(circle at 50% 78%, rgba(255, 58, 161, 0.25), transparent 60%),
+    radial-gradient(circle at 22% 30%, rgba(94, 243, 140, 0.18), transparent 50%),
+    linear-gradient(180deg, #0a0716 0%, #1a0f2e 60%, #2a1a44 100%);
+  overflow: hidden;
+}
+.card__art--pugfort::before {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 60px;
+  background:
+    linear-gradient(180deg, transparent 0%, #0a0716 100%),
+    repeating-linear-gradient(90deg, #2a1a44 0, #2a1a44 14px, #1a0f2e 14px, #1a0f2e 18px, #3a2a5a 18px, #3a2a5a 28px, #1a0f2e 28px, #1a0f2e 32px);
+  border-top: 2px solid var(--neon-green);
+  box-shadow: 0 -2px 12px rgba(94, 243, 140, 0.4);
+}
+.card__art--pugfort::after {
+  content: '';
+  position: absolute;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #fff0a8, #ffd23f 60%, #c89c20);
+  box-shadow:
+    0 0 20px rgba(255, 210, 63, 0.6),
+    -50px 48px 0 -10px #1a0d05,
+     50px 48px 0 -10px #1a0d05,
+      0px 52px 0 -8px #c8854a;
+}
+.card__shape--fort {
+  position: absolute;
+  bottom: 50px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 16px;
+  height: 28px;
+  background: var(--neon-cyan);
+  box-shadow:
+    -28px 0 0 var(--neon-pink),
+     28px 0 0 var(--neon-yellow);
+  border-radius: 2px;
+  z-index: 1;
+}
+
+
+.card__body {
+  padding: 20px 22px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+}
+
+.card__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  letter-spacing: 0.04em;
+  color: var(--neon-yellow);
+  text-shadow: 0 1px 0 #000;
+}
+
+.card__desc {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.92rem;
+  line-height: 1.5;
+  flex: 1;
+}
+
+.card__cta {
+  margin-top: 8px;
+  font-weight: 700;
+  color: var(--neon-cyan);
+  font-size: 0.95rem;
+  letter-spacing: 0.05em;
+}
+
+.card__cta--muted { color: var(--muted); }
+
+.card:hover .card__cta {
+  color: var(--neon-pink);
+  text-shadow: 0 0 8px rgba(255, 58, 161, 0.5);
+}
+
+.hub__footer {
+  text-align: center;
+  color: var(--muted);
+  margin-top: 64px;
+  font-size: 0.82rem;
+  letter-spacing: 0.05em;
+}
+
+.hub__footer span {
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.3);
+}
