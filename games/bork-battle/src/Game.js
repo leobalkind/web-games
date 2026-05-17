@@ -17,6 +17,7 @@ import {
   generateBotName, RANDOM_EVENTS, BARKS, killMessage, rndPick,
 } from './funnyText.js';
 import { randomSeed, mulberry32 } from './rng.js';
+import { Sfx } from './Sfx.js';
 
 const MAX_BOTS = 11;
 const BORK_MAX_DAMAGE = 60;
@@ -330,6 +331,9 @@ export class Game {
         }
         hit.takeDamage(p.damage * dmgScale, owner || { id: p.ownerId, isPlayer: false });
         this._spawnHitParticles(hit.x, hit.y, p.color);
+        // Audio — quiet hit click when player is the shooter OR target
+        if (owner === this.player) Sfx.hit();
+        else if (hit === this.player) Sfx.hurt();
         // Lifesteal — heal owner if it's the player
         if (owner === this.player && this.player.bonus.lifestealPct > 0) {
           this.player.heal(p.damage * this.player.bonus.lifestealPct);
@@ -359,6 +363,7 @@ export class Game {
       const gained = this.energy.collectFor(p);
       if (gained > 0 && p === this.player) {
         p.money = (p.money || 0) + gained * moneyMult;
+        Sfx.pickup();
       }
     }
     // Center-capture money: standing within the tornado-area earns $/sec
@@ -560,6 +565,8 @@ export class Game {
     }
     // Muzzle flash effect
     this._spawnMuzzleFlash(pug.x + offX, pug.y + offY, baseColor, aim);
+    // Audio — only audible from player (avoid bot-fire spam)
+    if (pug === this.player) Sfx.shoot(f.projectileShape || 'ball');
     // Recoil (visual) — scaled by weapon (shotgun = big shove, AR = tiny)
     const recoil = w.id === 'shotgun' ? 80 : (w.id === 'sniper' ? 120 : (w.id === 'ar' ? 18 : 40));
     pug.vx -= Math.cos(aim) * recoil;
@@ -570,6 +577,7 @@ export class Game {
       if (pug.ammo <= 0) {
         pug.reloading = true;
         pug.reloadT = w.reloadTime;
+        if (pug === this.player) Sfx.reload();
       }
     }
   }
@@ -663,6 +671,7 @@ export class Game {
     const radius = BORK_RADIUS * (0.75 + 0.6 * effCharge);
     const damage = BORK_MAX_DAMAGE * effCharge;
     pug.bark(effCharge > 0.7 ? 'BORK!!!' : 'BORK!');
+    if (pug === this.player) Sfx.borkRelease(effCharge);
 
     // visual rings — triple-layer
     this._spawnBorkRing(pug.x, pug.y, radius, COLORS.cyan);
@@ -1540,6 +1549,8 @@ export class Game {
   _handleKill(killer, victim, byZone) {
     victim.alive = false;
     this._spawnRandomDeathEffect(victim.x, victim.y);
+    // Audio — kill sound, louder when player kills or is killed
+    if (killer === this.player || victim === this.player) Sfx.kill();
     // Drop energy (treats → money for player)
     this.energy.spawnBurst(victim.x, victim.y, 6 + victim.form.tier * 3, 6);
     // ~32% chance to drop a power-up (handled inside PowerupManager)
@@ -1775,6 +1786,7 @@ export class Game {
     this.player.bark('upgrayedd!');
     this.hud.toastMessage(`★ LEVEL ${this.player.level} — ${upg.name}`, 'kill');
     this.hud.updatePlayer(this.player);
+    Sfx.levelUp();
   }
 
   _chooseEvolution(id) {
@@ -1787,6 +1799,7 @@ export class Game {
     this.hud.updatePlayer(this.player);
     this.hud.updateXp(this.player, XP_TO_EVOLVE[this.player.form.tier] || null);
     this._screenShake(6, 0.4);
+    Sfx.evolve();
   }
 
   _triggerRandomEvent() {
@@ -1831,5 +1844,6 @@ export class Game {
     overlay.hidden = false;
     overlay.classList.remove('is-hidden');
     this.hud.hide();
+    if (won) Sfx.win(); else Sfx.lose();
   }
 }

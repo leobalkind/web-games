@@ -5,7 +5,7 @@ import { Pug } from './Pug.js';
 import { Zombie, ZOMBIE_TYPES, pickZombieType, waveLineup } from './Zombie.js';
 import { ProjectileManager } from './Projectile.js';
 import { WoodManager } from './Wood.js';
-import { Build, BUILDABLES, WALL_COST, TURRET_COST } from './Build.js';
+import { Build, BUILDABLES, MATERIALS, canAfford, spend, costString } from './Build.js';
 import { Hud } from './Hud.js';
 import { Input } from './Input.js';
 import { Sfx } from './Sfx.js';
@@ -43,7 +43,7 @@ export class Game {
     this.nightSpawnTimer = 0;
     this.nightTotalSpawned = 0;
     this.nightSpawnTarget = 0;
-    this.playerWood = 0;
+    this.resources = { wood: 0, scrap: 0, explosives: 0, electronics: 0 };
     this.playerKills = 0;
     this.wallsBuilt = 0;
     this.turretsBuilt = 0;
@@ -96,7 +96,8 @@ export class Game {
     this.phaseTotal = DAY_DURATION;
     this.nightIdx = 0;
     this.nightsSurvived = 0;
-    this.playerWood = 8; // small starting stash so player can immediately build a wall
+    // Starting stash: enough wood to build a few walls; small scrap so player can try a spike
+    this.resources = { wood: 12, scrap: 2, explosives: 0, electronics: 0 };
     this.playerKills = 0;
     this.wallsBuilt = 0;
     this.turretsBuilt = 0;
@@ -105,7 +106,7 @@ export class Game {
 
     this.hud.show();
     this.hud.updatePlayer(this.player);
-    this.hud.updateResources(this.playerWood, 0);
+    this.hud.updateResources(this.resources, 0);
     this.hud.updatePhase('day', 1, TOTAL_NIGHTS, 0);
     this.hud.toastMessage('DAY 1 — gather wood, build defenses. Night brings horde.', 'good');
 
@@ -141,6 +142,7 @@ export class Game {
     this._updateAcidBalls(dt);
     this._updateProjectiles(dt);
     this._updateBuild();
+    this._updateBuildables(dt);
     this._updateWood(dt);
     if (this.generator) this.generator.update(dt);
     this._updateCamera();
@@ -274,7 +276,7 @@ export class Game {
 
     const gained = this.wood.tryCollect(p.x, p.y);
     if (gained > 0) {
-      this.playerWood += gained;
+      this.resources.wood = (this.resources.wood || 0) + gained;
       this.hud.toastMessage(`+${gained} 🪵`, 'good');
       Sfx.woodCollect();
     }
@@ -349,8 +351,19 @@ export class Game {
       if (!z.alive) {
         if (z.def.explodes) this._explode(z);
         this._spawnDeathPoof(z.x, z.y, z.def.color);
-        const dropAmt = z.def.armored ? 4 : (z.def.isRanged ? 3 : 1 + Math.floor(Math.random() * 2));
-        this.wood.spawnAt(z.x, z.y, dropAmt);
+        // ----- material drops by zombie type -----
+        const drops = this._dropsForZombie(z);
+        // Wood drops as collectible logs (the player walks over them)
+        if (drops.wood > 0) this.wood.spawnAt(z.x, z.y, drops.wood);
+        // Other materials go directly into player inventory + show toast
+        const directGains = [];
+        for (const k of ['scrap', 'explosives', 'electronics']) {
+          if (drops[k] > 0) {
+            this.resources[k] = (this.resources[k] || 0) + drops[k];
+            directGains.push(`+${drops[k]} ${MATERIALS[k].icon}`);
+          }
+        }
+        if (directGains.length) this.hud.toastMessage(directGains.join(' '), 'good');
         z.destroy();
         this.zombies.splice(i, 1);
         this.playerKills += 1;
@@ -415,6 +428,22 @@ export class Game {
     const z = new Zombie({ x, y, type, tier: this.nightIdx });
     this.zombies.push(z);
     this.world.entitiesLayer.addChild(z.container);
+  }
+
+  // Per-zombie-type drop table. Wood drops as a log; rest go to inventory.
+  _dropsForZombie(z) {
+    const t = z.type;
+    const r = Math.random;
+    const drops = { wood: 0, scrap: 0, explosives: 0, electronics: 0 };
+    if (t === 'walker')        { drops.wood = 1 + Math.floor(r() * 2); }
+    else if (t === 'runner')   { drops.wood = 1; if (r() < 0.5) drops.scrap = 1; }
+    else if (t === 'tank')     { drops.wood = 3; drops.scrap = 2; if (r() < 0.3) drops.electronics = 1; }
+    else if (t === 'spitter')  { drops.wood = 1; drops.scrap = 1; if (r() < 0.65) drops.electronics = 1; }
+    else if (t === 'exploder') { drops.wood = 1; drops.explosives = 2 + Math.floor(r() * 2); }
+    else if (t === 'screamer') { drops.wood = 2; drops.scrap = 1; if (r() < 0.35) drops.explosives = 1; }
+    else if (t === 'digger')   { drops.wood = 2; drops.scrap = 1 + Math.floor(r() * 2); }
+    else if (t === 'cloaker')  { drops.wood = 1; if (r() < 0.6) drops.electronics = 1; }
+    return drops;
   }
 
   _spawnBoss() {
@@ -484,6 +513,11 @@ export class Game {
       const dst = 30 + Math.random() * 80;
       this.wood.spawnAt(boss.x + Math.cos(a) * dst, boss.y + Math.sin(a) * dst, 2 + Math.floor(Math.random() * 3));
     }
+    // Big material bonus
+    this.resources.scrap += 25;
+    this.resources.explosives += 12;
+    this.resources.electronics += 10;
+    this.hud.toastMessage('+25 🔩 +12 💣 +10 🔌', 'good');
     this._spawnDeathPoof(boss.x, boss.y, 0xc8281f);
     boss.destroy();
     // Boss death = instantly win the night (kills all remaining zombies)
@@ -721,11 +755,16 @@ export class Game {
 
   // ---------- Build ----------
   _updateBuild() {
-    if (this.input.takeOnePress()) { this.build.toggle('wall');   this.hud.setBuildActive(!!this.build.selected, this.build.selected); }
-    if (this.input.takeTwoPress()) { this.build.toggle('turret'); this.hud.setBuildActive(!!this.build.selected, this.build.selected); }
-    if (this.input.takeBPress())   { this.build.toggle('wall');   this.hud.setBuildActive(!!this.build.selected, this.build.selected); }
-    if (this.input.takeEscPress()) { this.build.cancel();         this.hud.setBuildActive(false); }
-    // rotation
+    const buildHotkeys = ['wall', 'sandbag', 'spike', 'mine', 'turret', 'sniperTurret', 'repair'];
+    if (this.input.takeOnePress())   { this.build.toggle(buildHotkeys[0]); this.hud.setBuildActive(!!this.build.selected, this.build.selected); }
+    if (this.input.takeTwoPress())   { this.build.toggle(buildHotkeys[1]); this.hud.setBuildActive(!!this.build.selected, this.build.selected); }
+    if (this.input.takeThreePress()) { this.build.toggle(buildHotkeys[2]); this.hud.setBuildActive(!!this.build.selected, this.build.selected); }
+    if (this.input.takeFourPress())  { this.build.toggle(buildHotkeys[3]); this.hud.setBuildActive(!!this.build.selected, this.build.selected); }
+    if (this.input.takeFivePress())  { this.build.toggle(buildHotkeys[4]); this.hud.setBuildActive(!!this.build.selected, this.build.selected); }
+    if (this.input.takeSixPress())   { this.build.toggle(buildHotkeys[5]); this.hud.setBuildActive(!!this.build.selected, this.build.selected); }
+    if (this.input.takeSevenPress()) { this.build.toggle(buildHotkeys[6]); this.hud.setBuildActive(!!this.build.selected, this.build.selected); }
+    if (this.input.takeBPress())     { this.build.toggle('wall'); this.hud.setBuildActive(!!this.build.selected, this.build.selected); }
+    if (this.input.takeEscPress())   { this.build.cancel(); this.hud.setBuildActive(false); }
     if (this.input.takeQPress()) this.build.rotate(-Math.PI / 8);
     if (this.input.takeEPress()) this.build.rotate(Math.PI / 8);
     if (this.input.takeRPress()) this.build.rotate(Math.PI / 2);
@@ -735,25 +774,106 @@ export class Game {
     const cam = this.app.stage;
     const wx = (screen.screenX - cam.x) / cam.scale.x;
     const wy = (screen.screenY - cam.y) / cam.scale.y;
-    const cost = BUILDABLES[this.build.selected].cost;
-    const canAfford = this.playerWood >= cost;
-    this.build.update({ x: wx, y: wy }, canAfford);
+    const def = BUILDABLES[this.build.selected];
+    const affordable = canAfford(this.resources, def.cost);
+    this.build.update({ x: wx, y: wy }, affordable);
 
     if (this.input.takeClick()) {
-      if (!canAfford) {
-        this.hud.toastMessage(`Need ${cost} 🪵`, 'warn');
+      if (!affordable) {
+        this.hud.toastMessage(`Need ${costString(def.cost)}`, 'warn');
         return;
       }
       this.build.placeAt({ x: wx, y: wy });
-      this.playerWood -= cost;
+      spend(this.resources, def.cost);
       Sfx.buildPlace();
-      if (this.build.selected === 'wall') {
-        this.wallsBuilt += 1;
-        this.hud.toastMessage('🧱 Wall placed', 'good');
-      } else if (this.build.selected === 'turret') {
-        this.turretsBuilt += 1;
-        this.hud.toastMessage('🔫 Turret deployed', 'good');
+      const labels = {
+        wall: '🧱 Wall placed', sandbag: '🟫 Sandbag dropped',
+        spike: '⚔️ Spikes armed', mine: '💣 Mine planted',
+        turret: '🔫 Turret deployed', sniperTurret: '🎯 Sniper deployed',
+        repair: '➕ Repair bay built',
+      };
+      this.hud.toastMessage(labels[this.build.selected] || 'Built!', 'good');
+      if (this.build.selected === 'wall' || this.build.selected === 'sandbag') this.wallsBuilt += 1;
+      if (this.build.selected === 'turret' || this.build.selected === 'sniperTurret') this.turretsBuilt += 1;
+    }
+  }
+
+  // Per-frame logic for spike traps, mines, repair bays
+  _updateBuildables(dt) {
+    for (let i = this.build.placed.length - 1; i >= 0; i--) {
+      const p = this.build.placed[i];
+      if (p.def.isTrap) {
+        // damage zombies standing on it
+        for (const z of this.zombies) {
+          if (!z.alive) continue;
+          if (z.x >= p.x && z.x <= p.x + p.width && z.y >= p.y && z.y <= p.y + p.height) {
+            z.takeDamage(p.def.trapDps * dt);
+          }
+        }
+      } else if (p.def.isMine) {
+        // trigger if any zombie within mineTrigger
+        let triggered = null;
+        for (const z of this.zombies) {
+          if (!z.alive) continue;
+          const dx = z.x - p.cx, dy = z.y - p.cy;
+          if (dx * dx + dy * dy < (p.def.mineTrigger + (z.radius || 14)) ** 2) { triggered = z; break; }
+        }
+        if (triggered) {
+          this._mineExplode(p);
+          this.build.removePlaced(p);
+        }
+      } else if (p.def.isRepair) {
+        // heal player if within radius
+        const dx = this.player.x - p.cx, dy = this.player.y - p.cy;
+        if (dx * dx + dy * dy < p.def.healRadius * p.def.healRadius) {
+          this.player.heal(p.def.healRate * dt);
+        }
       }
+    }
+  }
+
+  _mineExplode(mine) {
+    Sfx.explosion();
+    const x = mine.cx, y = mine.cy;
+    const r = mine.def.mineRadius;
+    const dmg = mine.def.mineDamage;
+    this._spawnRing(x, y, r, COLORS.neonOrange);
+    this._spawnRing(x, y, r * 0.6, COLORS.neonYellow);
+    // damage zombies in radius
+    for (const z of this.zombies) {
+      if (!z.alive) continue;
+      const dx = z.x - x, dy = z.y - y;
+      const d = Math.hypot(dx, dy);
+      if (d < r) {
+        const k = 1 - d / r;
+        z.takeDamage(dmg * k);
+      }
+    }
+    // damage boss too
+    if (this.boss && this.boss.alive) {
+      const dx = this.boss.x - x, dy = this.boss.y - y;
+      const d = Math.hypot(dx, dy);
+      if (d < r) this.boss.takeDamage(dmg * (1 - d / r));
+    }
+    // particles
+    for (let i = 0; i < 16; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = 180 + Math.random() * 180;
+      const g = new Graphics();
+      const c = [0xff8a3a, 0xffd23f, 0xff3a3a, 0xffffff][Math.floor(Math.random() * 4)];
+      g.rect(-3, -3, 6, 6).fill(c);
+      g.x = x; g.y = y;
+      this.world.effectsLayer.addChild(g);
+      const vx = Math.cos(a) * sp, vy = Math.sin(a) * sp;
+      let life = 0.5;
+      const tick = () => {
+        if (life <= 0) { g.destroy(); return; }
+        life -= 1 / 60;
+        g.x += vx / 60; g.y += vy / 60;
+        g.alpha = Math.max(0, life / 0.7);
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
     }
   }
 
@@ -775,7 +895,7 @@ export class Game {
 
   _updateHud() {
     this.hud.updatePlayer(this.player);
-    this.hud.updateResources(Math.floor(this.playerWood), this.playerKills);
+    this.hud.updateResources(this.resources, this.playerKills);
     const showNight = this.phase === 'night' ? this.nightIdx : Math.min(TOTAL_NIGHTS, this.nightIdx + 1);
     this.hud.updatePhase(this.phase, showNight, TOTAL_NIGHTS, this.phaseT / this.phaseTotal);
     this.hud.updatePhaseTime(this.phaseTotal - this.phaseT);

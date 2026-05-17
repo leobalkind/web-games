@@ -6,6 +6,9 @@ export class Hud {
     this.stamFill = document.getElementById('hud-stam-fill');
     this.stamText = document.getElementById('hud-stam-text');
     this.wood = document.getElementById('hud-wood');
+    this.scrap = document.getElementById('hud-scrap');
+    this.explosives = document.getElementById('hud-explosives');
+    this.electronics = document.getElementById('hud-electronics');
     this.kills = document.getElementById('hud-kills');
     this.night = document.getElementById('hud-night');
     this.phase = document.getElementById('hud-phase');
@@ -63,9 +66,12 @@ export class Hud {
     this.stamText.textContent = `${Math.ceil(player.stam)}`;
   }
 
-  updateResources(wood, kills) {
-    this.wood.textContent = wood;
-    this.kills.textContent = kills;
+  updateResources(res, kills) {
+    if (this.wood)        this.wood.textContent        = Math.floor(res.wood || 0);
+    if (this.scrap)       this.scrap.textContent       = Math.floor(res.scrap || 0);
+    if (this.explosives)  this.explosives.textContent  = Math.floor(res.explosives || 0);
+    if (this.electronics) this.electronics.textContent = Math.floor(res.electronics || 0);
+    if (this.kills)       this.kills.textContent       = kills;
   }
 
   updatePhase(phase, night, total, k) {
@@ -84,13 +90,15 @@ export class Hud {
   }
 
   setBuildActive(active, id = null) {
-    // Clear all
-    if (this.slotWall) this.slotWall.classList.remove('hud-slot--armed');
-    if (this.slotTurret) this.slotTurret.classList.remove('hud-slot--armed');
+    const ids = ['wall','sandbag','spike','mine','turret','sniperTurret','repair'];
+    for (const sid of ids) {
+      const el = document.getElementById(`slot-${sid}`);
+      if (el) el.classList.remove('hud-slot--armed');
+    }
     if (this.buildHint) this.buildHint.hidden = !active;
-    if (!active) return;
-    if (id === 'wall' && this.slotWall) this.slotWall.classList.add('hud-slot--armed');
-    if (id === 'turret' && this.slotTurret) this.slotTurret.classList.add('hud-slot--armed');
+    if (!active || !id) return;
+    const armed = document.getElementById(`slot-${id}`);
+    if (armed) armed.classList.add('hud-slot--armed');
   }
 
   toastMessage(text, kind = 'info') {

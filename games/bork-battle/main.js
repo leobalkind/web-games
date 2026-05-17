@@ -2,16 +2,47 @@ import { Game } from './src/Game.js';
 import { FORMS } from './src/pugForms.js';
 import { WEAPONS, SKINS } from './src/weapons.js';
 import { DIFFICULTIES } from './src/difficulty.js';
+import { Sfx } from './src/Sfx.js';
 
 const root = document.getElementById('game-root');
 const startOverlay = document.getElementById('overlay');
 const endOverlay = document.getElementById('end-overlay');
 const restartBtn = document.getElementById('end-restart');
 const starterChoices = document.getElementById('starter-choices');
+const muteBtn = document.getElementById('mute-btn');
+
+// Mute toggle — persists across sessions
+function applyMuteUI(muted) {
+  if (!muteBtn) return;
+  muteBtn.textContent = muted ? '🔇' : '🔊';
+  muteBtn.classList.toggle('muted', muted);
+}
+const savedMute = localStorage.getItem('bork:muted') === '1';
+Sfx.setMuted(savedMute);
+applyMuteUI(savedMute);
+muteBtn?.addEventListener('click', () => {
+  const m = Sfx.toggleMute();
+  localStorage.setItem('bork:muted', m ? '1' : '0');
+  applyMuteUI(m);
+});
+window.addEventListener('keydown', (e) => {
+  // Don't trigger when typing in inputs
+  if (e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
+  if (e.key === 'm' || e.key === 'M') {
+    const m = Sfx.toggleMute();
+    localStorage.setItem('bork:muted', m ? '1' : '0');
+    applyMuteUI(m);
+  }
+});
 
 const game = new Game();
-// Boot is async; wrapped in IIFE so production build doesn't need top-level await
-(async () => { await game.init(root); })();
+// Boot is async; wrapped in IIFE so production build doesn't need top-level await.
+// Once init resolves the Pixi app exists, so re-render the starter cards with real
+// per-character previews (replacing the emoji fallback shown during boot).
+(async () => {
+  await game.init(root);
+  renderStarters();
+})();
 
 // Available starter forms — the puppy + 3 Tier 1 quick-picks
 const STARTERS = [

@@ -2039,6 +2039,431 @@ function drawDragonPug(c) {
   c.addChild(p);
 }
 
+// ----- New characters (v3 batch) -----
+
+// ----- Tier 1 (3) -----
+function drawMlem(c) {
+  const v = new Graphics();
+  drawShadow(v);
+  // skateboard pulled by a giant tongue
+  px(v, -22, 6, 36, 4, 0xff8aa8);                // pink tongue base
+  px(v, -22, 6, 36, 1, 0xffd0e0);
+  px(v, -28, 4, 6, 6, 0xff8aa8);                 // tongue tip stretched ahead
+  px(v, -28, 4, 6, 1, 0xffd0e0);
+  px(v, -22, 8, 36, 1, 0xc8345a);                // shadow
+  drawWheels(v, { spread: 14, baseY: 14 });
+  c.addChild(v);
+  // pug — derpy, big tongue out
+  const p = new Graphics();
+  drawPugBase(p, { body: 0xc8854a, mask: 0x1a0d05, ear: 0x6b3a1c, eyeShape: 'derpy' });
+  p.y = -4;
+  // extra tongue dangle
+  px(p, -2, -8, 5, 5, 0xff5a82);
+  px(p, -1, -8, 3, 1, 0xffaac4);
+  c.addChild(p);
+}
+
+function drawDoot(c) {
+  const v = new Graphics();
+  drawShadow(v);
+  // trumpet-mobile (sits in the bell)
+  px(v, 6, -2, 18, 16, 0xffd23f);                // bell wider on right
+  px(v, 6, -2, 18, 3, 0xffeb8a);                 // top shine
+  px(v, 6, 11, 18, 3, 0xc89c20);
+  px(v, -16, 2, 22, 8, 0xffd23f);                // tube
+  px(v, -16, 2, 22, 2, 0xffeb8a);
+  px(v, -18, 4, 4, 4, 0xffd23f);                 // mouthpiece
+  // valves
+  px(v, -6, -2, 2, 4, 0x6a6a72);
+  px(v, -2, -2, 2, 4, 0x6a6a72);
+  px(v, 2, -2, 2, 4, 0x6a6a72);
+  drawWheels(v, { spread: 16, baseY: 16 });
+  c.addChild(v);
+  // pug in the bell
+  const p = new Graphics();
+  drawPugBase(p, { body: 0xc8854a, mask: 0x1a0d05, ear: 0x6b3a1c, tongueOut: false });
+  p.scale.set(0.88);
+  p.y = -8;
+  // tiny bone-helmet
+  px(p, -8, -34, 16, 4, 0xeae0c0);
+  px(p, -8, -34, 16, 1, 0xffffff);
+  c.addChild(p);
+  // skeleton-pug sidekick in shades
+  const s = new Graphics();
+  px(s, 18, -2, 6, 8, 0xeae0c0);
+  px(s, 18, -8, 6, 5, 0xeae0c0);
+  px(s, 18, -7, 6, 2, 0x000000); // shades
+  px(s, 19, -7, 1, 1, COLORS.cyan);
+  px(s, 22, -7, 1, 1, COLORS.cyan);
+  c.addChild(s);
+}
+
+function drawChonk(c) {
+  const v = new Graphics();
+  drawShadow(v);
+  // heavy cargo trike with sagging springs
+  px(v, -20, 0, 40, 16, 0x6a4a2a);
+  px(v, -20, 0, 40, 3, 0x8a6a4a);
+  px(v, -20, 13, 40, 3, 0x3a2a1a);
+  // cargo box
+  px(v, -16, -8, 32, 8, 0x8a6a4a);
+  px(v, -16, -8, 32, 2, 0xa68a6a);
+  px(v, -8, -6, 4, 4, COLORS.hydrant);           // CHONK sticker
+  // wheels (big from the weight)
+  drawBigWheels(v, { spread: 16, baseY: 18, r: 7, rim: 0x6a4a2a });
+  c.addChild(v);
+  // very chonk pug
+  const p = new Graphics();
+  drawPugBase(p, { body: 0xc8854a, mask: 0x1a0d05, ear: 0x6b3a1c, eyeShape: 'sleepy' });
+  p.scale.set(1.15, 1.05);
+  p.y = -8;
+  // double chin
+  px(p, -6, -8, 12, 2, shade(0xc8854a, 0.85));
+  c.addChild(p);
+  // chonkier pug sidekick eating snack
+  const s = new Graphics();
+  px(s, 20, -4, 8, 8, 0xc8854a);
+  px(s, 20, -10, 8, 6, 0xc8854a);
+  px(s, 21, -8, 1, 1, 0x000000);
+  px(s, 25, -8, 1, 1, 0x000000);
+  px(s, 18, -2, 4, 3, 0xeac888);                  // snack in paw
+  c.addChild(s);
+}
+
+// ----- Tier 2 (5) -----
+function drawDonutPug(c) {
+  const v = new Graphics();
+  drawShadow(v);
+  // donut-tire (one giant donut as both body + wheel)
+  v.circle(0, 8, 18).fill(0xffb7d1);
+  v.circle(0, 8, 8).fill(0x110a26);              // hole
+  // glaze drips
+  px(v, -14, 12, 3, 5, 0xffd5e8);
+  px(v, 11, 14, 3, 4, 0xffd5e8);
+  px(v, -4, 22, 2, 3, 0xffd5e8);
+  // SPRINKLES (lots)
+  px(v, -10, 2, 2, 1, COLORS.cyan);
+  px(v, 6, 0, 2, 1, COLORS.yellow);
+  px(v, -2, -2, 2, 1, COLORS.green);
+  px(v, 8, 8, 2, 1, COLORS.pink);
+  px(v, -8, 14, 1, 2, COLORS.cyan);
+  px(v, 10, 20, 1, 2, COLORS.yellow);
+  px(v, -12, 6, 1, 2, COLORS.green);
+  c.addChild(v);
+  const p = new Graphics();
+  drawPugBase(p, { body: 0xeac888, mask: 0x6b3a1c, ear: 0x8a5a2c, eyeShape: 'sparkle' });
+  p.y = -4;
+  // sprinkles in fur
+  px(p, -6, -4, 2, 1, COLORS.cyan);
+  px(p, 4, -2, 2, 1, COLORS.pink);
+  c.addChild(p);
+}
+
+function drawBurgerPug(c) {
+  const v = new Graphics();
+  drawShadow(v);
+  // quad bike with burger body
+  px(v, -20, 4, 40, 10, 0x6a4a2a);
+  drawBigWheels(v, { spread: 16, baseY: 16, r: 6, rim: 0x4a3a2a });
+  // bun bottom
+  px(v, -18, -2, 36, 6, 0xeec890);
+  px(v, -18, -2, 36, 1, 0xfde0b8);
+  // lettuce
+  px(v, -18, -4, 36, 2, 0x4aaa4a);
+  px(v, -16, -5, 6, 1, 0x4aaa4a);
+  px(v, -8, -5, 6, 1, 0x4aaa4a);
+  px(v, 4, -5, 6, 1, 0x4aaa4a);
+  // patty
+  px(v, -18, -8, 36, 4, 0x6a3a1c);
+  px(v, -18, -8, 36, 1, 0x8a5a2c);
+  // tomato slice
+  px(v, -10, -10, 14, 2, COLORS.hydrant);
+  px(v, -10, -10, 14, 1, 0xff8a8a);
+  // bun top with sesame seeds
+  px(v, -18, -16, 36, 6, 0xfde0b8);
+  px(v, -18, -16, 36, 2, 0xffeed8);
+  px(v, -10, -14, 1, 1, 0xffffff);                // seeds
+  px(v, -4, -13, 1, 1, 0xffffff);
+  px(v, 4, -14, 1, 1, 0xffffff);
+  px(v, 10, -13, 1, 1, 0xffffff);
+  c.addChild(v);
+  const p = new Graphics();
+  drawPugBase(p, { body: 0xc8854a, mask: 0x1a0d05, ear: 0x6b3a1c });
+  p.scale.set(0.85);
+  p.y = -22;                                      // peeks out of the bun
+  c.addChild(p);
+}
+
+function drawDJPug(c) {
+  const v = new Graphics();
+  drawShadow(v);
+  // turntable cart
+  px(v, -16, 0, 32, 14, 0x222228);
+  px(v, -16, 0, 32, 2, 0x444450);
+  // record platter
+  v.circle(0, 4, 10).fill(0x000000);
+  v.circle(0, 4, 10).stroke({ color: 0x666672, width: 1 });
+  v.circle(0, 4, 3).fill(COLORS.hydrant);
+  // grooves
+  v.circle(0, 4, 7).stroke({ color: 0x3a3a42, width: 1 });
+  v.circle(0, 4, 9).stroke({ color: 0x3a3a42, width: 1 });
+  // tonearm
+  px(v, 8, -2, 8, 1, 0xc8c8c8);
+  px(v, 15, -2, 2, 2, COLORS.hydrant);
+  // sub speaker boxes on sides
+  px(v, -22, 2, 6, 12, 0x4a4a52);
+  v.circle(-19, 6, 3).fill(0x222228);
+  v.circle(-19, 6, 2).fill(0x666672);
+  px(v, 16, 2, 6, 12, 0x4a4a52);
+  v.circle(19, 6, 3).fill(0x222228);
+  v.circle(19, 6, 2).fill(0x666672);
+  // neon underglow
+  v.ellipse(0, 18, 20, 3).fill({ color: COLORS.cyan, alpha: 0.6 });
+  v.ellipse(0, 19, 14, 2).fill({ color: COLORS.pink, alpha: 0.7 });
+  c.addChild(v);
+  const p = new Graphics();
+  drawPugBase(p, { body: 0xc8854a, mask: 0x1a0d05, ear: 0x6b3a1c, eyeShape: 'sparkle' });
+  p.y = -8;
+  // headphones
+  px(p, -10, -28, 20, 3, 0x222228);
+  px(p, -12, -22, 4, 8, 0x222228);
+  px(p, 8, -22, 4, 8, 0x222228);
+  px(p, -11, -20, 2, 4, COLORS.cyan);
+  px(p, 9, -20, 2, 4, COLORS.cyan);
+  // backwards cap
+  px(p, -10, -32, 20, 4, 0xff5a3a);
+  px(p, 8, -33, 4, 2, 0xff5a3a);                  // back brim
+  // shutter shades
+  px(p, -8, -22, 16, 2, COLORS.yellow);
+  c.addChild(p);
+}
+
+function drawDetectivePug(c) {
+  const v = new Graphics();
+  drawShadow(v);
+  // old sedan
+  px(v, -18, -2, 36, 14, 0x4a4a52);
+  px(v, -18, -2, 36, 2, 0x6a6a72);
+  px(v, -18, 10, 36, 2, 0x2a2a32);
+  // windows
+  px(v, -14, 2, 8, 6, 0x6a8aaa);
+  px(v, 6, 2, 8, 6, 0x6a8aaa);
+  px(v, -14, 2, 8, 1, 0x9acaff);
+  px(v, 6, 2, 8, 1, 0x9acaff);
+  // magnifying glass on hood
+  v.circle(12, -4, 5).stroke({ color: 0xc8c8c8, width: 1 });
+  v.circle(12, -4, 4).fill({ color: COLORS.cyan, alpha: 0.4 });
+  px(v, 16, 0, 4, 1, 0xc8c8c8);                   // handle
+  drawWheels(v, { spread: 14, baseY: 14 });
+  c.addChild(v);
+  const p = new Graphics();
+  drawPugBase(p, { body: 0xc8854a, mask: 0x1a0d05, ear: 0x6b3a1c, tongueOut: false });
+  p.y = -6;
+  // fedora
+  px(p, -10, -32, 20, 4, 0x6a3a1c);
+  px(p, -12, -30, 24, 2, 0x6a3a1c);
+  px(p, -10, -33, 20, 1, 0x8a5a2c);
+  // hat band
+  px(p, -10, -30, 20, 1, 0x222228);
+  // trench coat
+  px(p, -10, -8, 20, 6, 0x8a6a4a);
+  px(p, -10, -8, 20, 1, 0xa68a6a);
+  // pipe
+  px(p, 6, -14, 3, 2, 0x4a2a0c);
+  px(p, 9, -15, 2, 1, 0x4a2a0c);                  // bowl
+  px(p, 9, -16, 2, 1, { color: 0xc8c8c8, alpha: 0.6 }); // smoke
+  c.addChild(p);
+}
+
+function drawSoccerPug(c) {
+  const v = new Graphics();
+  drawShadow(v);
+  // riding a giant soccer ball (the ball IS the wheel)
+  v.circle(0, 10, 16).fill(0xffffff);
+  v.circle(0, 10, 16).stroke({ color: 0x000000, width: 1 });
+  // hexagons pattern
+  px(v, -2, 4, 4, 3, 0x000000);
+  px(v, -2, 4, 4, 1, 0x4a4a4a);
+  px(v, -8, 14, 3, 2, 0x000000);
+  px(v, 5, 14, 3, 2, 0x000000);
+  px(v, -2, 20, 4, 2, 0x000000);
+  // tiny pedestal seat
+  px(v, -8, -4, 16, 6, 0x4a4a52);
+  px(v, -8, -4, 16, 2, 0x6a6a72);
+  c.addChild(v);
+  const p = new Graphics();
+  drawPugBase(p, { body: 0xc8854a, mask: 0x1a0d05, ear: 0x6b3a1c });
+  p.y = -8;
+  // jersey (numbered)
+  px(p, -10, -8, 20, 6, COLORS.hydrant);
+  px(p, -10, -8, 20, 1, 0xff8a8a);
+  px(p, -2, -6, 4, 3, 0xffffff);                  // number patch
+  px(p, -1, -5, 2, 1, COLORS.hydrant);            // big "1"
+  // headband
+  px(p, -10, -24, 20, 2, 0xffffff);
+  c.addChild(p);
+}
+
+// ----- Tier 3 (4) -----
+function drawCyberPug(c) {
+  const v = new Graphics();
+  drawShadow(v);
+  // hovercycle with neon trim
+  px(v, -22, 4, 44, 8, 0x222228);
+  px(v, -22, 4, 44, 2, 0x444450);
+  // neon RGB underglow
+  v.ellipse(0, 14, 22, 4).fill({ color: COLORS.cyan, alpha: 0.7 });
+  v.ellipse(0, 16, 18, 2).fill({ color: COLORS.pink, alpha: 0.8 });
+  v.ellipse(0, 18, 12, 2).fill({ color: COLORS.yellow, alpha: 0.6 });
+  // forward bars
+  px(v, 18, 0, 4, 4, 0x222228);
+  px(v, 22, 0, 2, 4, COLORS.cyan);                // glowing forward sensor
+  // exhaust tubes
+  px(v, -24, 4, 4, 2, 0x4a4a52);
+  px(v, -22, 4, 2, 1, COLORS.pink);
+  drawHover(v, { y: 14, w: 40, color: COLORS.cyan });
+  c.addChild(v);
+  const p = new Graphics();
+  drawPugBase(p, { body: 0xc8854a, mask: 0x1a0d05, ear: 0x6b3a1c,
+                   eyeShape: 'glow', eyeGlow: COLORS.cyan });
+  p.y = -6;
+  // cybernetic eye plate (over one side)
+  px(p, 1, -22, 8, 4, 0x222228);
+  px(p, 2, -21, 1, 1, COLORS.hydrant);            // tiny red diode
+  px(p, 7, -21, 1, 1, COLORS.cyan);
+  // antenna/circuit ear
+  px(p, 10, -26, 1, 4, COLORS.cyan);
+  px(p, 9, -27, 3, 1, COLORS.cyan);
+  // chest circuit
+  px(p, -6, -4, 12, 1, COLORS.cyan);
+  px(p, -2, -3, 4, 1, COLORS.cyan);
+  c.addChild(p);
+}
+
+function drawPhoenixPug(c) {
+  const v = new Graphics();
+  drawShadow(v);
+  // flaming chariot
+  px(v, -16, 0, 32, 10, 0xff5a3a);
+  px(v, -16, 0, 32, 2, 0xff8e3c);
+  px(v, -16, 8, 32, 2, COLORS.hydrant);
+  // chariot rim — golden
+  px(v, -18, -2, 36, 2, COLORS.yellow);
+  px(v, -18, -2, 36, 1, 0xffeb55);
+  // big feathered wheels
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    const wx = -14 + Math.cos(a) * 6;
+    const wy = 14 + Math.sin(a) * 6;
+    v.rect(wx - 1, wy - 1, 2, 2).fill(COLORS.yellow);
+  }
+  v.circle(-14, 14, 6).fill(0xff5a3a);
+  v.circle(-14, 14, 3).fill(0xffeb55);
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    const wx = 14 + Math.cos(a) * 6;
+    const wy = 14 + Math.sin(a) * 6;
+    v.rect(wx - 1, wy - 1, 2, 2).fill(COLORS.yellow);
+  }
+  v.circle(14, 14, 6).fill(0xff5a3a);
+  v.circle(14, 14, 3).fill(0xffeb55);
+  // flame trail behind
+  px(v, -22, 2, 4, 4, 0xff5a3a);
+  px(v, -26, 4, 4, 2, COLORS.yellow);
+  px(v, -22, 4, 4, 2, COLORS.yellow);
+  c.addChild(v);
+  const p = new Graphics();
+  drawPugBase(p, { body: 0xff5a3a, mask: 0x6a2a14, ear: 0xc8281f,
+                   eyeShape: 'glow', eyeGlow: COLORS.yellow });
+  p.y = -8;
+  // fiery crest
+  px(p, -8, -34, 16, 4, COLORS.yellow);
+  px(p, -6, -38, 12, 4, COLORS.yellow);
+  px(p, -2, -42, 4, 4, 0xffeb55);
+  // wings spread
+  px(p, -16, -22, 4, 10, COLORS.yellow);
+  px(p, -18, -18, 2, 6, COLORS.yellow);
+  px(p, 12, -22, 4, 10, COLORS.yellow);
+  px(p, 16, -18, 2, 6, COLORS.yellow);
+  // ember particles in fur
+  px(p, -4, -6, 1, 1, COLORS.yellow);
+  px(p, 5, -10, 1, 1, COLORS.yellow);
+  c.addChild(p);
+}
+
+function drawWerewolfPug(c) {
+  const v = new Graphics();
+  drawShadow(v);
+  // howling moonlit chopper bike
+  px(v, -20, 2, 40, 10, 0x222228);
+  px(v, -20, 2, 40, 2, 0x444450);
+  // long forks forward (chopper style)
+  px(v, 16, -2, 12, 2, 0x6a6a72);
+  px(v, 16, 8, 12, 2, 0x6a6a72);
+  // moon hood ornament
+  v.circle(22, -6, 3).fill(0xfde0b8);
+  v.circle(22, -6, 2).fill(0xffffff);
+  // wolf-skull on tank
+  v.circle(-4, 6, 3).fill(0xeae0c0);
+  px(v, -5, 5, 1, 1, COLORS.hydrant);             // eye
+  px(v, -3, 5, 1, 1, COLORS.hydrant);
+  drawBigWheels(v, { spread: 16, baseY: 12, r: 6, tire: 0x000000, rim: 0x4a4a52 });
+  c.addChild(v);
+  const p = new Graphics();
+  drawPugBase(p, { body: 0x5a5a72, mask: 0x222228, ear: 0x3a3a48,
+                   eyeShape: 'glow', eyeGlow: COLORS.yellow });
+  p.y = -6;
+  // pointy wolf-ears (override)
+  px(p, -12, -32, 2, 4, 0x5a5a72);
+  px(p, -10, -34, 2, 2, 0x5a5a72);
+  px(p, 10, -32, 2, 4, 0x5a5a72);
+  px(p, 8, -34, 2, 2, 0x5a5a72);
+  // claws on paws
+  px(p, -8, 10, 1, 1, 0xffffff);
+  px(p, -6, 10, 1, 1, 0xffffff);
+  px(p, 6, 10, 1, 1, 0xffffff);
+  px(p, 8, 10, 1, 1, 0xffffff);
+  // fangs hanging
+  px(p, -2, -10, 1, 2, 0xffffff);
+  px(p, 1, -10, 1, 2, 0xffffff);
+  c.addChild(p);
+}
+
+function drawGhostPug(c) {
+  const v = new Graphics();
+  drawShadow(v);
+  // floating coffin-car
+  px(v, -18, 0, 36, 14, 0x4a2a0c);
+  px(v, -18, 0, 36, 2, 0x6a3a1c);
+  px(v, -18, 12, 36, 2, 0x2a1a0c);
+  // coffin shape (tapered)
+  px(v, -16, -2, 4, 2, 0x4a2a0c);
+  px(v, 12, -2, 4, 2, 0x4a2a0c);
+  // gold cross on top
+  px(v, -2, 2, 4, 6, COLORS.yellow);
+  px(v, -4, 4, 8, 2, COLORS.yellow);
+  // ghostly hover glow (purple)
+  v.ellipse(0, 16, 22, 4).fill({ color: 0xb055ff, alpha: 0.5 });
+  v.ellipse(0, 18, 16, 2).fill({ color: 0xb055ff, alpha: 0.7 });
+  c.addChild(v);
+  const p = new Graphics();
+  drawPugBase(p, { body: 0xfafaff, mask: 0xa8a8c8, ear: 0xc8c8e8,
+                   eyeShape: 'glow', eyeGlow: 0xb055ff });
+  p.y = -8;
+  // wispy ghost-tail under body
+  px(p, -8, 6, 3, 3, { color: 0xfafaff, alpha: 0.7 });
+  px(p, -2, 6, 3, 3, { color: 0xfafaff, alpha: 0.7 });
+  px(p, 4, 6, 3, 3, { color: 0xfafaff, alpha: 0.7 });
+  px(p, -10, 8, 2, 2, { color: 0xfafaff, alpha: 0.5 });
+  px(p, 9, 8, 2, 2, { color: 0xfafaff, alpha: 0.5 });
+  // halo of doom
+  v.ellipse(0, -38, 12, 3).fill({ color: 0xb055ff, alpha: 0 }); // placeholder
+  px(p, -10, -34, 20, 2, { color: 0xb055ff, alpha: 0.6 });
+  // translucency for whole pug
+  p.alpha = 0.92;
+  c.addChild(p);
+}
+
 // =============================================================================
 // FORMS DATA
 // =============================================================================
@@ -2335,21 +2760,123 @@ export const FORMS = {
     desc: 'Fire breath. Dragon mount. Such roar.',
     draw: drawDragonPug,
   },
+  // ----- v3 additions -----
+  // Tier 1
+  mlem: {
+    id: 'mlem', name: 'Mlem', tier: 1,
+    hp: 130, speed: 280, fireRate: 260,
+    projectileSpeed: 540, projectileDamage: 12, projectileColor: 0xff8aa8,
+    projectileShape: 'ball', radius: 20, contactDamage: 6,
+    desc: 'Tongue-out skateboard. Mlemmy mlemmy.',
+    draw: drawMlem,
+  },
+  doot: {
+    id: 'doot', name: 'Doot', tier: 1,
+    hp: 160, speed: 220, fireRate: 360,
+    projectileSpeed: 500, projectileDamage: 16, projectileColor: COLORS.yellow,
+    projectileShape: 'ball', radius: 22, contactDamage: 8,
+    desc: 'Spooky trumpet. Doot doot.',
+    draw: drawDoot,
+  },
+  chonk: {
+    id: 'chonk', name: 'Chonk', tier: 1,
+    hp: 230, speed: 160, fireRate: 520,
+    projectileSpeed: 360, projectileDamage: 22, projectileColor: 0xc8854a,
+    projectileShape: 'ball', radius: 26, contactDamage: 16,
+    desc: 'Absolute UNIT. Cargo trike. Heavy bork.',
+    draw: drawChonk,
+  },
+  // Tier 2
+  donut_pug: {
+    id: 'donut_pug', name: 'Donut Pug', tier: 2,
+    hp: 230, speed: 240, fireRate: 360,
+    projectileSpeed: 500, projectileDamage: 26, projectileColor: 0xffb7d1,
+    projectileShape: 'donut', radius: 24, contactDamage: 14,
+    desc: 'Sprinkle storm. Donut wheel of fortune.',
+    draw: drawDonutPug,
+  },
+  burger_pug: {
+    id: 'burger_pug', name: 'Burger Pug', tier: 2,
+    hp: 270, speed: 200, fireRate: 480,
+    projectileSpeed: 420, projectileDamage: 32, projectileColor: 0xeec890,
+    projectileShape: 'ball', radius: 26, contactDamage: 18,
+    desc: 'Double patty quad bike. Drive-thru DPS.',
+    draw: drawBurgerPug,
+  },
+  dj_pug: {
+    id: 'dj_pug', name: 'DJ Pug', tier: 2,
+    hp: 230, speed: 240, fireRate: 280,
+    projectileSpeed: 520, projectileDamage: 22, projectileColor: COLORS.cyan,
+    projectileShape: 'star', radius: 24, contactDamage: 12,
+    desc: 'Drop the bass. Turntable sound waves.',
+    draw: drawDJPug,
+  },
+  detective_pug: {
+    id: 'detective_pug', name: 'Detective Pug', tier: 2,
+    hp: 240, speed: 220, fireRate: 400,
+    projectileSpeed: 580, projectileDamage: 30, projectileColor: 0x6a8aaa,
+    projectileShape: 'ball', radius: 24, contactDamage: 14,
+    desc: 'On the case. Sees through smoke.',
+    draw: drawDetectivePug,
+  },
+  soccer_pug: {
+    id: 'soccer_pug', name: 'Soccer Pug', tier: 2,
+    hp: 240, speed: 250, fireRate: 380,
+    projectileSpeed: 540, projectileDamage: 26, projectileColor: 0xffffff,
+    projectileShape: 'ball', radius: 24, contactDamage: 16,
+    desc: 'GOOOAL. Bicycle kick balls of fury.',
+    draw: drawSoccerPug,
+  },
+  // Tier 3
+  cyber_pug: {
+    id: 'cyber_pug', name: 'Cyber Pug', tier: 3,
+    hp: 360, speed: 270, fireRate: 280,
+    projectileSpeed: 640, projectileDamage: 36, projectileColor: COLORS.cyan,
+    projectileShape: 'beam', radius: 28, contactDamage: 16,
+    desc: 'Neon hover-cycle. Laser sight. 2077 vibes.',
+    draw: drawCyberPug,
+  },
+  phoenix_pug: {
+    id: 'phoenix_pug', name: 'Phoenix Pug', tier: 3,
+    hp: 360, speed: 240, fireRate: 360,
+    projectileSpeed: 580, projectileDamage: 42, projectileColor: COLORS.yellow,
+    projectileShape: 'fireball', radius: 28, contactDamage: 20,
+    desc: 'Reborn in flames. Trails embers.',
+    draw: drawPhoenixPug,
+  },
+  werewolf_pug: {
+    id: 'werewolf_pug', name: 'Werewolf Pug', tier: 3,
+    hp: 400, speed: 250, fireRate: 320,
+    projectileSpeed: 560, projectileDamage: 40, projectileColor: 0xeae0c0,
+    projectileShape: 'ball', radius: 28, contactDamage: 26,
+    desc: 'Howl at the moon. Chopper of fangs.',
+    draw: drawWerewolfPug,
+  },
+  ghost_pug: {
+    id: 'ghost_pug', name: 'Ghost Pug', tier: 3,
+    hp: 320, speed: 260, fireRate: 340,
+    projectileSpeed: 580, projectileDamage: 38, projectileColor: 0xb055ff,
+    projectileShape: 'ball', radius: 28, contactDamage: 14,
+    desc: 'Phase through walls. Boo. Translucent dread.',
+    draw: drawGhostPug,
+  },
 };
 
 // Tier pools — used by Game._getEvolveOptions
 export const TIER_POOLS = {
   0: ['bork_pup'],
-  1: ['loaf', 'snoot', 'zoom', 'wiggle', 'boop'],
+  1: ['loaf', 'snoot', 'zoom', 'wiggle', 'boop', 'mlem', 'doot', 'chonk'],
   2: [
     'cheems', 'doge_knight', 'bonk_pug', 'walter', 'disco_pug', 'chef_pug', 'toast_pug',
     'boxer_pug', 'skater_pug', 'surfer_pug', 'race_pug', 'pizza_pug',
     'doctor_pug', 'cop_pug', 'punk_pug',
+    'donut_pug', 'burger_pug', 'dj_pug', 'detective_pug', 'soccer_pug',
   ],
   3: [
     'cosmic_pug', 'demon_pug', 'pug_zilla', 'holy_pug',
     'cowboy_pug', 'pirate_pug', 'astronaut_pug', 'karate_pug', 'vampire_pug',
     'wizard_pug', 'mummy_pug', 'dragon_pug',
+    'cyber_pug', 'phoenix_pug', 'werewolf_pug', 'ghost_pug',
   ],
 };
 

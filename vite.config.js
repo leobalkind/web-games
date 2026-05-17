@@ -1,16 +1,17 @@
 import { defineConfig } from 'vite';
 import { resolve } from 'path';
 
-// GitHub Pages serves from /web-games/ — base path required for assets.
-// Use VITE_BASE env to override (e.g. for Vercel/Netlify which serve from /).
-const base = process.env.VITE_BASE ?? '/web-games/';
-
-export default defineConfig({
+// GitHub Pages serves from /web-games/ — base path needed in production.
+// Dev server stays on '/' so localhost links work as before.
+// Override with VITE_BASE env var for Vercel/Netlify (which serve from /).
+export default defineConfig(({ command }) => ({
   root: '.',
-  base,
+  base: process.env.VITE_BASE ?? (command === 'build' ? '/web-games/' : '/'),
   server: {
     port: 5173,
     open: true,
+    // Allow public tunneling (cloudflared, ngrok, etc.) to forward to dev server
+    allowedHosts: true,
   },
   build: {
     rollupOptions: {
@@ -21,4 +22,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));

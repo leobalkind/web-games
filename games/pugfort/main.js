@@ -1,10 +1,34 @@
 import { Game } from './src/Game.js';
+import { Sfx } from './src/Sfx.js';
 
 const root = document.getElementById('game-root');
 const startBtn = document.getElementById('start-btn');
 const startOverlay = document.getElementById('overlay');
 const endOverlay = document.getElementById('end-overlay');
 const restartBtn = document.getElementById('end-restart');
+const muteBtn = document.getElementById('mute-btn');
+
+// Mute toggle — persists across sessions
+function applyMuteUI(muted) {
+  if (!muteBtn) return;
+  muteBtn.textContent = muted ? '🔇' : '🔊';
+  muteBtn.classList.toggle('muted', muted);
+}
+const savedMute = localStorage.getItem('pugfort:muted') === '1';
+Sfx.setMuted?.(savedMute);
+applyMuteUI(savedMute);
+muteBtn?.addEventListener('click', () => {
+  const m = Sfx.toggleMute ? Sfx.toggleMute() : false;
+  localStorage.setItem('pugfort:muted', m ? '1' : '0');
+  applyMuteUI(m);
+});
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'm' || e.key === 'M') {
+    const m = Sfx.toggleMute ? Sfx.toggleMute() : false;
+    localStorage.setItem('pugfort:muted', m ? '1' : '0');
+    applyMuteUI(m);
+  }
+});
 
 const game = new Game();
 

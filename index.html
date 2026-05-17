@@ -14,12 +14,171 @@
       <header class="hub__header">
         <h1>Web Games</h1>
         <p class="hub__tagline">Quick-hit browser games. No installs. Press play.</p>
+        <div class="hub__chips">
+          <span class="hub__chip hub__chip--live">LIVE · 2 GAMES</span>
+          <span class="hub__chip hub__chip--free">FREE · NO ACCOUNT</span>
+          <span class="hub__chip">PIXEL · NEON</span>
+        </div>
       </header>
 
       <section class="hub__grid">
         <a class="card" href="/games/bork-battle/index.html">
           <div class="card__art card__art--bork">
-            <div class="card__shape card__shape--pug"></div>
+            <!-- BORK BATTLE: pug-on-vehicle firing a beam, rival chasing, neon park backdrop -->
+            <svg class="card__svg" viewBox="0 0 280 160" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">
+              <defs>
+                <linearGradient id="borkSky" x1="0" x2="0" y1="0" y2="1">
+                  <stop offset="0" stop-color="#22103f"/>
+                  <stop offset="1" stop-color="#0a0716"/>
+                </linearGradient>
+                <linearGradient id="borkFloor" x1="0" x2="0" y1="0" y2="1">
+                  <stop offset="0" stop-color="#2a1a44"/>
+                  <stop offset="1" stop-color="#0a0716"/>
+                </linearGradient>
+                <radialGradient id="zonePink" cx="0.5" cy="0.5" r="0.7">
+                  <stop offset="0.55" stop-color="rgba(255,58,161,0)"/>
+                  <stop offset="1" stop-color="rgba(255,58,161,0.35)"/>
+                </radialGradient>
+                <filter id="borkGlow" x="-20%" y="-20%" width="140%" height="140%">
+                  <feGaussianBlur stdDeviation="1.4"/>
+                </filter>
+              </defs>
+              <!-- sky + floor -->
+              <rect width="280" height="160" fill="url(#borkSky)"/>
+              <rect y="110" width="280" height="50" fill="url(#borkFloor)"/>
+              <!-- danger ring around the arena -->
+              <rect width="280" height="160" fill="url(#zonePink)"/>
+              <!-- floor grid -->
+              <g stroke="#3a2a5a" stroke-width="1" opacity="0.6">
+                <line x1="0" y1="118" x2="280" y2="118"/>
+                <line x1="0" y1="132" x2="280" y2="132"/>
+                <line x1="0" y1="148" x2="280" y2="148"/>
+              </g>
+              <!-- background fence pickets -->
+              <g fill="#5ef38c" opacity="0.55">
+                <rect x="10" y="92" width="3" height="22"/>
+                <rect x="22" y="92" width="3" height="22"/>
+                <rect x="34" y="92" width="3" height="22"/>
+                <rect x="244" y="92" width="3" height="22"/>
+                <rect x="256" y="92" width="3" height="22"/>
+                <rect x="268" y="92" width="3" height="22"/>
+                <rect x="10" y="98" width="29" height="2"/>
+                <rect x="244" y="98" width="27" height="2"/>
+              </g>
+              <!-- fire hydrant on right -->
+              <g>
+                <rect x="232" y="92" width="10" height="20" fill="#ff3a3a"/>
+                <rect x="232" y="92" width="10" height="3" fill="#ff8a8a"/>
+                <rect x="230" y="96" width="2" height="3" fill="#ff3a3a"/>
+                <rect x="242" y="96" width="2" height="3" fill="#ff3a3a"/>
+                <rect x="234" y="88" width="6" height="4" fill="#c8281f"/>
+              </g>
+              <!-- rival pug chasing on the left, small + dim -->
+              <g opacity="0.85" transform="translate(40,82)">
+                <ellipse cx="0" cy="20" rx="14" ry="2" fill="#000" opacity="0.5"/>
+                <!-- chassis -->
+                <rect x="-12" y="6" width="24" height="8" fill="#b055ff"/>
+                <rect x="-12" y="6" width="24" height="2" fill="#d59aff"/>
+                <!-- wheels -->
+                <circle cx="-8" cy="16" r="3" fill="#1a0d05"/>
+                <circle cx="8" cy="16" r="3" fill="#1a0d05"/>
+                <circle cx="-8" cy="16" r="1.4" fill="#888"/>
+                <circle cx="8" cy="16" r="1.4" fill="#888"/>
+                <!-- pug body -->
+                <rect x="-7" y="-6" width="14" height="12" fill="#eac888"/>
+                <!-- mask -->
+                <rect x="-5" y="-1" width="10" height="6" fill="#6b3a1c"/>
+                <!-- ears -->
+                <rect x="-9" y="-8" width="3" height="3" fill="#8a5a2c"/>
+                <rect x="6" y="-8" width="3" height="3" fill="#8a5a2c"/>
+                <!-- eyes -->
+                <rect x="-4" y="1" width="2" height="2" fill="#fff"/>
+                <rect x="2" y="1" width="2" height="2" fill="#fff"/>
+                <rect x="-3" y="2" width="1" height="1" fill="#000"/>
+                <rect x="3" y="2" width="1" height="1" fill="#000"/>
+              </g>
+              <!-- HERO pug-vehicle, center-right -->
+              <g transform="translate(170,80)">
+                <!-- speed streaks behind -->
+                <g stroke="#4cc9f0" stroke-width="2" stroke-linecap="round" opacity="0.7">
+                  <line x1="-50" y1="0" x2="-30" y2="0"/>
+                  <line x1="-58" y1="-8" x2="-38" y2="-8"/>
+                  <line x1="-46" y1="8" x2="-26" y2="8"/>
+                </g>
+                <!-- shadow -->
+                <ellipse cx="0" cy="28" rx="22" ry="3" fill="#000" opacity="0.55"/>
+                <!-- chassis -->
+                <rect x="-18" y="6" width="36" height="14" fill="#ff3a3a"/>
+                <rect x="-18" y="6" width="36" height="3" fill="#ff8a8a"/>
+                <rect x="-18" y="18" width="36" height="2" fill="#9a1a14"/>
+                <!-- side stripe -->
+                <rect x="-18" y="11" width="36" height="2" fill="#ffd23f"/>
+                <!-- big wheels -->
+                <circle cx="-12" cy="22" r="6" fill="#1a0d05"/>
+                <circle cx="12" cy="22" r="6" fill="#1a0d05"/>
+                <circle cx="-12" cy="22" r="3" fill="#666"/>
+                <circle cx="12" cy="22" r="3" fill="#666"/>
+                <!-- spokes -->
+                <line x1="-12" y1="18" x2="-12" y2="26" stroke="#888" stroke-width="1"/>
+                <line x1="-15" y1="22" x2="-9" y2="22" stroke="#888" stroke-width="1"/>
+                <line x1="12" y1="18" x2="12" y2="26" stroke="#888" stroke-width="1"/>
+                <line x1="9" y1="22" x2="15" y2="22" stroke="#888" stroke-width="1"/>
+                <!-- exhaust pipe with neon -->
+                <rect x="-24" y="9" width="6" height="4" fill="#4a4a52"/>
+                <rect x="-26" y="10" width="2" height="2" fill="#4cc9f0"/>
+                <!-- pug body sitting in the kart -->
+                <rect x="-12" y="-12" width="24" height="18" fill="#c8854a"/>
+                <rect x="-12" y="-12" width="24" height="3" fill="#e0a566"/>
+                <!-- belly -->
+                <rect x="-8" y="2" width="16" height="4" fill="#eac888"/>
+                <!-- mask -->
+                <rect x="-9" y="-4" width="18" height="9" fill="#1a0d05"/>
+                <!-- snout/tongue -->
+                <rect x="9" y="-1" width="3" height="4" fill="#1a0d05"/>
+                <rect x="12" y="0" width="3" height="2" fill="#ff5a82"/>
+                <!-- ears -->
+                <rect x="-14" y="-18" width="5" height="6" fill="#6b3a1c"/>
+                <rect x="9" y="-18" width="5" height="6" fill="#6b3a1c"/>
+                <rect x="-14" y="-18" width="5" height="2" fill="#8a5a2c"/>
+                <rect x="9" y="-18" width="5" height="2" fill="#8a5a2c"/>
+                <!-- eyes -->
+                <rect x="-6" y="-3" width="3" height="3" fill="#fff"/>
+                <rect x="3" y="-3" width="3" height="3" fill="#fff"/>
+                <rect x="-5" y="-2" width="2" height="2" fill="#000"/>
+                <rect x="4" y="-2" width="2" height="2" fill="#000"/>
+                <!-- cheek blush -->
+                <rect x="-10" y="2" width="2" height="1" fill="#ff7aa8" opacity="0.7"/>
+                <rect x="8" y="2" width="2" height="1" fill="#ff7aa8" opacity="0.7"/>
+                <!-- BEAM firing from hood, glowing -->
+                <g filter="url(#borkGlow)">
+                  <rect x="20" y="11" width="80" height="4" fill="#4cc9f0"/>
+                </g>
+                <rect x="20" y="12" width="80" height="2" fill="#ffffff"/>
+                <!-- beam tip muzzle -->
+                <circle cx="20" cy="13" r="4" fill="#4cc9f0" opacity="0.8"/>
+              </g>
+              <!-- floating treats / xp -->
+              <g fill="#ffd23f">
+                <rect x="100" y="40" width="3" height="3"/>
+                <rect x="102" y="38" width="2" height="2" fill="#fff0a0"/>
+              </g>
+              <g fill="#5ef38c">
+                <rect x="220" y="34" width="3" height="3"/>
+              </g>
+              <!-- sparkles -->
+              <g fill="#fff">
+                <rect x="160" y="20" width="2" height="2"/>
+                <rect x="60" y="36" width="2" height="2"/>
+                <rect x="244" y="56" width="2" height="2"/>
+                <rect x="14" y="60" width="2" height="2"/>
+              </g>
+              <!-- top badge "ARENA" pill -->
+              <g transform="translate(8,8)">
+                <rect width="44" height="12" rx="2" fill="#000" opacity="0.55"/>
+                <rect width="44" height="12" rx="2" fill="none" stroke="#ff3aa1" stroke-width="1"/>
+                <text x="22" y="9" text-anchor="middle" font-family="'Press Start 2P', monospace" font-size="6" fill="#ff3aa1">ARENA</text>
+              </g>
+            </svg>
           </div>
           <div class="card__body">
             <h2 class="card__title">BORK BATTLE</h2>
@@ -30,7 +189,210 @@
 
         <a class="card" href="/games/pugfort/index.html">
           <div class="card__art card__art--pugfort">
-            <div class="card__shape card__shape--fort"></div>
+            <!-- PUGFORT: night sky + moon, fort wall with pug + turret, zombies approaching -->
+            <svg class="card__svg" viewBox="0 0 280 160" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">
+              <defs>
+                <linearGradient id="fortSky" x1="0" x2="0" y1="0" y2="1">
+                  <stop offset="0" stop-color="#0e0823"/>
+                  <stop offset="0.6" stop-color="#1a0f2e"/>
+                  <stop offset="1" stop-color="#2a1a44"/>
+                </linearGradient>
+                <radialGradient id="moonGlow" cx="0.5" cy="0.5" r="0.5">
+                  <stop offset="0" stop-color="#fff0a8"/>
+                  <stop offset="0.6" stop-color="#ffd23f"/>
+                  <stop offset="1" stop-color="#c89c20"/>
+                </radialGradient>
+                <radialGradient id="dangerGlow" cx="0.5" cy="1" r="0.7">
+                  <stop offset="0" stop-color="rgba(255,58,58,0.35)"/>
+                  <stop offset="1" stop-color="rgba(255,58,58,0)"/>
+                </radialGradient>
+                <filter id="fortGlow">
+                  <feGaussianBlur stdDeviation="1.2"/>
+                </filter>
+              </defs>
+              <rect width="280" height="160" fill="url(#fortSky)"/>
+              <!-- danger pulse from below -->
+              <rect width="280" height="160" fill="url(#dangerGlow)"/>
+              <!-- stars -->
+              <g fill="#fff">
+                <rect x="20" y="12" width="2" height="2"/>
+                <rect x="60" y="28" width="1" height="1"/>
+                <rect x="120" y="14" width="1" height="1"/>
+                <rect x="180" y="20" width="2" height="2"/>
+                <rect x="250" y="34" width="1" height="1"/>
+                <rect x="40" y="50" width="1" height="1"/>
+                <rect x="210" y="60" width="1" height="1"/>
+              </g>
+              <!-- moon, top right -->
+              <g transform="translate(232,40)">
+                <circle r="20" fill="url(#moonGlow)" opacity="0.4" filter="url(#fortGlow)"/>
+                <circle r="14" fill="url(#moonGlow)"/>
+                <!-- craters -->
+                <circle cx="-4" cy="-3" r="2" fill="#c89c20" opacity="0.5"/>
+                <circle cx="3" cy="4" r="1.5" fill="#c89c20" opacity="0.5"/>
+                <circle cx="5" cy="-5" r="1" fill="#c89c20" opacity="0.6"/>
+              </g>
+              <!-- distant city silhouette -->
+              <g fill="#0a0716" opacity="0.85">
+                <rect x="0" y="78" width="18" height="22"/>
+                <rect x="22" y="70" width="14" height="30"/>
+                <rect x="42" y="84" width="20" height="16"/>
+                <rect x="66" y="74" width="10" height="26"/>
+                <rect x="200" y="82" width="18" height="18"/>
+                <rect x="222" y="76" width="12" height="24"/>
+                <!-- window glints -->
+                <rect x="27" y="76" width="2" height="2" fill="#ffd23f" opacity="0.5"/>
+                <rect x="32" y="84" width="2" height="2" fill="#ffd23f" opacity="0.5"/>
+                <rect x="227" y="82" width="2" height="2" fill="#5ef38c" opacity="0.7"/>
+              </g>
+              <!-- zombie pugs approaching, left + right -->
+              <g transform="translate(28,116)">
+                <!-- legs -->
+                <rect x="-4" y="6" width="2" height="4" fill="#3a5a3a"/>
+                <rect x="2" y="6" width="2" height="4" fill="#3a5a3a"/>
+                <!-- body -->
+                <rect x="-6" y="-2" width="12" height="9" fill="#4a7a4a"/>
+                <!-- mask -->
+                <rect x="-5" y="0" width="10" height="5" fill="#2a4a2a"/>
+                <!-- eyes glowing red -->
+                <rect x="-3" y="1" width="2" height="2" fill="#ff3a3a"/>
+                <rect x="1" y="1" width="2" height="2" fill="#ff3a3a"/>
+                <!-- ears -->
+                <rect x="-7" y="-4" width="2" height="3" fill="#3a5a3a"/>
+                <rect x="5" y="-4" width="2" height="3" fill="#3a5a3a"/>
+                <!-- drool -->
+                <rect x="0" y="5" width="1" height="3" fill="#5ef38c" opacity="0.8"/>
+              </g>
+              <g transform="translate(80,128)">
+                <rect x="-3" y="5" width="2" height="3" fill="#3a5a3a"/>
+                <rect x="1" y="5" width="2" height="3" fill="#3a5a3a"/>
+                <rect x="-5" y="-2" width="10" height="8" fill="#4a7a4a"/>
+                <rect x="-4" y="0" width="8" height="4" fill="#2a4a2a"/>
+                <rect x="-3" y="1" width="2" height="2" fill="#ff3a3a"/>
+                <rect x="1" y="1" width="2" height="2" fill="#ff3a3a"/>
+                <rect x="-6" y="-4" width="2" height="3" fill="#3a5a3a"/>
+                <rect x="4" y="-4" width="2" height="3" fill="#3a5a3a"/>
+              </g>
+              <g transform="translate(206,124)">
+                <rect x="-3" y="5" width="2" height="3" fill="#3a5a3a"/>
+                <rect x="1" y="5" width="2" height="3" fill="#3a5a3a"/>
+                <rect x="-5" y="-2" width="10" height="8" fill="#4a7a4a"/>
+                <rect x="-4" y="0" width="8" height="4" fill="#2a4a2a"/>
+                <rect x="-3" y="1" width="2" height="2" fill="#ff3a3a"/>
+                <rect x="1" y="1" width="2" height="2" fill="#ff3a3a"/>
+                <rect x="-6" y="-4" width="2" height="3" fill="#3a5a3a"/>
+                <rect x="4" y="-4" width="2" height="3" fill="#3a5a3a"/>
+              </g>
+              <!-- bullet streaks from turret -->
+              <g stroke="#ffd23f" stroke-width="1.5" stroke-linecap="round" opacity="0.9">
+                <line x1="148" y1="74" x2="100" y2="118"/>
+                <line x1="148" y1="74" x2="210" y2="118"/>
+              </g>
+              <!-- muzzle flash -->
+              <g transform="translate(148,72)">
+                <circle r="4" fill="#ffd23f" opacity="0.9" filter="url(#fortGlow)"/>
+                <circle r="2" fill="#ffffff"/>
+              </g>
+              <!-- FORT WALL (wood planks) -->
+              <g>
+                <!-- main plank wall -->
+                <rect x="0" y="96" width="280" height="44" fill="#5a3a1c"/>
+                <!-- plank shading -->
+                <rect x="0" y="96" width="280" height="2" fill="#7a5a3a"/>
+                <rect x="0" y="138" width="280" height="2" fill="#3a2a14"/>
+                <!-- vertical plank seams -->
+                <g stroke="#3a2a14" stroke-width="1">
+                  <line x1="20" y1="96" x2="20" y2="140"/>
+                  <line x1="48" y1="96" x2="48" y2="140"/>
+                  <line x1="76" y1="96" x2="76" y2="140"/>
+                  <line x1="104" y1="96" x2="104" y2="140"/>
+                  <line x1="132" y1="96" x2="132" y2="140"/>
+                  <line x1="160" y1="96" x2="160" y2="140"/>
+                  <line x1="188" y1="96" x2="188" y2="140"/>
+                  <line x1="216" y1="96" x2="216" y2="140"/>
+                  <line x1="244" y1="96" x2="244" y2="140"/>
+                </g>
+                <!-- nails -->
+                <g fill="#222">
+                  <rect x="8" y="100" width="2" height="2"/>
+                  <rect x="38" y="100" width="2" height="2"/>
+                  <rect x="66" y="100" width="2" height="2"/>
+                  <rect x="94" y="100" width="2" height="2"/>
+                  <rect x="178" y="100" width="2" height="2"/>
+                  <rect x="206" y="100" width="2" height="2"/>
+                  <rect x="234" y="100" width="2" height="2"/>
+                  <rect x="262" y="100" width="2" height="2"/>
+                </g>
+                <!-- battle damage -->
+                <rect x="50" y="108" width="14" height="2" fill="#3a2a14"/>
+                <rect x="186" y="118" width="10" height="2" fill="#3a2a14"/>
+                <!-- top spikes -->
+                <g fill="#5a3a1c">
+                  <polygon points="0,96 8,90 16,96"/>
+                  <polygon points="20,96 28,86 36,96"/>
+                  <polygon points="48,96 56,90 64,96"/>
+                  <polygon points="76,96 84,86 92,96"/>
+                  <polygon points="104,96 112,88 120,96"/>
+                  <polygon points="160,96 168,86 176,96"/>
+                  <polygon points="188,96 196,90 204,96"/>
+                  <polygon points="216,96 224,86 232,96"/>
+                  <polygon points="244,96 252,90 260,96"/>
+                  <polygon points="260,96 268,94 276,96"/>
+                </g>
+              </g>
+              <!-- pug peeking from behind wall, near turret -->
+              <g transform="translate(130,86)">
+                <!-- ears -->
+                <rect x="-9" y="-8" width="4" height="4" fill="#6b3a1c"/>
+                <rect x="5" y="-8" width="4" height="4" fill="#6b3a1c"/>
+                <!-- head -->
+                <rect x="-8" y="-4" width="16" height="10" fill="#c8854a"/>
+                <rect x="-8" y="-4" width="16" height="2" fill="#e0a566"/>
+                <!-- mask -->
+                <rect x="-6" y="0" width="12" height="6" fill="#1a0d05"/>
+                <!-- eyes -->
+                <rect x="-4" y="0" width="2" height="2" fill="#fff"/>
+                <rect x="2" y="0" width="2" height="2" fill="#fff"/>
+                <rect x="-3" y="1" width="1" height="1" fill="#000"/>
+                <rect x="3" y="1" width="1" height="1" fill="#000"/>
+                <!-- helmet strap -->
+                <rect x="-9" y="-3" width="18" height="2" fill="#3a3a48"/>
+                <!-- combat helmet -->
+                <rect x="-10" y="-10" width="20" height="4" fill="#3a3a48"/>
+                <rect x="-10" y="-10" width="20" height="1" fill="#5a5a68"/>
+                <rect x="-2" y="-12" width="4" height="2" fill="#3a3a48"/>
+              </g>
+              <!-- TURRET on top of wall (right of pug) -->
+              <g transform="translate(150,80)">
+                <!-- base -->
+                <rect x="-6" y="6" width="12" height="6" fill="#4a4a52"/>
+                <rect x="-6" y="6" width="12" height="1" fill="#6a6a72"/>
+                <!-- swivel -->
+                <rect x="-4" y="2" width="8" height="4" fill="#666672"/>
+                <!-- barrel pointing diagonally -->
+                <rect x="-2" y="-2" width="24" height="3" fill="#222228" transform="rotate(-25)"/>
+                <rect x="-2" y="-2" width="24" height="1" fill="#444450" transform="rotate(-25)"/>
+                <!-- targeting laser dot -->
+                <circle r="1.5" fill="#ff3a3a"/>
+              </g>
+              <!-- generator on left side of wall, glowing cyan -->
+              <g transform="translate(40,88)">
+                <rect x="-7" y="0" width="14" height="10" fill="#1a1a22"/>
+                <rect x="-7" y="0" width="14" height="2" fill="#2a2a32"/>
+                <!-- power core -->
+                <circle r="3" cx="0" cy="5" fill="#4cc9f0" filter="url(#fortGlow)"/>
+                <circle r="1.5" cx="0" cy="5" fill="#fff"/>
+                <!-- vents -->
+                <rect x="-5" y="6" width="2" height="3" fill="#4cc9f0"/>
+                <rect x="3" y="6" width="2" height="3" fill="#4cc9f0"/>
+              </g>
+              <!-- top-left "WAVE 3" badge -->
+              <g transform="translate(8,8)">
+                <rect width="56" height="12" rx="2" fill="#000" opacity="0.6"/>
+                <rect width="56" height="12" rx="2" fill="none" stroke="#5ef38c" stroke-width="1"/>
+                <text x="28" y="9" text-anchor="middle" font-family="'Press Start 2P', monospace" font-size="6" fill="#5ef38c">NIGHT 3</text>
+              </g>
+            </svg>
           </div>
           <div class="card__body">
             <h2 class="card__title">PUGFORT.EXE</h2>
@@ -40,7 +402,27 @@
         </a>
 
         <div class="card card--coming">
-          <div class="card__art card__art--soon"></div>
+          <div class="card__art card__art--soon">
+            <svg class="card__svg" viewBox="0 0 280 160" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">
+              <defs>
+                <pattern id="soonStripes" patternUnits="userSpaceOnUse" width="20" height="20" patternTransform="rotate(45)">
+                  <rect width="10" height="20" fill="#1a1230"/>
+                  <rect x="10" width="10" height="20" fill="#161020"/>
+                </pattern>
+              </defs>
+              <rect width="280" height="160" fill="url(#soonStripes)"/>
+              <g transform="translate(140,80)" text-anchor="middle">
+                <rect x="-46" y="-12" width="92" height="24" rx="3" fill="#0a0716" opacity="0.85" stroke="#8a90b1"/>
+                <text y="6" font-family="'Press Start 2P', monospace" font-size="9" fill="#8a90b1">SOON</text>
+              </g>
+              <g fill="#8a90b1" opacity="0.55">
+                <rect x="40" y="38" width="3" height="3"/>
+                <rect x="220" y="48" width="3" height="3"/>
+                <rect x="60" y="120" width="3" height="3"/>
+                <rect x="230" y="118" width="3" height="3"/>
+              </g>
+            </svg>
+          </div>
           <div class="card__body">
             <h2 class="card__title">More games coming</h2>
             <p class="card__desc">Snake.io, brick breaker, and more on the way.</p>

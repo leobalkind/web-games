@@ -4,6 +4,8 @@
 // =============================================================================
 let ctx = null;
 let masterGain = null;
+let muted = false;
+let baseVolume = 0.5;
 
 function ensureCtx() {
   if (ctx) return ctx;
@@ -270,6 +272,17 @@ export const Sfx = {
 
   setVolume(v) {
     ensureCtx();
-    if (masterGain) masterGain.gain.value = Math.max(0, Math.min(1, v));
+    baseVolume = Math.max(0, Math.min(1, v));
+    if (masterGain) masterGain.gain.value = muted ? 0 : baseVolume;
   },
+  setMuted(m) {
+    muted = !!m;
+    ensureCtx();
+    if (masterGain) masterGain.gain.value = muted ? 0 : baseVolume;
+  },
+  toggleMute() {
+    this.setMuted(!muted);
+    return muted;
+  },
+  isMuted() { return muted; },
 };
