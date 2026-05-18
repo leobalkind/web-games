@@ -306,6 +306,12 @@ body::after {
 .card__art--bumper   { border-bottom: 2px solid rgba(255, 210, 63, 0.65); box-shadow: inset 0 -6px 14px rgba(255, 210, 63, 0.18); }
 .card__art--traffic  { border-bottom: 2px solid rgba(94, 243, 140, 0.65); box-shadow: inset 0 -6px 14px rgba(94, 243, 140, 0.18); }
 .card__art--snoot    { border-bottom: 2px solid rgba(255, 58, 161, 0.65); box-shadow: inset 0 -6px 14px rgba(255, 58, 161, 0.18); }
+.card__art--heist    { border-bottom: 2px solid rgba(255, 58, 58, 0.6);   box-shadow: inset 0 -6px 14px rgba(255, 58, 58, 0.15); }
+.card__art--cafe     { border-bottom: 2px solid rgba(255, 210, 63, 0.65); box-shadow: inset 0 -6px 14px rgba(255, 210, 63, 0.18); }
+.card__art--rocket   { border-bottom: 2px solid rgba(255, 142, 60, 0.65); box-shadow: inset 0 -6px 14px rgba(255, 142, 60, 0.18); }
+.card__art--diggers  { border-bottom: 2px solid rgba(255, 210, 63, 0.6);  box-shadow: inset 0 -6px 14px rgba(255, 210, 63, 0.16); }
+.card__art--lab      { border-bottom: 2px solid rgba(176, 85, 255, 0.65); box-shadow: inset 0 -6px 14px rgba(176, 85, 255, 0.18); }
+.card__art--delivery { border-bottom: 2px solid rgba(94, 243, 140, 0.6);  box-shadow: inset 0 -6px 14px rgba(94, 243, 140, 0.15); }
 .card__art--soon {
   border-bottom: 2px solid rgba(138, 144, 177, 0.4);
   opacity: 0.7;

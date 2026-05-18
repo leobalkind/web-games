@@ -1,0 +1,40 @@
+<!doctype html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0a0716"><title>APOCALYPSE DELIVERY PUGS</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../../src/shared/gameBase.css">
+</head><body>
+<canvas id="game-canvas"></canvas>
+<button id="mute-btn" class="mute-btn">🔊</button>
+<div id="overlay" class="overlay"><div class="overlay__panel">
+  <div class="overlay__tag">POST-APOC · DELIVERY</div>
+  <h1 class="overlay__title">APOCALYPSE DELIVERY PUGS</h1>
+  <p class="overlay__sub">The world ended but pizza didn't. Race a delivery pug across the ruined city. Dodge zombies, mutant cats, and exploding mailboxes. Get to the marker before time runs out.</p>
+  <ul class="overlay__controls">
+    <li><b>WASD</b> / <b>ARROWS</b> drive · <b>SHIFT</b> boost (uses fuel)</li>
+    <li>Touch: drag to steer</li>
+    <li>Each delivery: +time + new vehicle chance</li>
+  </ul>
+  <button id="start-btn" class="overlay__btn">DELIVER</button>
+  <a class="overlay__back" href="../../index.html">← back to hub</a>
+</div></div>
+<div id="hud" hidden><div class="hud-card">
+  <div class="hud-row"><b>DELIVERIES</b> <span id="hud-del">0</span></div>
+  <div class="hud-row"><b>TIME</b> <span id="hud-time">30</span></div>
+  <div class="hud-row"><b>FUEL</b> <span id="hud-fuel">100</span></div>
+  <div class="hud-row hud-row--small"><b>VEHICLE</b> <span id="hud-vehicle">skateboard</span></div>
+  <div class="hud-row hud-row--small"><b>BEST</b> <span id="hud-best">0</span></div>
+</div></div>
+<div id="end-overlay" class="overlay is-hidden" hidden><div class="overlay__panel">
+  <h2 class="overlay__title" id="end-title">PIZZA COLD</h2>
+  <p class="overlay__sub" id="end-sub">Time ran out. The customer is upset.</p>
+  <ul class="end-stats">
+    <li>Deliveries: <b id="end-del">0</b></li>
+    <li>Tip: <b id="end-tip">$0</b></li>
+    <li id="end-best">Best: <b>—</b></li>
+  </ul>
+  <button id="end-restart" class="overlay__btn">REDELIVER</button>
+  <a class="overlay__back" href="../../index.html">← back to hub</a>
+</div></div>
+<script type="module" src="./main.js"></script>
+</body></html>

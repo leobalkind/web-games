@@ -1,0 +1,44 @@
+<!doctype html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0a0716"><title>PUG DUNGEON DIGGERS</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../../src/shared/gameBase.css">
+</head><body>
+<canvas id="game-canvas"></canvas>
+<button id="mute-btn" class="mute-btn">🔊</button>
+<div id="upgrades" style="position:fixed;bottom:12px;left:12px;right:12px;display:none;z-index:50;background:rgba(10,7,22,0.9);border:2px solid var(--neon-yellow);border-radius:8px;padding:10px;text-align:center;">
+  <div style="font-family:var(--font-display);font-size:0.6rem;color:var(--neon-yellow);margin-bottom:8px;letter-spacing:0.1em;">UPGRADES (tap to buy)</div>
+  <div id="upg-buttons" style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;"></div>
+</div>
+<div id="overlay" class="overlay"><div class="overlay__panel">
+  <div class="overlay__tag">MINING · UPGRADES</div>
+  <h1 class="overlay__title">PUG DUNGEON DIGGERS</h1>
+  <p class="overlay__sub">Dig through dirt and stone for treasure, ancient bones, cursed chew toys, and golden biscuits. Spend $ on better drills, backpacks, helmets. Unlock the Cheese Caverns.</p>
+  <ul class="overlay__controls">
+    <li><b>WASD</b> / <b>ARROWS</b> dig through any tile (or touch-drag)</li>
+    <li>Each tile costs stamina; refill at surface</li>
+    <li>Return to surface (top row) to deposit treasure + buy upgrades</li>
+  </ul>
+  <button id="start-btn" class="overlay__btn">DIG</button>
+  <a class="overlay__back" href="../../index.html">← back to hub</a>
+</div></div>
+<div id="hud" hidden><div class="hud-card">
+  <div class="hud-row"><b>$</b> <span id="hud-money">0</span></div>
+  <div class="hud-row"><b>DEPTH</b> <span id="hud-depth">0</span></div>
+  <div class="hud-row"><b>STAM</b> <span id="hud-stam">100</span></div>
+  <div class="hud-row hud-row--small"><b>BAG</b> <span id="hud-bag">0/10</span></div>
+  <div class="hud-row hud-row--small"><b>BEST</b> <span id="hud-best">0</span></div>
+</div></div>
+<div id="end-overlay" class="overlay is-hidden" hidden><div class="overlay__panel">
+  <h2 class="overlay__title">DUG OUT</h2>
+  <p class="overlay__sub" id="end-sub">You collapsed exhausted.</p>
+  <ul class="end-stats">
+    <li>Total $: <b id="end-money">0</b></li>
+    <li>Max depth: <b id="end-depth">0</b></li>
+    <li id="end-best">Best: <b>—</b></li>
+  </ul>
+  <button id="end-restart" class="overlay__btn">REDIG</button>
+  <a class="overlay__back" href="../../index.html">← back to hub</a>
+</div></div>
+<script type="module" src="./main.js"></script>
+</body></html>

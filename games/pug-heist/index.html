@@ -1,0 +1,40 @@
+<!doctype html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0a0716"><title>PUG HEIST SOCIETY</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../../src/shared/gameBase.css">
+</head><body>
+<canvas id="game-canvas"></canvas>
+<button id="mute-btn" class="mute-btn">🔊</button>
+<div id="overlay" class="overlay"><div class="overlay__panel">
+  <div class="overlay__tag">STEALTH COMEDY</div>
+  <h1 class="overlay__title">PUG HEIST SOCIETY</h1>
+  <p class="overlay__sub">You're a tiny spy pug. Sneak through the house. Steal snacks, socks, and forbidden cheese. Avoid the human's vision cone. Use distract-bark or fart-boost to escape.</p>
+  <ul class="overlay__controls">
+    <li><b>WASD</b> / <b>ARROWS</b> sneak</li>
+    <li><b>SPACE</b> bark (distracts) · <b>SHIFT</b> fart boost (loud!)</li>
+    <li>Grab all loot then reach the EXIT</li>
+  </ul>
+  <button id="start-btn" class="overlay__btn">SNEAK IN</button>
+  <a class="overlay__back" href="../../index.html">← back to hub</a>
+</div></div>
+<div id="hud" hidden><div class="hud-card">
+  <div class="hud-row"><b>LOOT</b> <span id="hud-loot">0/?</span></div>
+  <div class="hud-row"><b>FLOOR</b> <span id="hud-floor">1</span></div>
+  <div class="hud-row hud-row--small"><b>BARK</b> <span id="hud-bark">READY</span></div>
+  <div class="hud-row hud-row--small"><b>FART</b> <span id="hud-fart">READY</span></div>
+  <div class="hud-row hud-row--small"><b>BEST</b> <span id="hud-best">0</span></div>
+</div></div>
+<div id="end-overlay" class="overlay is-hidden" hidden><div class="overlay__panel">
+  <h2 class="overlay__title" id="end-title">CAUGHT!</h2>
+  <p class="overlay__sub" id="end-sub">The human saw you.</p>
+  <ul class="end-stats">
+    <li>Floors: <b id="end-floor">0</b></li>
+    <li>Loot stolen: <b id="end-loot">0</b></li>
+    <li id="end-best">Best: <b>—</b></li>
+  </ul>
+  <button id="end-restart" class="overlay__btn">REHEIST</button>
+  <a class="overlay__back" href="../../index.html">← back to hub</a>
+</div></div>
+<script type="module" src="./main.js"></script>
+</body></html>

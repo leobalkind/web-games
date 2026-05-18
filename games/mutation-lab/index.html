@@ -1,0 +1,73 @@
+<!doctype html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0a0716"><title>PUG MUTATION LAB</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../../src/shared/gameBase.css">
+<style>
+#lab { position: fixed; inset: 0; display: grid; grid-template-rows: 1fr auto auto; padding: 60px 12px 12px; gap: 10px; z-index: 30; }
+#lab[hidden] { display: none; }
+.lab-shelf { background: rgba(10,7,22,0.8); border: 2px solid var(--border); border-radius: 8px; padding: 10px; overflow-y: auto; max-height: 100%; }
+.lab-shelf h3 { margin: 0 0 8px; font-size: 0.55rem; letter-spacing: 0.1em; color: var(--neon-cyan); }
+.lab-items { display: flex; flex-wrap: wrap; gap: 6px; }
+.lab-item { background: rgba(0,0,0,0.45); border: 2px solid var(--border); border-radius: 6px; padding: 6px 8px 4px; cursor: pointer; min-width: 64px; text-align: center; transition: all 0.12s; -webkit-tap-highlight-color: transparent; }
+.lab-item:hover, .lab-item.active { border-color: var(--neon-yellow); background: rgba(255,210,63,0.15); transform: translateY(-2px); }
+.lab-item__icon { font-size: 24px; line-height: 1; }
+.lab-item__name { font-size: 0.42rem; color: var(--text-soft); margin-top: 3px; }
+.lab-item__count { font-size: 0.38rem; color: var(--neon-yellow); }
+.lab-beaker { background: rgba(10,7,22,0.8); border: 3px solid var(--neon-pink); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; align-items: center; gap: 10px; min-height: 130px; box-shadow: 0 0 24px rgba(255,58,161,0.3); }
+.lab-beaker h3 { margin: 0; font-size: 0.55rem; color: var(--neon-pink); letter-spacing: 0.1em; }
+.lab-slots { display: flex; gap: 10px; }
+.lab-slot { width: 60px; height: 60px; background: rgba(0,0,0,0.45); border: 2px dashed var(--border); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 32px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.lab-slot.filled { border-style: solid; border-color: var(--neon-yellow); }
+.lab-fuse { background: linear-gradient(180deg, var(--neon-pink), #c01884); color: #fff; border: 3px solid #ff8fc8; padding: 10px 22px; font-family: var(--font-display); font-size: 0.7rem; letter-spacing: 0.08em; border-radius: 4px; cursor: pointer; box-shadow: 0 4px 0 #6b0c4a; }
+.lab-fuse:disabled { opacity: 0.4; cursor: not-allowed; }
+.lab-fuse:hover:not(:disabled) { transform: translateY(-2px); }
+.lab-result { background: rgba(0,0,0,0.8); border: 3px solid var(--neon-yellow); border-radius: 10px; padding: 18px 22px; text-align: center; min-width: 280px; box-shadow: 0 0 40px rgba(255,210,63,0.4); }
+.lab-result__name { font-family: var(--font-display); font-size: 0.85rem; color: var(--neon-yellow); margin: 0 0 8px; letter-spacing: 0.05em; }
+.lab-result__pug { font-size: 64px; line-height: 1; margin: 6px 0; }
+.lab-result__rarity { font-size: 0.5rem; color: var(--neon-cyan); letter-spacing: 0.1em; margin: 4px 0; }
+.lab-result__caption { font-size: 0.5rem; color: var(--text-soft); margin-top: 4px; }
+.lab-result.legendary { border-color: var(--neon-yellow); box-shadow: 0 0 60px var(--neon-yellow); }
+.lab-result.cursed { border-color: var(--crimson); box-shadow: 0 0 60px var(--crimson); }
+.lab-result.cursed .lab-result__name { color: var(--crimson); }
+.lab-collection { display: flex; gap: 4px; margin-top: 6px; max-width: 100%; overflow-x: auto; padding: 4px; }
+.lab-collection .lab-item { min-width: 50px; padding: 4px; }
+.lab-collection .lab-item__icon { font-size: 18px; }
+</style></head><body>
+<button id="mute-btn" class="mute-btn">🔊</button>
+<div id="overlay" class="overlay"><div class="overlay__panel">
+  <div class="overlay__tag">CRAFTING · DISCOVERY</div>
+  <h1 class="overlay__title">PUG MUTATION LAB</h1>
+  <p class="overlay__sub">Combine 3 ingredients. Get a cursed pug. Some are legendary. Some are abominations. Collect them all.</p>
+  <ul class="overlay__controls">
+    <li>Tap 3 ingredients → tap FUSE → see what crawls out</li>
+    <li>40+ unique pug species hidden in the recipes</li>
+  </ul>
+  <button id="start-btn" class="overlay__btn">PLAY</button>
+  <a class="overlay__back" href="../../index.html">← back to hub</a>
+</div></div>
+<div id="hud" hidden><div class="hud-card">
+  <div class="hud-row"><b>DISCOVERED</b> <span id="hud-discovered">0/40</span></div>
+  <div class="hud-row"><b>LEGENDARY</b> <span id="hud-legendary">0/5</span></div>
+  <div class="hud-row hud-row--small"><b>EXPERIMENTS</b> <span id="hud-exp">0</span></div>
+</div></div>
+<div id="lab" hidden>
+  <div class="lab-shelf">
+    <h3>INGREDIENT SHELF</h3>
+    <div id="ingredients" class="lab-items"></div>
+    <h3 style="margin-top:14px;">DISCOVERED PUGS</h3>
+    <div id="collection" class="lab-collection"></div>
+  </div>
+  <div class="lab-beaker">
+    <h3>BEAKER OF BORK</h3>
+    <div class="lab-slots">
+      <div class="lab-slot" data-slot="0">+</div>
+      <div class="lab-slot" data-slot="1">+</div>
+      <div class="lab-slot" data-slot="2">+</div>
+    </div>
+    <button id="lab-fuse" class="lab-fuse" disabled>⚗ FUSE</button>
+  </div>
+  <div id="result" style="display:flex;justify-content:center;"></div>
+</div>
+<script type="module" src="./main.js"></script>
+</body></html>
