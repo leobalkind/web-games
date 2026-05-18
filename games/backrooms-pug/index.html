@@ -1,0 +1,38 @@
+<!doctype html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0a0716"><title>THE BACKROOMS OF PUG</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../../src/shared/gameBase.css">
+</head><body>
+<canvas id="game-canvas"></canvas>
+<button id="mute-btn" class="mute-btn">🔊</button>
+<div id="overlay" class="overlay"><div class="overlay__panel">
+  <div class="overlay__tag">HORROR · STEALTH</div>
+  <h1 class="overlay__title">THE BACKROOMS OF PUG</h1>
+  <p class="overlay__sub">Endless yellow hallways. A giant pug hunts you using sound and movement. Collect 5 cans of dog food. Find the exit. Don't run unless you have to.</p>
+  <ul class="overlay__controls">
+    <li><b>WASD</b> walk · <b>SHIFT</b> hold to walk silently (slower)</li>
+    <li>Running makes loud footsteps the pug can hear</li>
+  </ul>
+  <button id="start-btn" class="overlay__btn">ENTER</button>
+  <a class="overlay__back" href="../../index.html">← back to hub</a>
+</div></div>
+<div id="hud" hidden><div class="hud-card">
+  <div class="hud-row"><b>CANS</b> <span id="hud-cans">0/5</span></div>
+  <div class="hud-row"><b>STATE</b> <span id="hud-state">SAFE</span></div>
+  <div class="hud-row hud-row--small"><b>DEPTH</b> <span id="hud-depth">Level 1</span></div>
+  <div class="hud-row hud-row--small"><b>BEST</b> <span id="hud-best">0</span></div>
+</div></div>
+<div id="end-overlay" class="overlay is-hidden" hidden><div class="overlay__panel">
+  <h2 class="overlay__title" id="end-title">SCREAMED</h2>
+  <p class="overlay__sub" id="end-sub">The giant pug found you.</p>
+  <ul class="end-stats">
+    <li>Level reached: <b id="end-level">1</b></li>
+    <li>Cans collected: <b id="end-cans">0</b></li>
+    <li id="end-best">Best: <b>—</b></li>
+  </ul>
+  <button id="end-restart" class="overlay__btn">REENTER</button>
+  <a class="overlay__back" href="../../index.html">← back to hub</a>
+</div></div>
+<script type="module" src="./main.js"></script>
+</body></html>

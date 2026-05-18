@@ -310,6 +310,7 @@ function start() {
 let lastT = performance.now();
 (function loop(now) {
   const dt = Math.min((now - lastT) / 1000, 0.05);
-  lastT = now; tickInvuln(dt); tick(dt); render();
+  lastT = now; tickInvuln(dt); tick(dt);
+  if (running) render();
   requestAnimationFrame(loop);
 })(performance.now());
