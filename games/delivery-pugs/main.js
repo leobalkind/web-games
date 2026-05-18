@@ -26,10 +26,24 @@ const VEHICLES = {
   tinyTank:      { name: 'tiny tank',    speed: 200, turn: 3.0, hp: 4, color: '#5ef38c', icon: '🚙' },
   hoverBoard:    { name: 'hoverboard',   speed: 330, turn: 5.2, hp: 1, color: '#b055ff', icon: '🛹' },
   scooter:       { name: 'scooter',      speed: 260, turn: 4.8, hp: 2, color: '#ffd23f', icon: '🛴' },
+  motorbike:     { name: 'motorbike',    speed: 360, turn: 4.0, hp: 1, color: '#ff3a3a', icon: '🏍' },
+  pizzaTruck:    { name: 'pizza truck',  speed: 180, turn: 2.4, hp: 6, color: '#5a3a1c', icon: '🍕' },
+  rocketSled:    { name: 'rocket sled',  speed: 410, turn: 5.6, hp: 1, color: '#ff5a3a', icon: '🚀' },
+  boneChopper:   { name: 'bone chopper', speed: 300, turn: 4.2, hp: 2, color: '#eae0c0', icon: '🦴' },
 };
 
 let pug, vehicle, marker, obstacles, time, deliveries, fuel, running, cam;
 let powerups, skidMarks, nitroT, shieldT, magnetT;
+let combo = 0, comboT = 0, toxicPuddles = [], spikeStrips = [], achievementsSeen = new Set();
+const ACHIEVEMENTS = {
+  1: 'FIRST DELIVERY! 🎉',
+  5: '5 DELIVERIES — getting good',
+  10: '10! pizza is hot',
+  25: '25 — neighborhood favorite',
+  50: '50 — DELIVERY LEGEND',
+  100: '100 — pug of the year',
+};
+let toasts = []; // {text, t}
 const keys = new Set();
 let touchAim = null;
 
@@ -45,8 +59,21 @@ function reset() {
   for (let i = 0; i < 5; i++) spawnPowerup();
   skidMarks = [];
   nitroT = 0; shieldT = 0; magnetT = 0;
+  combo = 0; comboT = 0;
+  toxicPuddles = []; spikeStrips = []; toasts = [];
+  // Spawn raccoons (2), toxic puddles (5), spike strips (4)
+  for (let i = 0; i < 2; i++) spawnRaccoon();
+  for (let i = 0; i < 5; i++) toxicPuddles.push({ x: rand(80, WORLD_W - 80), y: rand(80, WORLD_H - 80), r: 36 });
+  for (let i = 0; i < 4; i++) spikeStrips.push({ x: rand(80, WORLD_W - 80), y: rand(80, WORLD_H - 80), w: 80 });
   time = 30; deliveries = 0; fuel = 100;
   cam = { x: pug.x, y: pug.y };
+}
+function spawnRaccoon() {
+  obstacles.push({
+    type: 'raccoon',
+    x: rand(0, WORLD_W), y: rand(0, WORLD_H),
+    vx: 0, vy: 0, speed: 130, stealT: 0,
+  });
 }
 function spawnDrone() {
   obstacles.push({
@@ -122,6 +149,24 @@ function tick(dt) {
   nitroT = Math.max(0, nitroT - dt);
   shieldT = Math.max(0, shieldT - dt);
   magnetT = Math.max(0, magnetT - dt);
+  comboT = Math.max(0, comboT - dt);
+  if (comboT <= 0) combo = 0;
+  for (const t of toasts) t.t += dt;
+  toasts = toasts.filter((t) => t.t < 2.5);
+  // Toxic puddle damage
+  for (const p of toxicPuddles) {
+    if (Math.hypot(p.x - pug.x, p.y - pug.y) < p.r) {
+      if (Math.random() < dt * 4) damage();
+    }
+  }
+  // Spike strip damage
+  for (const s of spikeStrips) {
+    if (pug.x > s.x - s.w / 2 && pug.x < s.x + s.w / 2 && Math.abs(pug.y - s.y) < 14) {
+      damage();
+      // pop the strip
+      s.x = -9999;
+    }
+  }
   pug.vx += Math.cos(pug.ang) * vehicle.speed * boost * throttle * dt * 2;
   pug.vy += Math.sin(pug.ang) * vehicle.speed * boost * throttle * dt * 2;
   pug.vx *= Math.pow(0.5, dt * 3); pug.vy *= Math.pow(0.5, dt * 3);
@@ -164,14 +209,26 @@ function tick(dt) {
   // Marker reach
   if (Math.hypot(pug.x - marker.x, pug.y - marker.y) < 50) {
     deliveries++;
-    time = Math.min(time + 18, 60);
+    // Combo: deliveries within 12s chain
+    if (comboT > 0) combo = Math.min(99, combo + 1); else combo = 1;
+    comboT = 12;
+    const bonusTime = 18 + Math.floor(combo * 0.5);
+    time = Math.min(time + bonusTime, 60);
     sfx.arp([523, 659, 784, 1047], 'triangle', 0.08, 0.22, 0.25);
-    // Maybe upgrade vehicle
+    // Achievement check
+    if (ACHIEVEMENTS[deliveries] && !achievementsSeen.has(deliveries)) {
+      toasts.push({ text: '🏆 ' + ACHIEVEMENTS[deliveries], t: 0 });
+      achievementsSeen.add(deliveries);
+      sfx.arp([880, 1320, 1760], 'triangle', 0.1, 0.25, 0.3);
+    }
+    if (combo >= 3) toasts.push({ text: `COMBO ×${combo}!`, t: 0 });
+    // Maybe upgrade vehicle (every 5 deliveries)
     if (deliveries % 5 === 0) {
       const keys2 = Object.keys(VEHICLES);
       vehicle = VEHICLES[keys2[Math.floor(Math.random() * keys2.length)]];
       pug.hp = vehicle.hp;
       sfx.tone(1320, 'triangle', 0.2, 0.25);
+      toasts.push({ text: `${vehicle.icon} ${vehicle.name.toUpperCase()}!`, t: 0 });
     }
     marker = newMarker();
   }
@@ -196,6 +253,21 @@ function tick(dt) {
       }
       o.x += o.vx * dt; o.y += o.vy * dt;
       o.vx *= 0.92; o.vy *= 0.92;
+    } else if (o.type === 'raccoon') {
+      // Raccoon: dart toward pug, on touch steal 4 seconds and flee
+      const dx = pug.x - o.x, dy = pug.y - o.y;
+      const d = Math.hypot(dx, dy);
+      o.stealT = Math.max(0, o.stealT - dt);
+      if (o.stealT > 0) {
+        // Flee away
+        o.vx = -(dx / d) * o.speed * 1.5;
+        o.vy = -(dy / d) * o.speed * 1.5;
+      } else if (d < 400) {
+        o.vx = (dx / d) * o.speed;
+        o.vy = (dy / d) * o.speed;
+        if (d < 22) { time = Math.max(2, time - 4); o.stealT = 2.0; sfx.tone(330, 'sawtooth', 0.2, 0.22); }
+      } else { o.vx *= 0.95; o.vy *= 0.95; }
+      o.x += o.vx * dt; o.y += o.vy * dt;
     } else if (o.type === 'drone') {
       // Drone slowly chases, dives every few seconds
       const dx = pug.x - o.x, dy = pug.y - o.y;
@@ -268,6 +340,27 @@ function render() {
     const x = (i * 173) % WORLD_W;
     const y = (i * 211) % WORLD_H;
     ctx.fillRect(x, y, 18, 18);
+  }
+  // Toxic puddles
+  for (const p of toxicPuddles) {
+    ctx.fillStyle = `rgba(94,243,140,${0.3 + Math.sin(performance.now()/300) * 0.1})`;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#5ef38c'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.stroke();
+  }
+  // Spike strips
+  for (const s of spikeStrips) {
+    if (s.x < -9000) continue;
+    ctx.fillStyle = '#222';
+    ctx.fillRect(s.x - s.w / 2, s.y - 4, s.w, 8);
+    ctx.fillStyle = '#c8c8c8';
+    for (let x = -s.w / 2; x < s.w / 2; x += 8) {
+      ctx.beginPath();
+      ctx.moveTo(s.x + x, s.y - 4);
+      ctx.lineTo(s.x + x + 4, s.y - 12);
+      ctx.lineTo(s.x + x + 8, s.y - 4);
+      ctx.closePath(); ctx.fill();
+    }
   }
   // Skid marks (under everything)
   for (const s of skidMarks) {
@@ -381,6 +474,31 @@ function render() {
   drawChip('NITRO', nitroT, '#ff8e3c');
   drawChip('SHIELD', shieldT, '#4cc9f0');
   drawChip('MAGNET', magnetT, '#b055ff');
+  // Combo banner
+  if (combo > 1 && running) {
+    ctx.fillStyle = '#ffd23f';
+    ctx.font = "bold 22px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 12;
+    ctx.fillText(`COMBO ×${combo}`, W / 2, 90);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(W / 2 - 80, 100, 160, 4);
+    ctx.fillStyle = '#ffd23f';
+    ctx.fillRect(W / 2 - 80, 100, 160 * (comboT / 12), 4);
+  }
+  // Toasts (achievement/combo messages)
+  for (let i = 0; i < toasts.length; i++) {
+    const t = toasts[i];
+    const alpha = t.t < 0.3 ? t.t / 0.3 : (t.t > 2.0 ? (2.5 - t.t) / 0.5 : 1);
+    ctx.globalAlpha = Math.max(0, alpha);
+    ctx.fillStyle = 'rgba(0,0,0,0.8)';
+    const tw = ctx.measureText(t.text).width + 36;
+    ctx.fillRect(W / 2 - tw / 2, 140 + i * 30, tw, 24);
+    ctx.fillStyle = '#ffd23f';
+    ctx.font = "bold 12px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText(t.text, W / 2, 156 + i * 30);
+    ctx.globalAlpha = 1;
+  }
   // Minimap (top-right area)
   const mmW = 130, mmH = 90, mmX = W - mmW - 12, mmY = 60;
   ctx.fillStyle = 'rgba(0,0,0,0.6)';
@@ -402,7 +520,15 @@ function render() {
 }
 
 function drawObstacle(o) {
-  if (o.type === 'drone') {
+  if (o.type === 'raccoon') {
+    ctx.fillStyle = '#5a5a5a'; ctx.beginPath(); ctx.arc(o.x, o.y, 9, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#222'; ctx.fillRect(o.x - 7, o.y - 3, 5, 3); ctx.fillRect(o.x + 2, o.y - 3, 5, 3);
+    ctx.fillStyle = '#fff'; ctx.fillRect(o.x - 4, o.y - 2, 2, 2); ctx.fillRect(o.x + 2, o.y - 2, 2, 2);
+    ctx.fillStyle = '#000'; ctx.fillRect(o.x - 3, o.y - 1, 1, 1); ctx.fillRect(o.x + 3, o.y - 1, 1, 1);
+    // tail
+    ctx.fillStyle = '#5a5a5a'; ctx.fillRect(o.x + 7, o.y - 2, 8, 4);
+    ctx.fillStyle = '#222'; ctx.fillRect(o.x + 10, o.y - 2, 2, 4);
+  } else if (o.type === 'drone') {
     // Glowing drone with shadow
     ctx.fillStyle = 'rgba(0,0,0,0.4)';
     ctx.beginPath(); ctx.ellipse(o.x, o.y + 18, 12, 4, 0, 0, Math.PI * 2); ctx.fill();

@@ -18,8 +18,28 @@ function resize() {
 }
 window.addEventListener('resize', resize); resize();
 
-const LOOT_TYPES = ['🦴', '🧀', '🧦', '🍖', '🥓', '🥪'];
+// Loot types — varied values (rare = worth more)
+const LOOT_TYPES = [
+  { icon: '🦴', val: 50, rare: false },
+  { icon: '🧀', val: 60, rare: false },
+  { icon: '🧦', val: 30, rare: false },
+  { icon: '🍖', val: 45, rare: false },
+  { icon: '🥓', val: 55, rare: false },
+  { icon: '🥪', val: 40, rare: false },
+  { icon: '🎾', val: 35, rare: false },
+  { icon: '👑', val: 200, rare: true },   // crown
+  { icon: '💎', val: 150, rare: true },   // diamond
+  { icon: '📺', val: 120, rare: true },   // remote
+];
 let pug, humans, walls, loot, exitZ, floor, barkCd, fartCd, running;
+let smokeCd = 0, tongueCd = 0, decoyCd = 0;
+let smokeBombs = []; // {x,y,t}
+let particles = [];  // loot pickup particles
+let alertedThisFloor = false;
+let lootStolen = 0;
+let totalLootValue = 0;
+let lootValueThisFloor = 0;
+let floorStartTime = 0;
 
 function genFloor(level) {
   pug = { x: 60, y: H - 100, vx: 0, vy: 0, alive: true, fartT: 0, sound: 0 };
@@ -57,7 +77,10 @@ function genFloor(level) {
       const x = 30 + Math.random() * (W - 60);
       const y = 30 + Math.random() * (H - 60);
       if (!isWallNear(x, y, 16)) {
-        loot.push({ x, y, icon: LOOT_TYPES[Math.floor(Math.random() * LOOT_TYPES.length)], taken: false });
+        // 12% rare drop chance
+        const pool = Math.random() < 0.12 ? LOOT_TYPES.filter((t) => t.rare) : LOOT_TYPES.filter((t) => !t.rare);
+        const ltype = pool[Math.floor(Math.random() * pool.length)];
+        loot.push({ x, y, ...ltype, taken: false });
         break;
       }
     }
@@ -88,6 +111,11 @@ function genFloor(level) {
   // Exit
   exitZ = { x: W - 50, y: 50, r: 30 };
   barkCd = 0; fartCd = 0;
+  smokeCd = 0; tongueCd = 0; decoyCd = 0;
+  smokeBombs = []; particles = [];
+  alertedThisFloor = false;
+  lootValueThisFloor = 0;
+  floorStartTime = performance.now();
 }
 
 function isWallNear(x, y, r) {
@@ -110,6 +138,9 @@ window.addEventListener('keydown', (e) => {
   keys.add(e.key.toLowerCase());
   if (e.key === ' ' || e.code === 'Space') doBark();
   if (e.key === 'Shift' || e.key.toLowerCase() === 'shift') doFart();
+  if (e.key === 'q' || e.key === 'Q') doSmoke();
+  if (e.key === 'g' || e.key === 'G') doTongue();
+  if (e.key === 't' || e.key === 'T') doDecoy();
 });
 window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 let touchAim = null;
@@ -136,6 +167,59 @@ function doBark() {
     };
     near.state = 'distracted';
     near.alertT = 2.0;
+  }
+}
+
+function doSmoke() {
+  if (smokeCd > 0 || !running) return;
+  smokeCd = 7;
+  // 3s smoke cloud at pug position, blocks vision cones in radius 90
+  smokeBombs.push({ x: pug.x, y: pug.y, t: 0, life: 3 });
+  sfx.tone(330, 'sawtooth', 0.2, 0.2);
+}
+function doTongue() {
+  if (tongueCd > 0 || !running) return;
+  // Grab nearest visible loot within 180px
+  let near = null, bestD = 180;
+  for (const lt of loot) {
+    if (lt.taken) continue;
+    const d = Math.hypot(lt.x - pug.x, lt.y - pug.y);
+    if (d < bestD) { bestD = d; near = lt; }
+  }
+  if (near) {
+    near.taken = true;
+    lootValueThisFloor += near.val;
+    totalLootValue += near.val;
+    lootStolen++;
+    tongueCd = 4;
+    sfx.tone(880, 'triangle', 0.1, 0.22);
+    spawnParticles(near.x, near.y, '#ff5a82');
+  } else {
+    tongueCd = 1; // short cooldown on whiff
+    sfx.tone(220, 'sawtooth', 0.08, 0.16);
+  }
+}
+function doDecoy() {
+  if (decoyCd > 0 || !running) return;
+  decoyCd = 8;
+  // Distract nearest human: walk away from pug for 4s
+  let near = null, bestD = 280;
+  for (const h of humans) {
+    const d = Math.hypot(h.x - pug.x, h.y - pug.y);
+    if (d < bestD) { bestD = d; near = h; }
+  }
+  if (near) {
+    const ang = Math.atan2(near.y - pug.y, near.x - pug.x);
+    near.distractTarget = { x: near.x + Math.cos(ang) * 220, y: near.y + Math.sin(ang) * 220 };
+    near.state = 'distracted'; near.alertT = 4.0;
+  }
+  sfx.tone(440, 'square', 0.1, 0.2);
+}
+function spawnParticles(x, y, color) {
+  for (let i = 0; i < 10; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const s = 60 + Math.random() * 80;
+    particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, color, life: 0.6, t: 0, size: 3 });
   }
 }
 
@@ -176,9 +260,28 @@ function tick(dt) {
     if (lt.taken) continue;
     if (Math.hypot(lt.x - pug.x, lt.y - pug.y) < 20) {
       lt.taken = true;
-      sfx.tone(880, 'triangle', 0.1, 0.22);
+      lootValueThisFloor += lt.val;
+      totalLootValue += lt.val;
+      lootStolen++;
+      sfx.tone(lt.rare ? 1320 : 880, 'triangle', 0.1, 0.22);
+      spawnParticles(lt.x, lt.y, lt.rare ? '#ffd23f' : '#5ef38c');
     }
   }
+  // Gadget cooldown decay
+  smokeCd = Math.max(0, smokeCd - dt);
+  tongueCd = Math.max(0, tongueCd - dt);
+  decoyCd = Math.max(0, decoyCd - dt);
+  // Smoke bombs
+  for (let i = smokeBombs.length - 1; i >= 0; i--) {
+    const s = smokeBombs[i];
+    s.t += dt;
+    if (s.t >= s.life) smokeBombs.splice(i, 1);
+  }
+  // Particles
+  for (const p of particles) {
+    p.t += dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.95; p.vy *= 0.95;
+  }
+  particles = particles.filter((p) => p.t < p.life);
   // Exit check
   if (loot.every((l) => l.taken)) {
     if (Math.hypot(exitZ.x - pug.x, exitZ.y - pug.y) < exitZ.r) {
@@ -228,9 +331,16 @@ function tick(dt) {
         const sx = h.x + (pug.x - h.x) * t;
         const sy = h.y + (pug.y - h.y) * t;
         if (isWallNear(sx, sy, 2)) { blocked = true; break; }
+        // Smoke blocks vision
+        for (const sb of smokeBombs) {
+          if (Math.hypot(sx - sb.x, sy - sb.y) < 90) { blocked = true; break; }
+        }
+        if (blocked) break;
       }
     }
-    if (inCone && !blocked) caught();
+    // Cone-color escalation: mark suspicion based on closeness
+    if (inCone && d < 240) h._closeT = (h._closeT || 0) + dt; else h._closeT = Math.max(0, (h._closeT || 0) - dt);
+    if (inCone && !blocked) { alertedThisFloor = true; caught(); }
     // Sound detection
     if (pug.sound > 0.6 && d < 240) {
       // turn toward sound
@@ -247,16 +357,17 @@ function caught() {
   if (!running) return;
   running = false;
   sfx.sweep(220, 80, 'sawtooth', 0.6, 0.25);
-  document.getElementById('end-title').textContent = 'CAUGHT!';
-  document.getElementById('end-sub').textContent = 'The human saw you. Held by the scruff.';
+  const g = calcGrade();
+  document.getElementById('end-title').textContent = `CAUGHT! · GRADE ${g.grade}`;
+  document.getElementById('end-sub').textContent = `${g.desc}. Final haul: $${totalLootValue}.`;
   document.getElementById('end-floor').textContent = floor;
-  document.getElementById('end-loot').textContent = loot.filter((l) => l.taken).length + (floor - 1) * 6;
-  const score = floor;
-  const { isNewBest, current } = submitRun('pug-heist', { score, floor });
+  document.getElementById('end-loot').textContent = lootStolen;
+  const score = floor * 100 + totalLootValue;
+  const { isNewBest, current } = submitRun('pug-heist', { score, floor, value: totalLootValue });
   const bestEl = document.getElementById('end-best');
   if (bestEl) {
     const b = current || { floor };
-    bestEl.innerHTML = `Best: <b>${b.floor} floors</b>${isNewBest ? ' <span style="color:var(--neon-yellow)">★ NEW</span>' : ''}`;
+    bestEl.innerHTML = `Best: <b>${b.floor} floors · $${b.value || 0}</b>${isNewBest ? ' <span style="color:var(--neon-yellow)">★ NEW</span>' : ''}`;
   }
   document.getElementById('hud').hidden = true;
   document.getElementById('end-overlay').hidden = false;
@@ -292,10 +403,15 @@ function render() {
     ctx.fillStyle = '#5ef38c'; ctx.font = "20px sans-serif"; ctx.textAlign = 'center';
     ctx.fillText('EXIT', exitZ.x, exitZ.y + 6);
   }
-  // Humans + vision cones
+  // Humans + vision cones (color shifts with suspicion)
   for (const h of humans) {
-    // cone
-    ctx.fillStyle = 'rgba(255,58,58,0.18)';
+    // cone color: yellow safe → orange suspicious → red alerted
+    const sus = Math.min(1, (h._closeT || 0) / 1.5);
+    const alert = h.alertT > 0 ? 1 : 0;
+    const r = Math.max(255, Math.floor(255));
+    const g = alert ? 58 : Math.floor(210 - sus * 130);
+    const b = alert ? 58 : Math.floor(63 - sus * 5);
+    ctx.fillStyle = `rgba(${r},${g},${b},0.20)`;
     ctx.beginPath();
     ctx.moveTo(h.x, h.y);
     ctx.arc(h.x, h.y, 180, h.ang - 0.6, h.ang + 0.6);
@@ -313,6 +429,25 @@ function render() {
       ctx.fillText('?', h.x, h.y - 22);
     }
   }
+  // Smoke bombs
+  for (const sb of smokeBombs) {
+    const a = sb.t < 0.4 ? sb.t / 0.4 : (sb.t > 2.5 ? (sb.life - sb.t) / 0.5 : 1);
+    ctx.fillStyle = `rgba(60,60,60,${a * 0.7})`;
+    ctx.beginPath(); ctx.arc(sb.x, sb.y, 90, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = `rgba(140,140,140,${a * 0.5})`;
+    for (let i = 0; i < 8; i++) {
+      const ang = (i / 8) * Math.PI * 2 + sb.t * 0.5;
+      const rr = 60 + Math.sin(sb.t * 3 + i) * 10;
+      ctx.beginPath(); ctx.arc(sb.x + Math.cos(ang) * rr, sb.y + Math.sin(ang) * rr, 18, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  // Particles
+  for (const p of particles) {
+    ctx.globalAlpha = 1 - p.t / p.life;
+    ctx.fillStyle = p.color;
+    ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+    ctx.globalAlpha = 1;
+  }
   // Pug
   ctx.fillStyle = '#c8854a';
   ctx.beginPath(); ctx.arc(pug.x, pug.y, 10, 0, Math.PI * 2); ctx.fill();
@@ -329,6 +464,7 @@ function render() {
     ctx.lineWidth = 2;
     ctx.beginPath(); ctx.arc(pug.x, pug.y, 30 * (1 - pug.sound + 1), 0, Math.PI * 2); ctx.stroke();
   }
+  drawGadgetHud();
 }
 
 function updateHud() {
@@ -341,10 +477,35 @@ function updateHud() {
   document.getElementById('hud-best').textContent = best ? best.floor : 0;
 }
 
+function drawGadgetHud() {
+  const ox = W - 200, oy = H - 80;
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(ox - 8, oy - 8, 190, 70);
+  ctx.fillStyle = '#fff'; ctx.font = "9px 'Press Start 2P', monospace"; ctx.textAlign = 'left';
+  ctx.fillText('💨 SMOKE [Q]  ' + (smokeCd > 0 ? smokeCd.toFixed(1) + 's' : 'READY'), ox, oy + 8);
+  ctx.fillText('👅 TONGUE [G] ' + (tongueCd > 0 ? tongueCd.toFixed(1) + 's' : 'READY'), ox, oy + 26);
+  ctx.fillText('🦴 DECOY [T]  ' + (decoyCd > 0 ? decoyCd.toFixed(1) + 's' : 'READY'), ox, oy + 44);
+  // Loot value running total
+  ctx.fillStyle = '#ffd23f'; ctx.font = "11px 'Press Start 2P', monospace"; ctx.textAlign = 'right';
+  ctx.fillText(`$ ${totalLootValue}`, W - 16, 26);
+}
+
+function calcGrade() {
+  const totalLoot = loot.length + lootStolen; // includes taken
+  const collectedPct = lootStolen / Math.max(1, totalLoot);
+  const undetected = !alertedThisFloor;
+  if (collectedPct >= 0.95 && undetected) return { grade: 'S', desc: 'PERFECT HEIST' };
+  if (collectedPct >= 0.85 && undetected) return { grade: 'A', desc: 'CLEAN' };
+  if (collectedPct >= 0.6) return { grade: 'B', desc: 'GOOD' };
+  if (collectedPct >= 0.4) return { grade: 'C', desc: 'MESSY' };
+  return { grade: 'D', desc: 'ROUGH' };
+}
+
 document.getElementById('start-btn').addEventListener('click', start);
 document.getElementById('end-restart').addEventListener('click', start);
 function start() {
   floor = 1; running = true;
+  lootStolen = 0; totalLootValue = 0; achievementsSeen = new Set();
   genFloor(floor);
   document.getElementById('overlay').hidden = true; document.getElementById('overlay').classList.add('is-hidden');
   document.getElementById('end-overlay').hidden = true; document.getElementById('end-overlay').classList.add('is-hidden');
