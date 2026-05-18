@@ -1,12 +1,11 @@
 import { defineConfig } from 'vite';
 import { resolve } from 'path';
 
-// GitHub Pages serves from /web-games/ — base path needed in production.
-// Dev server stays on '/' so localhost links work as before.
-// Override with VITE_BASE env var for Vercel/Netlify (which serve from /).
+// Now a user-page repo (leobalkind.github.io) — serves from root '/'.
+// Override with VITE_BASE env var for other hosts if needed.
 export default defineConfig(({ command }) => ({
   root: '.',
-  base: process.env.VITE_BASE ?? (command === 'build' ? '/web-games/' : '/'),
+  base: process.env.VITE_BASE ?? '/',
   server: {
     port: 5173,
     open: true,
