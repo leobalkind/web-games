@@ -124,23 +124,18 @@ function tick(dt) {
   if (!running) return;
   time -= dt;
   if (time <= 0) return end();
-  // Steer
-  let steer = 0, throttle = 0;
-  if (keys.has('a') || keys.has('arrowleft')) steer -= 1;
-  if (keys.has('d') || keys.has('arrowright')) steer += 1;
-  if (keys.has('w') || keys.has('arrowup')) throttle = 1;
-  if (keys.has('s') || keys.has('arrowdown')) throttle = -0.5;
+  // Top-down WASD (consistent with all other games)
+  let mx = 0, my = 0;
+  if (keys.has('w') || keys.has('arrowup'))    my -= 1;
+  if (keys.has('s') || keys.has('arrowdown'))  my += 1;
+  if (keys.has('a') || keys.has('arrowleft'))  mx -= 1;
+  if (keys.has('d') || keys.has('arrowright')) mx += 1;
   if (touchAim) {
-    const tx = touchAim.clientX - W / 2;
-    const ty = touchAim.clientY - H / 2;
-    const ta = Math.atan2(ty, tx);
-    let diff = ta - pug.ang;
-    while (diff > Math.PI) diff -= Math.PI * 2;
-    while (diff < -Math.PI) diff += Math.PI * 2;
-    steer = Math.max(-1, Math.min(1, diff * 2));
-    throttle = Math.min(1, Math.hypot(tx, ty) / 100);
+    mx = touchAim.clientX - W / 2;
+    my = touchAim.clientY - H / 2;
+    const l = Math.hypot(mx, my);
+    if (l > 30) { mx /= l; my /= l; } else { mx = 0; my = 0; }
   }
-  pug.ang += steer * vehicle.turn * dt;
   // Boost: shift OR nitro powerup
   const shiftBoost = keys.has('shift') && fuel > 0;
   const boost = nitroT > 0 ? 2.2 : (shiftBoost ? 1.5 : 1);
@@ -167,8 +162,12 @@ function tick(dt) {
       s.x = -9999;
     }
   }
-  pug.vx += Math.cos(pug.ang) * vehicle.speed * boost * throttle * dt * 2;
-  pug.vy += Math.sin(pug.ang) * vehicle.speed * boost * throttle * dt * 2;
+  if (mx || my) {
+    const l = Math.hypot(mx, my);
+    pug.vx += (mx / l) * vehicle.speed * boost * dt * 4;
+    pug.vy += (my / l) * vehicle.speed * boost * dt * 4;
+    pug.ang = Math.atan2(my, mx); // visual facing
+  }
   pug.vx *= Math.pow(0.5, dt * 3); pug.vy *= Math.pow(0.5, dt * 3);
   pug.x += pug.vx * dt; pug.y += pug.vy * dt;
   pug.x = Math.max(20, Math.min(WORLD_W - 20, pug.x));
