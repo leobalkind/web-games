@@ -50,6 +50,10 @@ function createWallGraphic() {
   g.rect(22, 8, 6, 1).fill({ color: 0x000000, alpha: 0.5 });
   g.rect(44, 13, 4, 1).fill({ color: 0x000000, alpha: 0.5 });
   c.addChild(g);
+  // outlined glow — keeps build visible against floor
+  const glow = new Graphics();
+  glow.rect(-2, -2, WALL_W + 4, WALL_H + 4).stroke({ color: 0x4cc9f0, width: 2, alpha: 0.75 });
+  c.addChild(glow);
   return c;
 }
 
@@ -71,6 +75,10 @@ function createSandbagGraphic() {
     g.rect(offsetX, y + 2, SAND_W - 4, 1).fill({ color: 0x000000, alpha: 0.2 });
   }
   c.addChild(g);
+  // outlined glow — keeps build visible against floor
+  const glow = new Graphics();
+  glow.rect(-2, -2, SAND_W + 4, SAND_H + 4).stroke({ color: 0xffd23f, width: 2, alpha: 0.75 });
+  c.addChild(glow);
   return c;
 }
 
@@ -99,6 +107,10 @@ function createSpikeGraphic() {
     }
   }
   c.addChild(g);
+  // outlined glow — keeps build visible against floor
+  const glow = new Graphics();
+  glow.rect(-2, -2, SPIKE_W + 4, SPIKE_H + 4).stroke({ color: 0xff3a3a, width: 2, alpha: 0.75 });
+  c.addChild(glow);
   return c;
 }
 
@@ -126,6 +138,10 @@ function createMineGraphic() {
   g.circle(4, MINE_H - 4, 0.8).fill(0x222228);
   g.circle(MINE_W - 4, MINE_H - 4, 0.8).fill(0x222228);
   c.addChild(g);
+  // outlined glow — keeps build visible against floor
+  const glow = new Graphics();
+  glow.rect(-2, -2, MINE_W + 4, MINE_H + 4).stroke({ color: 0xff3a3a, width: 2, alpha: 0.75 });
+  c.addChild(glow);
   return c;
 }
 
@@ -172,6 +188,10 @@ function createTurretGraphic() {
   barrel.circle(cx + 12, cy, 0.6).fill(0x000000);
   barrel.circle(cx + 15, cy, 0.6).fill(0x000000);
   c.addChild(barrel);
+  // outlined glow — keeps build visible against floor
+  const glow = new Graphics();
+  glow.rect(-2, -2, TURRET_W + 4, TURRET_H + 4).stroke({ color: 0x4cc9f0, width: 2, alpha: 0.75 });
+  c.addChild(glow);
   return c;
 }
 
@@ -229,6 +249,10 @@ function createSniperTurretGraphic() {
   barrel.rect(cx + 18, cy, 1, 1).fill(0x000000);
   barrel.rect(cx + 22, cy, 1, 1).fill(0x000000);
   c.addChild(barrel);
+  // outlined glow — keeps build visible against floor
+  const glow = new Graphics();
+  glow.rect(-2, -2, SNIPER_W + 4, SNIPER_H + 4).stroke({ color: 0x5ef38c, width: 2, alpha: 0.75 });
+  c.addChild(glow);
   return c;
 }
 
@@ -264,6 +288,10 @@ function createRepairBayGraphic() {
   bolts.circle(cx - 12, cy + 12, 1.5).fill(0x444450);
   bolts.circle(cx + 12, cy + 12, 1.5).fill(0x444450);
   c.addChild(bolts);
+  // outlined glow — keeps build visible against floor
+  const glow = new Graphics();
+  glow.rect(-2, -2, REPAIR_W + 4, REPAIR_H + 4).stroke({ color: 0x5ef38c, width: 2, alpha: 0.75 });
+  c.addChild(glow);
   return c;
 }
 

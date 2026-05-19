@@ -432,9 +432,9 @@ export class Game {
 
   _spawnZombieAt(x, y, type) {
     const z = new Zombie({ x, y, type, tier: this.nightIdx });
-    // Apply difficulty scaling (easy=0.75, normal=1, hard=1.4)
-    const diff = localStorage.getItem('pugfort:difficulty') || 'normal';
-    const mult = diff === 'easy' ? 0.75 : diff === 'hard' ? 1.4 : 1.0;
+    // Apply difficulty scaling (easy=0.55, normal=1, hard=1.4) — default = easy
+    const diff = localStorage.getItem('pugfort:difficulty') || 'easy';
+    const mult = diff === 'easy' ? 0.55 : diff === 'hard' ? 1.4 : 1.0;
     z.hp *= mult;
     z.maxHp *= mult;
     if (z.damage != null) z.damage *= mult;

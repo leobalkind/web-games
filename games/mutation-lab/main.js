@@ -2,6 +2,8 @@
 // Recipes are deterministic by ingredient set (sorted). Some are pre-named
 // legendaries, others are procedurally generated cursed pugs.
 import { createSfx } from '../../src/shared/miniSfx.js';
+import { showTip } from '../../src/shared/tutorialTip.js';
+
 const sfx = createSfx({ storageKey: 'mutlab:muted' });
 sfx.applyButton(document.getElementById('mute-btn'));
 
@@ -185,3 +187,14 @@ document.getElementById('start-btn').addEventListener('click', () => {
   updateHud();
   sfx.resume();
 });
+
+// Tutorial tip — shows briefly when the game starts (every match)
+const _startOv = document.getElementById('overlay');
+if (_startOv) {
+  const _showOnHide = () => {
+    if (_startOv.classList.contains('is-hidden') || _startOv.hidden) {
+      showTip('Tap 3 ingredients → ⚗ FUSE → discover a pug. Find legendaries!', 6000);
+    }
+  };
+  new MutationObserver(_showOnHide).observe(_startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });
+}

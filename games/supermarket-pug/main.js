@@ -3,6 +3,8 @@
 // Shopping cart = speed boost but louder. Guards chase based on heat.
 import { submitRun, loadBest } from '../../src/persistence/highScores.js';
 import { createSfx } from '../../src/shared/miniSfx.js';
+import { showTip } from '../../src/shared/tutorialTip.js';
+
 const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
 const sfx = createSfx({ storageKey: 'mart:muted' });
@@ -301,3 +303,14 @@ let lastT = performance.now();
   lastT = now; tick(dt); if (running) render();
   requestAnimationFrame(loop);
 })(performance.now());
+
+// Tutorial tip — shows briefly when the game starts (every match)
+const _startOv = document.getElementById('overlay');
+if (_startOv) {
+  const _showOnHide = () => {
+    if (_startOv.classList.contains('is-hidden') || _startOv.hidden) {
+      showTip('WASD move · E grab item · SPACE ram shelf · C cart · reach EXIT', 6000);
+    }
+  };
+  new MutationObserver(_showOnHide).observe(_startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });
+}

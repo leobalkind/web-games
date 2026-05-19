@@ -1,6 +1,8 @@
 // PUG CAFÉ PANIC — order management with chaotic pug staff.
 import { submitRun, loadBest } from '../../src/persistence/highScores.js';
 import { createSfx } from '../../src/shared/miniSfx.js';
+import { showTip } from '../../src/shared/tutorialTip.js';
+
 const sfx = createSfx({ storageKey: 'cafe:muted' });
 sfx.applyButton(document.getElementById('mute-btn'));
 
@@ -242,3 +244,14 @@ let lastT = performance.now();
   lastT = now; tick(dt);
   requestAnimationFrame(loop);
 })(performance.now());
+
+// Tutorial tip — shows briefly when the game starts (every match)
+const _startOv = document.getElementById('overlay');
+if (_startOv) {
+  const _showOnHide = () => {
+    if (_startOv.classList.contains('is-hidden') || _startOv.hidden) {
+      showTip('Tap an ingredient → tap SERVE on the right order before timer ends', 6000);
+    }
+  };
+  new MutationObserver(_showOnHide).observe(_startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });
+}

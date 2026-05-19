@@ -4,6 +4,8 @@
 // shopping cart, tiny tank — different stats).
 import { submitRun, loadBest } from '../../src/persistence/highScores.js';
 import { createSfx } from '../../src/shared/miniSfx.js';
+import { showTip } from '../../src/shared/tutorialTip.js';
+
 const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
 const sfx = createSfx({ storageKey: 'delivery:muted' });
@@ -639,3 +641,14 @@ let lastT = performance.now();
   if (running) render();
   requestAnimationFrame(loop);
 })(performance.now());
+
+// Tutorial tip — shows briefly when the game starts (every match)
+const _startOv = document.getElementById('overlay');
+if (_startOv) {
+  const _showOnHide = () => {
+    if (_startOv.classList.contains('is-hidden') || _startOv.hidden) {
+      showTip('WASD drive to the green 📍 marker · SHIFT to boost · grab 🔥 powerups', 6000);
+    }
+  };
+  new MutationObserver(_showOnHide).observe(_startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });
+}

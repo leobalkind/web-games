@@ -4,6 +4,8 @@ import { createTouchControls } from '../../src/touch/touchControls.js';
 import '../../src/touch/touchControls.css';
 import { getGamepad } from '../../src/gamepad/gamepad.js';
 
+import { showTip } from '../../src/shared/tutorialTip.js';
+
 const touch = createTouchControls({ enableAbility: true, abilityLabel: 'BUILD' });
 if (touch.enabled) document.body.classList.add('is-touch');
 const gp = getGamepad();
@@ -116,7 +118,7 @@ window.addEventListener('keydown', (e) => {
   }
 });
 // Difficulty buttons
-const savedDiff = localStorage.getItem('pugfort:difficulty') || 'normal';
+const savedDiff = localStorage.getItem('pugfort:difficulty') || 'easy';
 document.querySelectorAll('.diff-btn').forEach((btn) => {
   if (btn.dataset.diff === savedDiff) btn.classList.add('diff-btn--active');
   else btn.classList.remove('diff-btn--active');
@@ -180,3 +182,14 @@ import('../../src/persistence/highScores.js').then(({ submitRun, loadBest }) => 
   const ls = document.getElementById('loading-screen');
   if (ls) ls.hidden = true;
 })();
+
+// Tutorial tip — shows briefly when the game starts (every match)
+const _startOv = document.getElementById('overlay');
+if (_startOv) {
+  const _showOnHide = () => {
+    if (_startOv.classList.contains('is-hidden') || _startOv.hidden) {
+      showTip('WASD move · CLICK shoot · B for build menu · survive 3 nights', 6000);
+    }
+  };
+  new MutationObserver(_showOnHide).observe(_startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });
+}

@@ -3,6 +3,8 @@
 // (running = loud; sneak = silent). Collect 5 cans + find EXIT.
 import { submitRun, loadBest } from '../../src/persistence/highScores.js';
 import { createSfx } from '../../src/shared/miniSfx.js';
+import { showTip } from '../../src/shared/tutorialTip.js';
+
 const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
 const sfx = createSfx({ storageKey: 'backrooms:muted' });
@@ -154,7 +156,7 @@ function tick(dt) {
     const dx = target.x - monster.x, dy = target.y - monster.y;
     const d = Math.hypot(dx, dy);
     if (d > 8) {
-      const sp = sees ? 130 : 90;
+      const sp = sees ? 165 : 110; // monster faster than walking pug (140) when it sees you
       move(monster, (dx / d) * sp * dt, (dy / d) * sp * dt, 14);
     } else {
       monsterChaseT = 0; // arrived
@@ -316,3 +318,14 @@ let lastT = performance.now();
   lastT = now; tick(dt); if (running) render();
   requestAnimationFrame(loop);
 })(performance.now());
+
+// Tutorial tip — shows briefly when the game starts (every match)
+const _startOv = document.getElementById('overlay');
+if (_startOv) {
+  const _showOnHide = () => {
+    if (_startOv.classList.contains('is-hidden') || _startOv.hidden) {
+      showTip('WASD walk · SHIFT to walk silently · find 5 cans, reach the EXIT', 6000);
+    }
+  };
+  new MutationObserver(_showOnHide).observe(_startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });
+}

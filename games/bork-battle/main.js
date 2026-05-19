@@ -7,6 +7,8 @@ import { createTouchControls } from '../../src/touch/touchControls.js';
 import '../../src/touch/touchControls.css';
 import { getGamepad } from '../../src/gamepad/gamepad.js';
 
+import { showTip } from '../../src/shared/tutorialTip.js';
+
 // Detect touch device + create overlay controls (no-op on desktop)
 const touch = createTouchControls({ enableAbility: true, abilityLabel: 'BORK' });
 if (touch.enabled) document.body.classList.add('is-touch');
@@ -291,3 +293,14 @@ window.addEventListener('keydown', (e) => {
     play();
   }
 });
+
+// Tutorial tip — shows briefly when the game starts (every match)
+const _startOv = document.getElementById('overlay');
+if (_startOv) {
+  const _showOnHide = () => {
+    if (_startOv.classList.contains('is-hidden') || _startOv.hidden) {
+      showTip('MOUSE aim · CLICK fire · SPACE hold = BORK · WASD drive', 6000);
+    }
+  };
+  new MutationObserver(_showOnHide).observe(_startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });
+}
