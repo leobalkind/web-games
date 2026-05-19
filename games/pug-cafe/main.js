@@ -30,6 +30,13 @@ const RECIPES = [
   { name: 'Pup Pizza',            items: ['cheese', 'bacon', 'donut'], pay: 40 },
   { name: 'Fish Smoothie',        items: ['fish', 'milk'], pay: 18 },
   { name: 'Glow Donut Stack',     items: ['noodle', 'donut', 'cake'], pay: 42 },
+  { name: 'Bacon Pickle Slime',   items: ['bacon', 'pickle', 'slime'], pay: 36 },
+  { name: 'Cheese Donut Bake',    items: ['cheese', 'donut'], pay: 24 },
+  { name: 'Quad Bacon Madness',   items: ['bacon', 'bacon', 'bacon', 'bacon'], pay: 60 },
+  { name: 'Fish Pickle Latte',    items: ['fish', 'pickle', 'milk'], pay: 30 },
+  { name: 'Bone Cheese Donut',    items: ['bone', 'cheese', 'donut'], pay: 38 },
+  { name: 'Noodle Bone Soup',     items: ['noodle', 'bone'], pay: 22 },
+  { name: 'Mega Pup Special',     items: ['cake', 'cake', 'bacon', 'donut'], pay: 70 },
 ];
 
 const STAFF_EVENTS = [
@@ -119,7 +126,9 @@ function renderBench() {
 }
 
 function grab(ing) {
-  if (bench.length >= 4) { showEvent('Bench full!'); return; }
+  // Bench capacity grows with served count (4 base + 1 per 10 served, max 8)
+  const cap = Math.min(8, 4 + Math.floor(served / 10));
+  if (bench.length >= cap) { showEvent(`Bench full (${cap})!`); return; }
   bench.push(ing.id);
   sfx.tone(660, 'triangle', 0.06, 0.18);
   renderBench();
@@ -142,6 +151,14 @@ function serve(idx) {
   served++;
   orders.splice(idx, 1);
   sfx.arp([523, 659, 784], 'triangle', 0.07, 0.22, 0.2);
+  // Equipment upgrade milestones
+  if (served === 10) showEvent('🪑 BENCH UPGRADED! +1 slot');
+  if (served === 20) showEvent('🪑 BENCH UPGRADED! +1 slot');
+  if (served === 30) showEvent('🪑 BENCH UPGRADED! +1 slot');
+  if (served === 40) showEvent('🪑 BENCH UPGRADED! +1 slot (max 8)');
+  if (served % 25 === 0 && served > 0) {
+    money += 50; showEvent(`💰 $50 BONUS for ${served} served!`);
+  }
   renderBench(); renderOrders();
   updateHud();
 }

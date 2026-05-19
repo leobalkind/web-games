@@ -24,8 +24,21 @@ window.addEventListener('resize', resize); resize();
 let cols = 0, rows = 0;
 let grid = [];
 let pug, monster, cans, exitTile, level, soundLevel, running, cam, monsterChaseT;
+let items = []; // {x,y,type:'flashlight'|'smoke'}
+let hideSpots = []; // {x,y,r}
+let flashlightT = 0, smokeBombs = []; // smoke bombs {x,y,t}
+let monsterDazedT = 0; // disables monster temporarily
 const keys = new Set();
-window.addEventListener('keydown', (e) => keys.add(e.key.toLowerCase()));
+let smokeCount = 0;
+window.addEventListener('keydown', (e) => {
+  keys.add(e.key.toLowerCase());
+  if ((e.key === 'f' || e.key === 'F') && smokeCount > 0 && running) {
+    smokeCount--;
+    smokeBombs.push({ x: pug.x, y: pug.y, t: 0, life: 4 });
+    monsterDazedT = 4; // monster can't sense you for 4s
+    sfx.tone(330, 'sawtooth', 0.3, 0.22);
+  }
+});
 window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 
 function genLevel(lvl) {
@@ -74,6 +87,30 @@ function genLevel(lvl) {
   // Exit (only opens after all cans)
   exitTile = { x: (cols - 2) * TILE + TILE / 2, y: (rows - 2) * TILE + TILE / 2 };
   soundLevel = 0; monsterChaseT = 0;
+  // Items: 1 flashlight + 2 smoke bombs per level (random floor tiles)
+  items = []; smokeBombs = []; flashlightT = 0; monsterDazedT = 0;
+  for (const t of ['flashlight', 'smoke', 'smoke']) {
+    for (let tries = 0; tries < 50; tries++) {
+      const tx = 1 + Math.floor(Math.random() * (cols - 2));
+      const ty = 1 + Math.floor(Math.random() * (rows - 2));
+      if (grid[ty][tx] === 0 && Math.abs(tx - 1) + Math.abs(ty - 1) > 5) {
+        items.push({ x: tx * TILE + TILE / 2, y: ty * TILE + TILE / 2, type: t });
+        break;
+      }
+    }
+  }
+  // Hiding spots: 3 per level (furniture pug can stand on to hide)
+  hideSpots = [];
+  for (let i = 0; i < 3; i++) {
+    for (let tries = 0; tries < 50; tries++) {
+      const tx = 1 + Math.floor(Math.random() * (cols - 2));
+      const ty = 1 + Math.floor(Math.random() * (rows - 2));
+      if (grid[ty][tx] === 0) {
+        hideSpots.push({ x: tx * TILE + TILE / 2, y: ty * TILE + TILE / 2, r: 22 });
+        break;
+      }
+    }
+  }
   cam = { x: pug.x, y: pug.y };
 }
 
@@ -118,6 +155,28 @@ function tick(dt) {
       sfx.tone(880, 'triangle', 0.1, 0.18);
     }
   }
+  // Item pickup (flashlight / smoke bomb)
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i];
+    if (Math.hypot(it.x - pug.x, it.y - pug.y) < 22) {
+      items.splice(i, 1);
+      if (it.type === 'flashlight') { flashlightT = 18; sfx.tone(660, 'triangle', 0.15, 0.22); }
+      else if (it.type === 'smoke') { smokeCount++; sfx.tone(440, 'triangle', 0.12, 0.18); }
+    }
+  }
+  // Decay flashlight
+  flashlightT = Math.max(0, flashlightT - dt);
+  monsterDazedT = Math.max(0, monsterDazedT - dt);
+  // Smoke decay
+  for (let i = smokeBombs.length - 1; i >= 0; i--) {
+    smokeBombs[i].t += dt;
+    if (smokeBombs[i].t >= smokeBombs[i].life) smokeBombs.splice(i, 1);
+  }
+  // Hiding spots: if pug is on one, monster can't detect via sight OR sound
+  let hidden = false;
+  for (const h of hideSpots) {
+    if (Math.hypot(h.x - pug.x, h.y - pug.y) < h.r) { hidden = true; break; }
+  }
   // Exit check
   if (cans.length === 0 && Math.hypot(exitTile.x - pug.x, exitTile.y - pug.y) < 26) {
     level++;
@@ -128,10 +187,12 @@ function tick(dt) {
 
   // Monster AI
   const distToPug = Math.hypot(monster.x - pug.x, monster.y - pug.y);
-  const hears = soundLevel > 0.5 && distToPug < 420;
-  // Line of sight check
+  // Hidden under furniture OR monster dazed by smoke = no detection
+  const detectable = !hidden && monsterDazedT <= 0;
+  const hears = detectable && soundLevel > 0.5 && distToPug < 420;
+  // Line of sight check (skip if smoke is in the way too)
   let sees = false;
-  if (distToPug < 320) {
+  if (detectable && distToPug < 320) {
     const steps = 20;
     let blocked = false;
     for (let i = 1; i < steps; i++) {
@@ -139,6 +200,11 @@ function tick(dt) {
       const sx = monster.x + (pug.x - monster.x) * t;
       const sy = monster.y + (pug.y - monster.y) * t;
       if (isWallAt(sx, sy)) { blocked = true; break; }
+      // smoke blocks vision
+      for (const sb of smokeBombs) {
+        if (Math.hypot(sx - sb.x, sy - sb.y) < 70) { blocked = true; break; }
+      }
+      if (blocked) break;
     }
     if (!blocked) sees = true;
   }
@@ -181,7 +247,7 @@ function render() {
   ctx.fillStyle = '#3a2f10'; ctx.fillRect(0, 0, W, H);
   ctx.save();
   ctx.translate(W / 2 - cam.x, H / 2 - cam.y);
-  const viewR = 240;
+  const viewR = flashlightT > 0 ? 380 : 240;
   // Floor
   ctx.fillStyle = '#b8a44a';
   for (let y = 0; y < rows; y++) {
@@ -216,6 +282,14 @@ function render() {
       }
     }
   }
+  // Hide spots (furniture)
+  for (const h of hideSpots) {
+    ctx.fillStyle = '#6b3a1c'; ctx.fillRect(h.x - 18, h.y - 12, 36, 18);
+    ctx.fillStyle = '#8a5a2c'; ctx.fillRect(h.x - 18, h.y - 12, 36, 3);
+    ctx.fillStyle = '#3a2a0c'; ctx.fillRect(h.x - 18, h.y + 4, 36, 2);
+    ctx.fillStyle = '#fff'; ctx.font = "7px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText('HIDE', h.x, h.y - 16);
+  }
   // Cans
   for (const c of cans) {
     ctx.fillStyle = '#c8c8c8';
@@ -225,6 +299,22 @@ function render() {
     ctx.fillStyle = '#fff';
     ctx.font = "8px sans-serif"; ctx.textAlign = 'center';
     ctx.fillText('DOG', c.x, c.y - 1);
+  }
+  // Items (flashlight, smoke)
+  for (const it of items) {
+    const color = it.type === 'flashlight' ? '#ffd23f' : '#4cc9f0';
+    ctx.shadowColor = color; ctx.shadowBlur = 12;
+    ctx.fillStyle = color;
+    ctx.fillRect(it.x - 9, it.y - 9, 18, 18);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#000'; ctx.font = "12px serif"; ctx.textAlign = 'center';
+    ctx.fillText(it.type === 'flashlight' ? '🔦' : '💨', it.x, it.y + 4);
+  }
+  // Smoke bombs (active clouds)
+  for (const sb of smokeBombs) {
+    const a = sb.t < 0.3 ? sb.t / 0.3 : (sb.t > 3.5 ? (sb.life - sb.t) / 0.5 : 1);
+    ctx.fillStyle = `rgba(140,140,160,${a * 0.6})`;
+    ctx.beginPath(); ctx.arc(sb.x, sb.y, 70, 0, Math.PI * 2); ctx.fill();
   }
   // Exit (only if cans done)
   if (cans.length === 0) {
@@ -275,7 +365,7 @@ function render() {
 
 function updateHud() {
   document.getElementById('hud-cans').textContent = `${5 - cans.length}/5`;
-  const state = monster.chase ? 'HUNTED!' : (soundLevel > 0.5 ? 'LOUD' : 'SAFE');
+  const state = monsterDazedT > 0 ? 'SMOKED' : (monster.chase ? 'HUNTED!' : (soundLevel > 0.5 ? 'LOUD' : 'SAFE'));
   const el = document.getElementById('hud-state');
   el.textContent = state;
   el.style.color = monster.chase ? '#ff3a3a' : (soundLevel > 0.5 ? '#ffd23f' : '#5ef38c');
