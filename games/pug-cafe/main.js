@@ -3,6 +3,7 @@ import { submitRun, loadBest } from '../../src/persistence/highScores.js';
 import { createSfx } from '../../src/shared/miniSfx.js';
 import { showTip } from '../../src/shared/tutorialTip.js';
 import { iconSvg } from '../../src/shared/icons.js';
+import { drawPug } from '../../src/shared/pugSprite.js';
 
 // Helper: prefer pixel-art SVG icon when ingredient has an iconName; fall back to emoji string
 function _ingIcon(ing) {
@@ -19,14 +20,128 @@ const VISUAL_CSS = `
     repeating-linear-gradient(45deg, rgba(255,210,63,0.04) 0 14px, transparent 14px 28px),
     repeating-linear-gradient(-45deg, rgba(76,201,240,0.04) 0 14px, transparent 14px 28px),
     radial-gradient(ellipse at 30% 80%, #1a0f2e 0%, #0a0716 70%); }
-.cafe-bg__floor { position: absolute; bottom: 0; left: 0; right: 0; height: 38%;
+.cafe-bg__floor { position: absolute; bottom: 0; left: 0; right: 0; height: 30%;
   background:
     linear-gradient(180deg, rgba(0,0,0,0.0), rgba(0,0,0,0.5)),
     repeating-conic-gradient(from 0deg, #2a1818 0deg 90deg, #1a1010 90deg 180deg) 0 0/48px 48px;
   border-top: 2px solid rgba(255,210,63,0.18); box-shadow: 0 -6px 18px rgba(0,0,0,0.6) inset; }
+/* Oil stain near grill + spilled flour patch with footprints */
+.cafe-bg__oilstain { position: absolute; bottom: 8%; left: 18%; width: 70px; height: 28px;
+  background: radial-gradient(ellipse, rgba(0,0,0,0.7) 0%, rgba(40,20,10,0.4) 60%, transparent 80%);
+  border-radius: 50%; filter: blur(1px); }
+.cafe-bg__flour { position: absolute; bottom: 6%; right: 22%; width: 90px; height: 24px;
+  background: radial-gradient(ellipse, rgba(255,240,220,0.55) 0%, rgba(255,240,220,0.18) 70%, transparent 90%);
+  border-radius: 50%; filter: blur(0.5px); }
+.cafe-bg__pawtrail { position: absolute; bottom: 4%; right: 8%; width: 200px; height: 18px;
+  background:
+    radial-gradient(circle 4px at 10px 4px, rgba(255,240,220,0.45), transparent 60%),
+    radial-gradient(circle 4px at 36px 14px, rgba(255,240,220,0.4), transparent 60%),
+    radial-gradient(circle 4px at 62px 4px, rgba(255,240,220,0.35), transparent 60%),
+    radial-gradient(circle 4px at 88px 14px, rgba(255,240,220,0.3), transparent 60%),
+    radial-gradient(circle 4px at 114px 4px, rgba(255,240,220,0.25), transparent 60%),
+    radial-gradient(circle 4px at 140px 14px, rgba(255,240,220,0.2), transparent 60%),
+    radial-gradient(circle 4px at 166px 4px, rgba(255,240,220,0.15), transparent 60%); }
+
+/* === KITCHEN COUNTER LANDMARK === */
+.cafe-kitchen { position: absolute; top: 38px; left: 0; right: 0; height: 38%;
+  pointer-events: none; }
+.cafe-kitchen__wall { position: absolute; inset: 0;
+  background:
+    linear-gradient(180deg, rgba(20,12,28,0.85) 0%, rgba(30,18,38,0.7) 70%, rgba(0,0,0,0.0) 100%),
+    repeating-linear-gradient(90deg, rgba(255,210,63,0.04) 0 36px, transparent 36px 38px); }
+.cafe-kitchen__counter { position: absolute; bottom: -6px; left: 0; right: 0; height: 16px;
+  background: linear-gradient(180deg, #4a3a2a 0%, #2a1a10 100%);
+  border-top: 2px solid #6a4a2c;
+  box-shadow: 0 2px 0 rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,210,63,0.18); }
+/* GRILL — alternating bars + heat shimmer */
+.cafe-grill { position: absolute; left: 6%; bottom: 22px; width: 110px; height: 56px;
+  background:
+    repeating-linear-gradient(90deg, #1a0e0e 0 8px, #2a0f0f 8px 16px);
+  border: 2px solid #5a3a2a; border-radius: 4px 4px 0 0;
+  box-shadow: 0 0 16px rgba(255,80,30,0.4) inset; overflow: hidden; }
+.cafe-grill__bar { position: absolute; left: 0; right: 0; height: 4px;
+  background: linear-gradient(90deg, transparent, #ff5418, #ffb000, #ff5418, transparent);
+  animation: cafe-grill-flicker 0.4s ease-in-out infinite alternate; }
+.cafe-grill__bar:nth-child(1) { top: 12px; animation-delay: 0s; }
+.cafe-grill__bar:nth-child(2) { top: 28px; animation-delay: 0.15s; }
+.cafe-grill__bar:nth-child(3) { top: 44px; animation-delay: 0.3s; }
+@keyframes cafe-grill-flicker { 0% { opacity: 0.55; filter: blur(1px); transform: scaleY(0.85); }
+  100% { opacity: 1; filter: blur(0px); transform: scaleY(1.15); } }
+.cafe-grill__steam { position: absolute; top: -22px; left: 50%; width: 8px; height: 8px;
+  border-radius: 50%; background: radial-gradient(circle, rgba(255,255,255,0.5), transparent 70%);
+  animation: cafe-steam-rise 2.4s ease-out infinite; opacity: 0; }
+.cafe-grill__steam:nth-child(4) { animation-delay: 0s; left: 30%; }
+.cafe-grill__steam:nth-child(5) { animation-delay: 0.8s; left: 55%; }
+.cafe-grill__steam:nth-child(6) { animation-delay: 1.6s; left: 75%; }
+@keyframes cafe-steam-rise { 0% { transform: translate(-50%, 0) scale(0.6); opacity: 0; }
+  20% { opacity: 0.7; } 100% { transform: translate(-50%, -40px) scale(1.4); opacity: 0; } }
+/* OVEN — door + flickering firebox */
+.cafe-oven { position: absolute; left: calc(6% + 130px); bottom: 22px; width: 84px; height: 76px;
+  background: linear-gradient(180deg, #2a2028 0%, #1a1018 100%);
+  border: 2px solid #4a3a4a; border-radius: 4px 4px 0 0;
+  box-shadow: inset 0 2px 0 rgba(255,255,255,0.1); }
+.cafe-oven__door { position: absolute; top: 8px; left: 8px; right: 8px; bottom: 18px;
+  background: radial-gradient(ellipse at 50% 60%, #ff6a14 0%, #c83a00 40%, #2a0a00 80%);
+  border: 2px solid #5a3a2a; border-radius: 4px;
+  animation: cafe-oven-glow 1.8s ease-in-out infinite alternate;
+  box-shadow: 0 0 14px rgba(255,140,30,0.6); }
+@keyframes cafe-oven-glow { 0% { box-shadow: 0 0 10px rgba(255,140,30,0.4), inset 0 0 8px rgba(255,80,0,0.5); }
+  100% { box-shadow: 0 0 22px rgba(255,140,30,0.9), inset 0 0 14px rgba(255,180,30,0.8); } }
+.cafe-oven__handle { position: absolute; left: 12px; right: 12px; bottom: 8px; height: 4px;
+  background: #6a6a72; border-radius: 2px; box-shadow: 0 1px 0 #2a2a32; }
+.cafe-oven__knob { position: absolute; top: 2px; right: 4px; width: 6px; height: 6px;
+  background: #ff3a3a; border-radius: 50%; box-shadow: 0 0 6px #ff3a3a; }
+/* PREP STATION — chopping board + knife */
+.cafe-prep { position: absolute; left: calc(6% + 230px); bottom: 22px; width: 80px; height: 36px;
+  background: linear-gradient(180deg, #6a3a1a 0%, #4a2a10 100%);
+  border: 2px solid #3a200c; border-radius: 4px;
+  box-shadow: inset 0 1px 0 rgba(255,210,63,0.2); }
+.cafe-prep__board-line { position: absolute; left: 6px; right: 6px; height: 1px;
+  background: rgba(0,0,0,0.4); }
+.cafe-prep__board-line:nth-child(1) { top: 8px; } .cafe-prep__board-line:nth-child(2) { top: 16px; }
+.cafe-prep__board-line:nth-child(3) { top: 24px; }
+.cafe-prep__knife { position: absolute; top: -8px; right: 8px; width: 4px; height: 30px;
+  background: linear-gradient(180deg, #2a2a32 0 6px, #c8c8d8 6px 100%);
+  transform-origin: 50% 8px; animation: cafe-knife-chop 1.4s ease-in-out infinite;
+  border-radius: 1px; box-shadow: 0 0 4px rgba(200,200,216,0.5); }
+@keyframes cafe-knife-chop { 0%, 60%, 100% { transform: rotate(0deg); }
+  20% { transform: rotate(-40deg); } 40% { transform: rotate(5deg); } }
+/* MIXER — rotating bowl */
+.cafe-mixer { position: absolute; left: calc(6% + 326px); bottom: 22px; width: 64px; height: 76px;
+  background: linear-gradient(180deg, #4a4a52 0%, #2a2a32 100%);
+  border: 2px solid #6a6a72; border-radius: 4px 4px 0 0; }
+.cafe-mixer__head { position: absolute; top: 4px; left: 8px; right: 8px; height: 22px;
+  background: linear-gradient(180deg, #6a6a72, #3a3a42); border-radius: 4px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.15); }
+.cafe-mixer__bowl { position: absolute; bottom: 8px; left: 50%; width: 40px; height: 28px;
+  transform: translateX(-50%);
+  background: conic-gradient(from 0deg, #c8c8d8 0deg, #888898 90deg, #c8c8d8 180deg, #888898 270deg, #c8c8d8 360deg);
+  border: 2px solid #4a4a52; border-radius: 50%;
+  animation: cafe-mixer-spin 4s linear infinite; }
+@keyframes cafe-mixer-spin { from { transform: translateX(-50%) rotate(0deg); }
+  to { transform: translateX(-50%) rotate(360deg); } }
+.cafe-mixer__paddle { position: absolute; top: 26px; left: 50%; width: 3px; height: 16px;
+  background: #6a6a72; transform: translateX(-50%); }
+
+/* CHALKBOARD — current orders */
+.cafe-chalk { position: absolute; right: 6px; top: 80px; width: 160px; min-height: 110px;
+  background: linear-gradient(180deg, #1a3020 0%, #0a1810 100%);
+  border: 4px solid #6a3a1c; border-radius: 4px;
+  box-shadow: 0 4px 0 rgba(0,0,0,0.6), inset 0 0 20px rgba(0,0,0,0.5);
+  padding: 6px 8px; font-family: 'Press Start 2P', monospace; font-size: 0.4rem;
+  color: #f4ecd2; pointer-events: none; line-height: 1.5; }
+.cafe-chalk__title { color: #ffd23f; font-size: 0.45rem; letter-spacing: 0.1em;
+  border-bottom: 1px dashed #f4ecd2; padding-bottom: 3px; margin-bottom: 4px; text-align: center; }
+.cafe-chalk__line { font-size: 0.36rem; color: rgba(244,236,210,0.85); padding: 1px 0;
+  text-shadow: 0 0 1px rgba(244,236,210,0.4); }
+.cafe-chalk__line.crit { color: #ff8a8a; }
+.cafe-chalk__line.warn { color: #ffd23f; }
+.cafe-chalk__empty { color: rgba(244,236,210,0.5); font-size: 0.34rem; font-style: italic; text-align: center; padding-top: 12px; }
+
+/* === Make pendant lights more present (brighter glow) === */
 .cafe-bg__neon { position: absolute; top: 4px; left: 50%; transform: translateX(-50%);
   font-family: var(--font-display); font-size: 0.7rem; letter-spacing: 0.18em;
-  color: #ff8ac8; text-shadow: 0 0 8px #ff3aa1, 0 0 18px #ff3aa1, 0 0 28px #ff3aa1;
+  color: #ff8ac8; text-shadow: 0 0 12px #ff3aa1, 0 0 24px #ff3aa1, 0 0 40px #ff3aa1, 0 0 60px rgba(255,58,161,0.5);
   animation: cafe-neon 2.6s ease-in-out infinite; pointer-events: none; }
 @keyframes cafe-neon { 0%,90%,100% { opacity: 1; } 92% { opacity: 0.45; } 94% { opacity: 1; } 96% { opacity: 0.6; } }
 .cafe-bg__plant { position: absolute; bottom: 32%; font-size: 38px; opacity: 0.85;
@@ -36,17 +151,77 @@ const VISUAL_CSS = `
 .cafe-bg__plant--r { right: 14px; }
 .cafe-bg__hang { position: absolute; top: 0; width: 2px; background: #4a3a1a; }
 .cafe-bg__hang::after { content: ''; position: absolute; bottom: -10px; left: -10px; width: 22px; height: 14px;
-  border-radius: 0 0 12px 12px; background: radial-gradient(ellipse at top, #ffd23f 0%, #c08a14 70%);
-  box-shadow: 0 0 16px rgba(255,210,63,0.55); }
+  border-radius: 0 0 12px 12px; background: radial-gradient(ellipse at top, #ffffff 0%, #ffd23f 40%, #c08a14 80%);
+  box-shadow: 0 0 24px rgba(255,210,63,0.85), 0 0 48px rgba(255,210,63,0.45); }
 .cafe-bg__hang--1 { left: 18%; height: 60px; } .cafe-bg__hang--2 { left: 46%; height: 90px; } .cafe-bg__hang--3 { left: 76%; height: 50px; }
+
+/* === SHOP === */
+.cafe-shop-btn { position: fixed; top: calc(14px + env(safe-area-inset-top, 0)); right: 60px; z-index: 100;
+  background: linear-gradient(180deg, #ffd23f, #c89c20); color: #1a0d05;
+  border: 3px solid #fff0a0; border-radius: 6px;
+  font-family: var(--font-display); font-size: 0.5rem; letter-spacing: 0.08em;
+  padding: 6px 10px; cursor: pointer; box-shadow: 0 4px 0 #6a4a0a;
+  -webkit-tap-highlight-color: transparent; }
+.cafe-shop-btn:hover { transform: translateY(-1px); }
+.cafe-shop-chips { position: fixed; top: 60px; right: 60px; z-index: 50;
+  display: flex; gap: 4px; flex-wrap: wrap; max-width: 220px; justify-content: flex-end; }
+.cafe-shop-chip { background: rgba(255,210,63,0.18); border: 1px solid var(--neon-yellow);
+  color: var(--neon-yellow); font-family: var(--font-display); font-size: 0.36rem;
+  letter-spacing: 0.05em; padding: 3px 5px; border-radius: 3px;
+  text-shadow: 0 0 4px var(--neon-yellow); }
+.cafe-shop-modal { position: fixed; inset: 0; z-index: 200; display: none;
+  align-items: center; justify-content: center; background: rgba(0,0,0,0.7); padding: 16px; }
+.cafe-shop-modal.is-open { display: flex; }
+.cafe-shop-modal__panel { background: linear-gradient(180deg, #1a0f2e, #0a0716);
+  border: 3px solid var(--neon-yellow); border-radius: 10px; padding: 20px;
+  max-width: 420px; width: 100%; box-shadow: 0 0 40px rgba(255,210,63,0.5); }
+.cafe-shop-modal__title { font-family: var(--font-display); font-size: 0.85rem;
+  letter-spacing: 0.1em; color: var(--neon-yellow); text-align: center; margin: 0 0 14px;
+  text-shadow: 0 0 12px var(--neon-yellow); }
+.cafe-shop-modal__money { text-align: center; font-family: var(--font-display);
+  font-size: 0.6rem; color: var(--neon-green); margin-bottom: 12px; }
+.cafe-shop-upgrade { background: rgba(0,0,0,0.5); border: 2px solid var(--border);
+  border-radius: 6px; padding: 10px; margin-bottom: 8px; display: flex;
+  gap: 10px; align-items: center; }
+.cafe-shop-upgrade.owned { border-color: var(--neon-green); background: rgba(94,243,140,0.08); }
+.cafe-shop-upgrade__icon { font-size: 26px; flex-shrink: 0; }
+.cafe-shop-upgrade__body { flex: 1; }
+.cafe-shop-upgrade__name { font-family: var(--font-display); font-size: 0.5rem;
+  color: var(--neon-cyan); letter-spacing: 0.05em; }
+.cafe-shop-upgrade__desc { font-size: 0.42rem; color: var(--text-soft); margin-top: 2px; }
+.cafe-shop-upgrade__btn { background: linear-gradient(180deg, var(--neon-yellow), #c89c20);
+  color: #1a0d05; border: 2px solid #fff0a0; border-radius: 4px;
+  font-family: var(--font-display); font-size: 0.45rem; letter-spacing: 0.05em;
+  padding: 6px 8px; cursor: pointer; min-width: 70px;
+  box-shadow: 0 3px 0 #6a4a0a; -webkit-tap-highlight-color: transparent; }
+.cafe-shop-upgrade__btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.cafe-shop-upgrade__btn.owned { background: var(--neon-green); color: #0a1018; box-shadow: 0 3px 0 #1a5a30; }
+.cafe-shop-close { background: rgba(0,0,0,0.6); color: var(--text); border: 2px solid var(--border);
+  border-radius: 4px; font-family: var(--font-display); font-size: 0.5rem;
+  padding: 8px 14px; cursor: pointer; display: block; margin: 14px auto 0; }
+
 .cafe-staff { position: fixed; bottom: 8px; left: 10px; z-index: 2; pointer-events: none;
-  font-size: 30px; line-height: 1; transform-origin: 50% 100%;
+  width: 56px; height: 56px; line-height: 1; transform-origin: 50% 100%;
   animation: cafe-staff-idle 1.6s ease-in-out infinite; }
 @keyframes cafe-staff-idle { 0%,100% { transform: translateY(0) scaleY(1); } 50% { transform: translateY(-3px) scaleY(0.96); } }
-.cafe-staff__bub { position: absolute; left: 38px; top: -4px; background: rgba(255,255,255,0.92);
+.cafe-staff__canvas { display: block; image-rendering: pixelated; }
+.cafe-staff__bub { position: absolute; left: 58px; top: -4px; background: rgba(255,255,255,0.92);
   color: #0a0716; font-family: var(--font-display); font-size: 0.45rem;
   padding: 3px 5px; border-radius: 4px; opacity: 0; transition: opacity 0.3s; white-space: nowrap; }
 .cafe-staff__bub.is-active { opacity: 1; }
+/* Customer crowd lined up along the dining floor */
+.cafe-customers { position: fixed; bottom: 6px; left: 90px; right: 10px;
+  z-index: 2; pointer-events: none; display: flex; gap: 14px;
+  align-items: flex-end; justify-content: flex-start; flex-wrap: nowrap;
+  overflow: hidden; max-width: calc(100% - 100px); }
+.cafe-customer { width: 44px; height: 48px; flex-shrink: 0;
+  animation: cafe-customer-idle 2.4s ease-in-out infinite; transform-origin: 50% 100%; }
+.cafe-customer canvas { display: block; image-rendering: pixelated; }
+.cafe-customer:nth-child(2n) { animation-delay: 0.4s; }
+.cafe-customer:nth-child(3n) { animation-delay: 0.8s; }
+.cafe-customer:nth-child(4n) { animation-delay: 1.2s; }
+@keyframes cafe-customer-idle { 0%,100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); } }
 .cafe-popups { position: fixed; inset: 0; z-index: 1000; pointer-events: none; }
 .cafe-popup { position: absolute; font-family: var(--font-display); font-size: 0.85rem;
   letter-spacing: 0.05em; text-shadow: 0 2px 0 #000, 0 0 12px currentColor;
@@ -68,11 +243,46 @@ const VISUAL_CSS = `
 `;
 const _s = document.createElement('style'); _s.textContent = VISUAL_CSS; document.head.appendChild(_s);
 
-// Decorative background
+// Decorative background — includes painted kitchen counter landmark
 const _bg = document.createElement('div');
 _bg.className = 'cafe-bg';
 _bg.innerHTML = `
+  <div class="cafe-kitchen">
+    <div class="cafe-kitchen__wall"></div>
+    <div class="cafe-grill">
+      <div class="cafe-grill__bar"></div>
+      <div class="cafe-grill__bar"></div>
+      <div class="cafe-grill__bar"></div>
+      <div class="cafe-grill__steam"></div>
+      <div class="cafe-grill__steam"></div>
+      <div class="cafe-grill__steam"></div>
+    </div>
+    <div class="cafe-oven">
+      <div class="cafe-oven__knob"></div>
+      <div class="cafe-oven__door"></div>
+      <div class="cafe-oven__handle"></div>
+    </div>
+    <div class="cafe-prep">
+      <div class="cafe-prep__board-line"></div>
+      <div class="cafe-prep__board-line"></div>
+      <div class="cafe-prep__board-line"></div>
+      <div class="cafe-prep__knife"></div>
+    </div>
+    <div class="cafe-mixer">
+      <div class="cafe-mixer__head"></div>
+      <div class="cafe-mixer__paddle"></div>
+      <div class="cafe-mixer__bowl"></div>
+    </div>
+    <div class="cafe-kitchen__counter"></div>
+  </div>
+  <div class="cafe-chalk" id="cafe-chalk">
+    <div class="cafe-chalk__title">★ TODAY'S ORDERS ★</div>
+    <div id="cafe-chalk-list"><div class="cafe-chalk__empty">no orders yet</div></div>
+  </div>
   <div class="cafe-bg__floor"></div>
+  <div class="cafe-bg__oilstain"></div>
+  <div class="cafe-bg__flour"></div>
+  <div class="cafe-bg__pawtrail"></div>
   <div class="cafe-bg__neon">★ PUG CAFÉ ★</div>
   <div class="cafe-bg__hang cafe-bg__hang--1"></div>
   <div class="cafe-bg__hang cafe-bg__hang--2"></div>
@@ -81,11 +291,73 @@ _bg.innerHTML = `
   <div class="cafe-bg__plant cafe-bg__plant--r">🌵</div>
 `;
 document.body.appendChild(_bg);
+
+// ===== SHOP UI =====
+const _shopBtn = document.createElement('button');
+_shopBtn.className = 'cafe-shop-btn';
+_shopBtn.id = 'cafe-shop-btn';
+_shopBtn.textContent = '★ SHOP';
+document.body.appendChild(_shopBtn);
+const _shopChips = document.createElement('div');
+_shopChips.className = 'cafe-shop-chips';
+_shopChips.id = 'cafe-shop-chips';
+document.body.appendChild(_shopChips);
+const _shopModal = document.createElement('div');
+_shopModal.className = 'cafe-shop-modal';
+_shopModal.id = 'cafe-shop-modal';
+_shopModal.innerHTML = `
+  <div class="cafe-shop-modal__panel">
+    <h2 class="cafe-shop-modal__title">★ CAFÉ SHOP ★</h2>
+    <div class="cafe-shop-modal__money">YOUR TIPS: <span id="cafe-shop-money">$0</span></div>
+    <div id="cafe-shop-list"></div>
+    <button class="cafe-shop-close" id="cafe-shop-close">CLOSE</button>
+  </div>
+`;
+document.body.appendChild(_shopModal);
+_shopBtn.addEventListener('click', openShop);
+document.getElementById('cafe-shop-close').addEventListener('click', () => _shopModal.classList.remove('is-open'));
+_shopModal.addEventListener('click', (e) => { if (e.target === _shopModal) _shopModal.classList.remove('is-open'); });
 const _popups = document.createElement('div'); _popups.className = 'cafe-popups'; document.body.appendChild(_popups);
+// Helper: render a high-detail pug into a small offscreen canvas (cached as bitmap).
+function _makePugCanvas(w, h, opts) {
+  const cv = document.createElement('canvas');
+  const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+  cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  cv.style.width = w + 'px'; cv.style.height = h + 'px';
+  const c = cv.getContext('2d');
+  c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  // drawPug anchors body around y=14 (feet); place the pug so feet sit near bottom.
+  drawPug(c, w / 2, h - 4, opts);
+  return cv;
+}
+
 const _staff = document.createElement('div'); _staff.className = 'cafe-staff';
-_staff.innerHTML = `<span style="display:inline-block;vertical-align:middle">${iconSvg.pugFace(38)}</span><span class="cafe-staff__bub">bork!</span>`;
+const _staffCanvas = _makePugCanvas(56, 56, { size: 48, body: '#c8854a', mask: '#1a0d05', chef: true, tongueOut: true });
+_staffCanvas.className = 'cafe-staff__canvas';
+_staff.appendChild(_staffCanvas);
+const _staffBubEl = document.createElement('span'); _staffBubEl.className = 'cafe-staff__bub'; _staffBubEl.textContent = 'bork!';
+_staff.appendChild(_staffBubEl);
 document.body.appendChild(_staff);
-const _staffBub = _staff.querySelector('.cafe-staff__bub');
+const _staffBub = _staffBubEl;
+
+// Customer crowd — varied body colors so it feels like a crowded café.
+const _customers = document.createElement('div'); _customers.className = 'cafe-customers';
+const _CUSTOMER_COLORS = [
+  { body: '#c8854a', mask: '#1a0d05' },          // classic fawn
+  { body: '#a89888', mask: '#3a2818' },          // silver
+  { body: '#5a5a5a', mask: '#0a0a0a' },          // black
+  { body: '#eac888', mask: '#5a3a1a' },          // cream
+  { body: '#fafaff', mask: '#a08878' },          // white
+  { body: '#8a5a2a', mask: '#1a0a04' },          // chocolate
+];
+for (let i = 0; i < 6; i++) {
+  const col = _CUSTOMER_COLORS[i % _CUSTOMER_COLORS.length];
+  const wrap = document.createElement('span'); wrap.className = 'cafe-customer';
+  const cv = _makePugCanvas(44, 48, { size: 42, body: col.body, mask: col.mask, tongueOut: i % 3 === 0 });
+  wrap.appendChild(cv);
+  _customers.appendChild(wrap);
+}
+document.body.appendChild(_customers);
 const _staffPhrases = ['bork!', 'chef!', 'snrk', 'order up!', 'woof', 'zzz…', 'OK!'];
 setInterval(() => {
   if (!running) return;
@@ -162,21 +434,34 @@ const STAFF_EVENTS = [
 
 let orders, bench, money, served, lives, spawnT, eventT, running;
 let comboT = 0, comboCount = 0; // serve combo within window
+// Shop upgrades — purchased flags reset per run. autoCookT counts down to next autocook trigger.
+const SHOP_DEFS = [
+  { id: 'autoCook',  name: 'AUTO-COOK',         cost: 300, icon: '🤖', desc: 'Auto-completes 1 ingredient in oldest order every 5s' },
+  { id: 'extraBench',name: 'EXTRA BENCH',       cost: 400, icon: '🪑', desc: 'Bench capacity +2' },
+  { id: 'fastServe', name: 'FAST SERVE',        cost: 350, icon: '⚡', desc: 'Skip serve animation (instant)' },
+  { id: 'patient',   name: 'PATIENT CUSTOMERS', cost: 500, icon: '⏰', desc: 'Order timeouts +50%' },
+];
+let upgrades = {}; // id -> true when owned
+let autoCookT = 0;
 function reset() {
   orders = []; bench = []; money = 0; served = 0; lives = 3;
   spawnT = 1.5; eventT = 5;
   comboT = 0; comboCount = 0;
+  upgrades = {}; autoCookT = 5;
+  renderShopChips();
 }
 
 function spawnOrder() {
   const r = RECIPES[Math.floor(Math.random() * RECIPES.length)];
+  const maxT = upgrades.patient ? 33 : 22;
   orders.push({
     recipe: r,
     items: r.items.map((i) => ({ id: i, done: false })),
-    time: 22,
-    maxTime: 22,
+    time: maxT,
+    maxTime: maxT,
   });
   renderOrders();
+  updateChalkboard();
 }
 
 function renderKitchen() {
@@ -221,6 +506,21 @@ function renderOrders() {
     el.appendChild(div);
   }
   el.querySelectorAll('.serve-btn').forEach((b) => b.addEventListener('click', () => serve(+b.dataset.idx)));
+  updateChalkboard();
+}
+
+function updateChalkboard() {
+  const list = document.getElementById('cafe-chalk-list');
+  if (!list) return;
+  if (!orders || orders.length === 0) {
+    list.innerHTML = '<div class="cafe-chalk__empty">no orders yet</div>';
+    return;
+  }
+  list.innerHTML = orders.slice(0, 6).map((o) => {
+    const k = o.time / o.maxTime;
+    const cls = k < 0.3 ? 'crit' : (k < 0.6 ? 'warn' : '');
+    return `<div class="cafe-chalk__line ${cls}">• ${o.recipe.name} $${o.recipe.pay}</div>`;
+  }).join('') + (orders.length > 6 ? `<div class="cafe-chalk__line">+${orders.length - 6} more…</div>` : '');
 }
 
 function renderBench() {
@@ -242,8 +542,8 @@ function renderBench() {
 }
 
 function grab(ing, srcEl) {
-  // Bench capacity grows with served count (4 base + 1 per 10 served, max 8)
-  const cap = Math.min(8, 4 + Math.floor(served / 10));
+  // Bench capacity grows with served count (4 base + 1 per 10 served, max 8). +2 with extraBench shop.
+  const cap = Math.min(10, 4 + Math.floor(served / 10) + (upgrades.extraBench ? 2 : 0));
   if (bench.length >= cap) { showEvent(`Bench full (${cap})!`); return; }
   bench.push(ing.id);
   sfx.tone(660, 'triangle', 0.06, 0.18);
@@ -314,6 +614,7 @@ function tick(dt) {
       popup(window.innerWidth / 2, window.innerHeight / 3, 'ANGRY!', '#ff3a3a');
       if (lives <= 0) return end();
       updateHud();
+      updateChalkboard();
     }
   }
   // Combo decay
@@ -322,6 +623,35 @@ function tick(dt) {
   if (eventT <= 0) {
     eventT = 8 + Math.random() * 6;
     chaosEvent();
+  }
+  // AUTO-COOK upgrade: every 5s pre-load a random missing ingredient onto bench
+  if (upgrades.autoCook) {
+    autoCookT -= dt;
+    if (autoCookT <= 0) {
+      autoCookT = 5;
+      if (orders.length > 0) {
+        // pick oldest order, find a needed ingredient not yet on bench enough
+        const o = orders[0];
+        const need = o.recipe.items.slice();
+        const benchCopy = bench.slice();
+        let missing = null;
+        for (const n of need) {
+          const i = benchCopy.indexOf(n);
+          if (i === -1) { missing = n; break; }
+          benchCopy.splice(i, 1);
+        }
+        if (missing) {
+          const cap = Math.min(10, 4 + Math.floor(served / 10) + (upgrades.extraBench ? 2 : 0));
+          if (bench.length < cap) {
+            bench.push(missing);
+            sfx.tone(880, 'sine', 0.05, 0.15);
+            const ing = INGREDIENTS.find((g) => g.id === missing);
+            popup(80, window.innerHeight - 120, `🤖 +${ing ? ing.name : missing}`, '#b055ff');
+            renderBench();
+          }
+        }
+      }
+    }
   }
   renderOrders();
 }
@@ -384,6 +714,56 @@ function end() {
   document.getElementById('end-overlay').classList.remove('is-hidden');
 }
 
+function openShop() {
+  const moneyEl = document.getElementById('cafe-shop-money');
+  if (moneyEl) moneyEl.textContent = '$' + money;
+  const list = document.getElementById('cafe-shop-list');
+  list.innerHTML = '';
+  for (const u of SHOP_DEFS) {
+    const owned = !!upgrades[u.id];
+    const canBuy = !owned && money >= u.cost;
+    const row = document.createElement('div');
+    row.className = 'cafe-shop-upgrade' + (owned ? ' owned' : '');
+    row.innerHTML = `
+      <div class="cafe-shop-upgrade__icon">${u.icon}</div>
+      <div class="cafe-shop-upgrade__body">
+        <div class="cafe-shop-upgrade__name">${u.name}</div>
+        <div class="cafe-shop-upgrade__desc">${u.desc}</div>
+      </div>
+      <button class="cafe-shop-upgrade__btn ${owned ? 'owned' : ''}" ${owned || !canBuy ? 'disabled' : ''}>
+        ${owned ? 'OWNED' : '$' + u.cost}
+      </button>
+    `;
+    if (!owned && canBuy) {
+      row.querySelector('button').addEventListener('click', () => buyUpgrade(u));
+    }
+    list.appendChild(row);
+  }
+  _shopModal.classList.add('is-open');
+}
+function buyUpgrade(u) {
+  if (upgrades[u.id] || money < u.cost) return;
+  money -= u.cost;
+  upgrades[u.id] = true;
+  sfx.arp([523, 659, 880], 'triangle', 0.08, 0.22, 0.2);
+  popup(window.innerWidth / 2, window.innerHeight / 2, `★ ${u.name} ★`, '#ffd23f');
+  if (u.id === 'autoCook') autoCookT = 5;
+  updateHud();
+  renderShopChips();
+  openShop(); // re-render
+}
+function renderShopChips() {
+  if (!_shopChips) return;
+  _shopChips.innerHTML = '';
+  for (const u of SHOP_DEFS) {
+    if (!upgrades[u.id]) continue;
+    const c = document.createElement('div');
+    c.className = 'cafe-shop-chip';
+    c.textContent = u.icon + ' ' + u.name;
+    _shopChips.appendChild(c);
+  }
+}
+
 document.getElementById('start-btn').addEventListener('click', start);
 document.getElementById('end-restart').addEventListener('click', start);
 function start() {
@@ -409,7 +789,7 @@ const _startOv = document.getElementById('overlay');
 if (_startOv) {
   const _showOnHide = () => {
     if (_startOv.classList.contains('is-hidden') || _startOv.hidden) {
-      showTip('Tap an ingredient → tap SERVE on the right order before timer ends', 6000);
+      showTip('Tap an ingredient → tap SERVE on the right order. Tap ★ SHOP (top-right) to spend tips on permanent upgrades.', 7500);
     }
   };
   new MutationObserver(_showOnHide).observe(_startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });

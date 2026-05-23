@@ -9,6 +9,7 @@ import { submitRun, loadBest } from '../../src/persistence/highScores.js';
 import { createSfx } from '../../src/shared/miniSfx.js';
 import { showTip } from '../../src/shared/tutorialTip.js';
 import { drawIcon } from '../../src/shared/icons.js';
+import { drawPug, drawMonsterPug } from '../../src/shared/pugSprite.js';
 
 const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
@@ -922,14 +923,14 @@ function render() {
   drawMonster();
   // Flashlight cone (player) — narrow yellow wedge
   if (flashlightOn && battery > 0) drawFlashlightCone();
-  // Pug player — shadow + body
-  ctx.fillStyle = 'rgba(0,0,0,0.4)';
-  ctx.beginPath(); ctx.ellipse(pug.x, pug.y + 12, 10, 3, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = hitFlashT > 0 ? '#ffffff' : '#c8854a';
-  ctx.beginPath(); ctx.arc(pug.x, pug.y, 11, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#1a0d05';
-  ctx.fillRect(pug.x - 3, pug.y - 2, 2, 2);
-  ctx.fillRect(pug.x + 1, pug.y - 2, 2, 2);
+  // Pug player — high-detail sprite (with hit-flash overlay)
+  if (hitFlashT > 0) {
+    ctx.save(); ctx.filter = 'brightness(2.5)';
+    drawPug(ctx, pug.x, pug.y, { size: 28 });
+    ctx.filter = 'none'; ctx.restore();
+  } else {
+    drawPug(ctx, pug.x, pug.y, { size: 28 });
+  }
   // Sound waves
   if (soundLevel > 0.05) {
     ctx.strokeStyle = `rgba(255,210,63,${soundLevel * 0.5})`;
@@ -1088,33 +1089,18 @@ function drawItem(it) {
 }
 
 function drawMonster() {
-  const mr = 22;
   const wob = Math.sin(monsterWiggle) * 1.4;
-  ctx.fillStyle = 'rgba(0,0,0,0.55)';
-  ctx.beginPath(); ctx.ellipse(monster.x, monster.y + mr + 4, mr * 1.1, 5, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = monster.chase ? 'rgba(120,0,0,0.5)' : 'rgba(40,20,8,0.5)';
-  ctx.beginPath(); ctx.arc(monster.x, monster.y + wob, mr * 1.6, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = monster.chase ? '#5a0d0d' : '#6b3a1c';
-  ctx.beginPath(); ctx.arc(monster.x, monster.y + wob, mr, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = monster.chase ? 'rgba(0,0,0,0.35)' : 'rgba(0,0,0,0.25)';
-  ctx.beginPath(); ctx.arc(monster.x, monster.y + wob + 4, mr * 0.9, 0.2, Math.PI - 0.2); ctx.fill();
-  ctx.fillStyle = monster.chase ? '#ff3a3a' : '#ffd23f';
-  ctx.fillRect(monster.x - 10, monster.y - 4 + wob, 5, 5);
-  ctx.fillRect(monster.x + 4, monster.y - 4 + wob, 5, 5);
+  // Aggression-tinted body palette
+  const bodyCol = monster.chase ? '#5a0d0d' : '#6b3a1c';
+  // Dread aura beneath
+  ctx.fillStyle = monster.chase ? 'rgba(120,0,0,0.45)' : 'rgba(40,20,8,0.4)';
+  ctx.beginPath(); ctx.arc(monster.x, monster.y + wob, 44, 0, Math.PI * 2); ctx.fill();
+  drawMonsterPug(ctx, monster.x, monster.y + wob, { size: 70, body: bodyCol });
   if (monster.chase) {
-    ctx.shadowColor = '#ff3a3a'; ctx.shadowBlur = 10;
-    ctx.fillRect(monster.x - 10, monster.y - 4 + wob, 5, 5);
-    ctx.fillRect(monster.x + 4, monster.y - 4 + wob, 5, 5);
+    ctx.shadowColor = '#ff3a3a'; ctx.shadowBlur = 16;
+    drawMonsterPug(ctx, monster.x, monster.y + wob, { size: 70, body: bodyCol, alpha: 0.5 });
     ctx.shadowBlur = 0;
   }
-  ctx.fillStyle = '#000';
-  ctx.fillRect(monster.x - 8, monster.y - 2 + wob, 2, 2);
-  ctx.fillRect(monster.x + 6, monster.y - 2 + wob, 2, 2);
-  ctx.fillStyle = '#fff';
-  ctx.fillRect(monster.x - 6, monster.y + 8 + wob, 12, 2);
-  ctx.fillRect(monster.x - 4, monster.y + 10 + wob, 1, 3);
-  ctx.fillRect(monster.x, monster.y + 10 + wob, 1, 3);
-  ctx.fillRect(monster.x + 4, monster.y + 10 + wob, 1, 3);
 }
 
 function drawHound(e) {

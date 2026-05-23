@@ -28,9 +28,21 @@
           class="hub__search"
           type="search"
           autocomplete="off"
-          placeholder="Search games…"
+          placeholder="Search games…   ( press / )"
           aria-label="Search games"
         />
+        <div id="hub-cats" class="hub__cats" role="tablist" aria-label="Filter by category">
+          <button class="hub__cat is-active" data-cat="all" type="button">ALL</button>
+          <button class="hub__cat" data-cat="action" type="button">ACTION</button>
+          <button class="hub__cat" data-cat="stealth" type="button">STEALTH</button>
+          <button class="hub__cat" data-cat="defense" type="button">DEFENSE</button>
+          <button class="hub__cat" data-cat="driving" type="button">DRIVING</button>
+          <button class="hub__cat" data-cat="platform" type="button">PLATFORM</button>
+          <button class="hub__cat" data-cat="mining" type="button">MINING</button>
+          <button class="hub__cat" data-cat="puzzle" type="button">PUZZLE</button>
+          <button class="hub__cat" data-cat="management" type="button">MANAGEMENT</button>
+          <button class="hub__cat" data-cat="horror" type="button">HORROR</button>
+        </div>
         <div id="hub-empty" class="hub__empty" hidden>No games match that search.</div>
       </header>
 
@@ -2719,8 +2731,10 @@
       <footer class="hub__footer">
         <span>Built with PixiJS + Vite</span>
         <span id="daily-seed" class="hub__chip" title="Today's daily-challenge seed" style="margin-left:8px;font-size:0.45rem;"></span>
+        <span id="gamepad-chip" class="hub__chip" title="Gamepad detected" style="margin-left:8px;font-size:0.45rem;" hidden>🎮 GAMEPAD</span>
         <button id="settings-btn" type="button" class="hub__icon-btn" title="Settings" aria-label="Settings">⚙</button>
         <button id="changelog-btn" type="button" class="hub__icon-btn" title="What's new" aria-label="What's new">★</button>
+        <button id="stats-btn" type="button" class="hub__icon-btn" title="Your stats" aria-label="Your stats">📊</button>
         <button id="random-btn" type="button" class="hub__icon-btn" title="Play a random game" aria-label="Play a random game">🎲</button>
       </footer>
     </main>
@@ -2770,6 +2784,7 @@
       <div class="hub-modal__panel">
         <h2>WHAT'S NEW</h2>
         <ul class="hub-changelog">
+          <li><b>v1.3</b> · MAPS &amp; MECHANICS PASS — every game's world rebuilt to match the depth of BORK BATTLE / PUGFORT (strong landmarks, decoration density, animated props, atmospheric lighting). New core mechanics across the board (throw distractions, road events, rage meters, alarm systems, mining cave-ins, moving platforms, mini-bosses, tower upgrade paths). Hub: category filter chips, stats modal, gamepad indicator, PWA shortcuts, shared achievements module.</li>
           <li><b>v1.2</b> · BIG POLISH PASS — all 13 thumbnails redesigned to production quality. Screen shake, hit flash, score popups + combo banners across every game. BACKROOMS rebuilt with 3 levels (Lobby/Warehouse/Pipes), Hounds + Smilers, sanity meter, flashlight battery, persistent fluorescent hum. DUNGEON DIGGERS gets a Cheese Caverns biome with a hidden vault. ROCKET PUG drops weapon pickups mid-fight. PUG-HEIST grade calc fixed. Shared SVG icon library — emoji swapped for custom pixel-art across all games. Hub: ESC closes modals, dynamic game count, full entrance animations honoring reduced-motion.</li>
           <li><b>v1.1</b> · PUG TOWER DEFENSE released (6 tower classes, 15 waves, upgrades). 13 games total.</li>
           <li><b>v1.0</b> · 4 MORE NEW GAMES: PUGZILLA RAMPAGE, BACKROOMS OF PUG, FLOOR IS LAVA, SUPERMARKET PUG. Fixed delivery-pugs crash bug.</li>
@@ -2797,6 +2812,20 @@
           <li><b>Tip:</b> Add this site to your home screen for an offline app icon.</li>
         </ul>
         <button id="onboard-close" type="button" class="hub-modal__close">LET'S GO</button>
+      </div>
+    </div>
+
+    <!-- Stats modal — per-game best scores from localStorage -->
+    <div id="stats-modal" class="hub-modal" hidden>
+      <div class="hub-modal__panel hub-modal__panel--wide">
+        <h2>YOUR STATS</h2>
+        <div id="stats-summary" class="stats-summary"></div>
+        <table class="stats-table">
+          <thead><tr><th>GAME</th><th>BEST</th><th>WHEN</th></tr></thead>
+          <tbody id="stats-tbody"></tbody>
+        </table>
+        <div id="stats-empty" class="stats-empty" hidden>No games played yet. Pick a card and start a run!</div>
+        <button id="stats-close" type="button" class="hub-modal__close">DONE</button>
       </div>
     </div>
 
@@ -2851,6 +2880,54 @@
       $('settings-close')?.addEventListener('click', () => closeModal('settings-modal'));
       $('changelog-btn')?.addEventListener('click', () => openModal('changelog-modal'));
       $('changelog-close')?.addEventListener('click', () => closeModal('changelog-modal'));
+      $('stats-btn')?.addEventListener('click', () => { renderStats(); openModal('stats-modal'); });
+      $('stats-close')?.addEventListener('click', () => closeModal('stats-modal'));
+      function renderStats() {
+        const cards = [...document.querySelectorAll('.hub__grid .card[href*="/games/"]')];
+        const rows = [];
+        let played = 0, achTotal = 0;
+        for (const card of cards) {
+          const m = (card.getAttribute('href') || '').match(/\/games\/([^/]+)/);
+          if (!m) continue;
+          const id = m[1];
+          const title = card.querySelector('.card__title')?.textContent?.trim() || id;
+          let raw = null; try { raw = localStorage.getItem('wg:hs:' + id); } catch {}
+          let bestText = '—', whenText = '—';
+          if (raw) {
+            try {
+              const data = JSON.parse(raw);
+              played++;
+              for (const k of ['score','kills','floor','level','depth','wave','deliveries','cansTotal']) {
+                if (typeof data[k] === 'number') { bestText = `★ ${k.toUpperCase()} ${data[k]}`; break; }
+              }
+              if (typeof data.ts === 'number') {
+                const d = new Date(data.ts);
+                whenText = `${d.getMonth()+1}/${d.getDate()}/${String(d.getFullYear()).slice(2)}`;
+              }
+            } catch {}
+          }
+          // Achievements (optional — games that adopt src/shared/achievements.js store under wg:ach:<id>)
+          let achText = '';
+          try {
+            const aRaw = localStorage.getItem('wg:ach:' + id);
+            if (aRaw) {
+              const a = JSON.parse(aRaw);
+              if (Array.isArray(a) && a.length) { achText = ` · 🏆${a.length}`; achTotal += a.length; }
+            }
+          } catch {}
+          rows.push({ title, bestText: bestText + achText, whenText });
+        }
+        const tbody = $('stats-tbody');
+        const empty = $('stats-empty');
+        const summary = $('stats-summary');
+        if (tbody) tbody.innerHTML = rows.map(r => `<tr><td>${r.title}</td><td>${r.bestText}</td><td>${r.whenText}</td></tr>`).join('');
+        if (empty) empty.hidden = played > 0;
+        if (summary) {
+          summary.textContent = achTotal > 0
+            ? `PLAYED ${played} / ${cards.length}   ·   🏆 ${achTotal} ACHIEVEMENTS`
+            : `PLAYED ${played} / ${cards.length}`;
+        }
+      }
       $('onboard-close')?.addEventListener('click', () => {
         closeModal('onboard-modal');
         localStorage.setItem('wg:onboarded', '1');
@@ -2865,8 +2942,10 @@
       });
       // ESC closes any open modal
       window.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') ['settings-modal','changelog-modal','onboard-modal'].forEach(closeModal);
+        if (e.key === 'Escape') ['settings-modal','changelog-modal','onboard-modal','stats-modal'].forEach(closeModal);
       });
+      // Add stats-modal to backdrop-click closers too
+      $('stats-modal')?.addEventListener('click', (e) => { if (e.target.id === 'stats-modal') closeModal('stats-modal'); });
       // Dynamic game count in the LIVE chip — derived from playable cards
       const liveChip = $('hub-live-chip');
       if (liveChip) {
@@ -2904,37 +2983,87 @@
         }
       })();
       // Play Random — jumps to a random playable game
-      $('random-btn')?.addEventListener('click', () => {
+      function gotoRandom() {
         const playable = [...document.querySelectorAll('.hub__grid .card[href*="/games/"]')];
         if (!playable.length) return;
         const pick = playable[Math.floor(Math.random() * playable.length)];
         const href = pick.getAttribute('href');
         if (href) location.href = href;
-      });
-      // Hub search — filter cards by title + description as user types
-      (function setupSearch() {
+      }
+      $('random-btn')?.addEventListener('click', gotoRandom);
+      // PWA "Random Game" shortcut launches with ?random=1
+      if (new URLSearchParams(location.search).get('random') === '1') {
+        history.replaceState(null, '', location.pathname);
+        setTimeout(gotoRandom, 50);
+      }
+      // Hub search + category filter — combined filter on cards
+      (function setupSearchAndCats() {
         const input = $('hub-search');
         const empty = $('hub-empty');
         if (!input) return;
+        // Map game folder id to its category tag(s). Multi-tag allowed.
+        const CAT_MAP = {
+          'bork-battle':     ['action'],
+          'pugfort':         ['defense', 'action'],
+          'pug-heist':       ['stealth'],
+          'pug-cafe':        ['management'],
+          'rocket-pug':      ['action'],
+          'dungeon-diggers': ['mining'],
+          'mutation-lab':    ['puzzle'],
+          'delivery-pugs':   ['driving', 'action'],
+          'pugzilla':        ['action'],
+          'backrooms-pug':   ['horror', 'stealth'],
+          'floor-lava':      ['platform'],
+          'supermarket-pug': ['stealth'],
+          'pug-td':          ['defense'],
+        };
         const cards = [...document.querySelectorAll('.hub__grid .card, .hub__grid .card--coming')];
+        for (const c of cards) {
+          const m = (c.getAttribute('href') || '').match(/\/games\/([^/]+)/);
+          c.dataset.cats = (m && CAT_MAP[m[1]] ? CAT_MAP[m[1]].join(' ') : '');
+        }
+        let activeCat = 'all';
         const apply = () => {
           const q = input.value.trim().toLowerCase();
           let visible = 0;
           for (const c of cards) {
             const txt = (c.textContent || '').toLowerCase();
-            const match = !q || txt.includes(q);
+            const matchQ = !q || txt.includes(q);
+            const matchCat = activeCat === 'all' || (c.dataset.cats || '').includes(activeCat);
+            const match = matchQ && matchCat;
             c.style.display = match ? '' : 'none';
             if (match) visible++;
           }
           if (empty) empty.hidden = visible > 0;
         };
         input.addEventListener('input', apply);
-        // Focus shortcut: "/" anywhere on hub focuses the search
+        // "/" focuses the search anywhere
         window.addEventListener('keydown', (e) => {
           if (e.key === '/' && document.activeElement?.tagName !== 'INPUT') {
             e.preventDefault(); input.focus(); input.select();
           }
         });
+        // Category chips
+        document.querySelectorAll('.hub__cat').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            activeCat = btn.dataset.cat || 'all';
+            document.querySelectorAll('.hub__cat').forEach((b) => b.classList.toggle('is-active', b === btn));
+            apply();
+          });
+        });
+      })();
+      // Gamepad detection — show chip when a gamepad connects
+      (function setupGamepadChip() {
+        const chip = $('gamepad-chip');
+        if (!chip) return;
+        const sync = () => {
+          const gps = navigator.getGamepads ? navigator.getGamepads() : [];
+          const connected = [...gps].some((g) => g && g.connected);
+          chip.hidden = !connected;
+        };
+        window.addEventListener('gamepadconnected', sync);
+        window.addEventListener('gamepaddisconnected', sync);
+        sync();
       })();
       // Daily seed badge — same seed for everyone on the same UTC day
       const seedEl = $('daily-seed');

@@ -6,6 +6,7 @@ import { submitRun, loadBest } from '../../src/persistence/highScores.js';
 import { createSfx } from '../../src/shared/miniSfx.js';
 import { showTip } from '../../src/shared/tutorialTip.js';
 import { drawIcon } from '../../src/shared/icons.js';
+import { drawPug } from '../../src/shared/pugSprite.js';
 
 const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
@@ -41,6 +42,18 @@ let combo = 0, comboT = 0, toxicPuddles = [], spikeStrips = [], achievementsSeen
 let weather = 'clear'; // 'clear' | 'rain' | 'fog' | 'night'
 let weatherT = 0; // seconds remaining in current weather
 let raindrops = []; // for rain visual
+// Map upgrade: world decor (rendered once per match), city center landmark, road events
+let cityCenter = null;        // {x, y} with bus + tower + campfire components
+let trafficLights = [];       // {x, y, phase, t} — cycles red/yellow/green
+let wreckedCars = [];         // {x, y, ang, color}
+let billboards = [];          // {x, y, ang, text, color, scrollT}
+let phonePoles = [];          // {x, y, neighborY}
+let campfires = [];           // {x, y, flickerT, sparks: []}
+let debris = [];              // {x, y, sz, color, ang}
+// Road events
+let eventTimer = 0;
+let activeEvent = null;       // {kind:'flood'|'gang'|'package', t, life, x, y, w?, h?, marker?}
+let bonusMarker = null;       // {x, y, life} mystery package
 // --- Juice: screen shake, hit flash, score popups, smog ---
 let shakeT = 0, shakeMag = 0;
 let hitFlashT = 0;
@@ -98,6 +111,106 @@ function reset() {
   for (let i = 0; i < 30; i++) {
     smog.push({ x: Math.random() * W, y: Math.random() * H, vx: -8 - Math.random() * 14, vy: -2 - Math.random() * 4, r: 24 + Math.random() * 40, a: 0.04 + Math.random() * 0.06 });
   }
+  // Map decoration — generated once per match
+  buildCityDecor();
+  // Road events
+  eventTimer = 25 + Math.random() * 15;
+  activeEvent = null; bonusMarker = null;
+}
+
+function buildCityDecor() {
+  // CITY CENTER landmark — at world middle. Crashed bus + radio tower + campfire + debris.
+  cityCenter = { x: WORLD_W / 2, y: WORLD_H / 2 };
+  // Cluster of debris around center
+  debris = [];
+  for (let i = 0; i < 14; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const r = 30 + Math.random() * 130;
+    debris.push({
+      x: cityCenter.x + Math.cos(a) * r,
+      y: cityCenter.y + Math.sin(a) * r,
+      sz: 6 + Math.random() * 12,
+      color: ['#3a2010', '#5a3020', '#222', '#4a3a2a'][Math.floor(Math.random() * 4)],
+      ang: Math.random() * Math.PI,
+    });
+  }
+  // Campfire AT city center + a few extras around the world
+  campfires = [];
+  campfires.push({ x: cityCenter.x - 40, y: cityCenter.y + 60, flickerT: 0, sparks: [] });
+  for (let i = 0; i < 4; i++) {
+    campfires.push({
+      x: rand(80, WORLD_W - 80),
+      y: rand(80, WORLD_H - 80),
+      flickerT: 0, sparks: [],
+    });
+  }
+  // Traffic lights at road intersections (skip if too close to city center)
+  trafficLights = [];
+  const ROAD = 320;
+  for (let x = ROAD; x < WORLD_W; x += ROAD) {
+    for (let y = ROAD; y < WORLD_H; y += ROAD) {
+      if (Math.hypot(x - cityCenter.x, y - cityCenter.y) < 200) continue;
+      trafficLights.push({ x: x + 50, y: y - 50, phase: Math.floor(Math.random() * 3), t: Math.random() * 4 });
+    }
+  }
+  // Wrecked cars scattered
+  wreckedCars = [];
+  for (let i = 0; i < 14; i++) {
+    let x, y, ok = false;
+    for (let k = 0; k < 12; k++) {
+      x = rand(120, WORLD_W - 120); y = rand(120, WORLD_H - 120);
+      if (Math.hypot(x - cityCenter.x, y - cityCenter.y) > 220) { ok = true; break; }
+    }
+    if (!ok) continue;
+    wreckedCars.push({
+      x, y,
+      ang: Math.random() * Math.PI * 2,
+      color: ['#3a3a4a', '#5a3a3a', '#3a4a3a', '#52523a'][Math.floor(Math.random() * 4)],
+    });
+  }
+  // Billboards
+  const BILL_TEXTS = ['BORK COLA', 'PUGMART', 'CHEESE 24/7', 'BACON BREW', 'WOOFFLIX', 'NEON BARK'];
+  const BILL_COLORS = ['#ff3aa1', '#4cc9f0', '#ffd23f', '#5ef38c', '#ff8e3c', '#b055ff'];
+  billboards = [];
+  for (let i = 0; i < 8; i++) {
+    let x, y, ok = false;
+    for (let k = 0; k < 12; k++) {
+      x = rand(160, WORLD_W - 160); y = rand(160, WORLD_H - 160);
+      if (Math.hypot(x - cityCenter.x, y - cityCenter.y) > 260) { ok = true; break; }
+    }
+    if (!ok) continue;
+    billboards.push({
+      x, y,
+      ang: Math.random() < 0.5 ? 0 : Math.PI / 2,
+      text: BILL_TEXTS[i % BILL_TEXTS.length],
+      color: BILL_COLORS[i % BILL_COLORS.length],
+      scrollT: Math.random() * 4,
+    });
+  }
+  // Telephone poles along edges of roads (sparse)
+  phonePoles = [];
+  for (let i = 0; i < 24; i++) {
+    let x, y;
+    if (Math.random() < 0.5) {
+      x = (Math.floor(Math.random() * (WORLD_W / ROAD)) + 1) * ROAD - 56;
+      y = rand(60, WORLD_H - 60);
+    } else {
+      x = rand(60, WORLD_W - 60);
+      y = (Math.floor(Math.random() * (WORLD_H / ROAD)) + 1) * ROAD - 56;
+    }
+    if (Math.hypot(x - cityCenter.x, y - cityCenter.y) < 200) continue;
+    phonePoles.push({ x, y, neighbor: null });
+  }
+  // Pair up poles into sagging wire neighbors (closest pole within 280px)
+  for (const p of phonePoles) {
+    let best = null, bestD = 280;
+    for (const q of phonePoles) {
+      if (q === p || q.neighbor) continue;
+      const d = Math.hypot(p.x - q.x, p.y - q.y);
+      if (d < bestD) { bestD = d; best = q; }
+    }
+    if (best) p.neighbor = best;
+  }
 }
 function spawnRaccoon() {
   obstacles.push({
@@ -145,6 +258,57 @@ function spawnObstacle() {
 }
 function rand(a, b) { return a + Math.random() * (b - a); }
 
+function triggerRoadEvent() {
+  const pick = Math.floor(Math.random() * 3);
+  if (pick === 0) {
+    // FLASH FLOOD — random street area near player
+    const cx = pug.x + (Math.random() - 0.5) * 600;
+    const cy = pug.y + (Math.random() - 0.5) * 400;
+    activeEvent = {
+      kind: 'flood',
+      x: Math.max(120, Math.min(WORLD_W - 120, cx)),
+      y: Math.max(120, Math.min(WORLD_H - 120, cy)),
+      w: 240, h: 160,
+      t: 0, life: 18,
+    };
+    toasts.push({ text: 'EVENT: FLASH FLOOD!', t: 0 });
+    hitFlashT = 0.12;
+    sfx.tone(220, 'sine', 0.3, 0.25);
+  } else if (pick === 1) {
+    // GANG CHASE — spawn 3 tagged zombies near player
+    for (let i = 0; i < 3; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = 260 + Math.random() * 60;
+      obstacles.push({
+        type: 'zombie',
+        x: Math.max(40, Math.min(WORLD_W - 40, pug.x + Math.cos(a) * r)),
+        y: Math.max(40, Math.min(WORLD_H - 40, pug.y + Math.sin(a) * r)),
+        vx: 0, vy: 0, speed: 130 + Math.random() * 30,
+        _gang: true,
+      });
+    }
+    activeEvent = { kind: 'gang', t: 0, life: 12 };
+    toasts.push({ text: 'EVENT: GANG CHASE!', t: 0 });
+    hitFlashT = 0.15;
+    sfx.sweep(440, 110, 'sawtooth', 0.3, 0.25);
+    addShake(5, 0.22);
+  } else {
+    // MYSTERY PACKAGE — spawn bonus marker 350-650 from player
+    let bx, by;
+    for (let i = 0; i < 30; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = 350 + Math.random() * 300;
+      bx = pug.x + Math.cos(a) * r;
+      by = pug.y + Math.sin(a) * r;
+      if (bx > 100 && bx < WORLD_W - 100 && by > 100 && by < WORLD_H - 100) break;
+    }
+    bonusMarker = { x: bx, y: by, life: 20 };
+    activeEvent = { kind: 'package', t: 0, life: 20 };
+    toasts.push({ text: 'EVENT: MYSTERY PACKAGE (2x reward)', t: 0 });
+    sfx.arp([523, 784, 1047], 'triangle', 0.08, 0.22, 0.2);
+  }
+}
+
 window.addEventListener('keydown', (e) => keys.add(e.key.toLowerCase()));
 window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 canvas.addEventListener('touchstart', (e) => { touchAim = e.touches[0]; e.preventDefault(); }, { passive: false });
@@ -171,6 +335,65 @@ function tick(dt) {
     for (const d of raindrops) { d.y += d.vy * dt; if (d.y > H) { d.y = -10; d.x = rand(0, W); } }
   }
   const weatherSpeedMul = weather === 'rain' ? 0.75 : 1;
+  // --- Traffic lights cycle (4s per phase) ---
+  for (const tl of trafficLights) {
+    tl.t += dt;
+    if (tl.t >= 4) { tl.t = 0; tl.phase = (tl.phase + 1) % 3; }
+  }
+  // --- Campfires flicker + spawn sparks ---
+  for (const cf of campfires) {
+    cf.flickerT -= dt;
+    if (cf.flickerT <= 0) cf.flickerT = 0.05 + Math.random() * 0.12;
+    if (Math.random() < dt * 8) {
+      cf.sparks.push({ x: cf.x + (Math.random() - 0.5) * 6, y: cf.y - 4, vx: (Math.random() - 0.5) * 30, vy: -20 - Math.random() * 30, t: 0, life: 0.7 });
+    }
+    for (const s of cf.sparks) { s.t += dt; s.x += s.vx * dt; s.y += s.vy * dt; s.vy += 30 * dt; }
+    cf.sparks = cf.sparks.filter((s) => s.t < s.life);
+  }
+  // --- Billboards scroll ---
+  for (const b of billboards) b.scrollT += dt;
+  // --- Road events ---
+  eventTimer -= dt;
+  if (activeEvent) {
+    activeEvent.t += dt;
+    if (activeEvent.kind === 'flood') {
+      // Slow player if inside flood box
+      const e = activeEvent;
+      if (pug.x > e.x - e.w / 2 && pug.x < e.x + e.w / 2 &&
+          pug.y > e.y - e.h / 2 && pug.y < e.y + e.h / 2) {
+        pug.vx *= Math.pow(0.5, dt * 8);
+        pug.vy *= Math.pow(0.5, dt * 8);
+      }
+    }
+    if (activeEvent.t >= activeEvent.life) {
+      // End event
+      if (activeEvent.kind === 'gang') {
+        // remove gang zombies tagged by event
+        for (let i = obstacles.length - 1; i >= 0; i--) {
+          if (obstacles[i]._gang) obstacles.splice(i, 1);
+        }
+      }
+      if (activeEvent.kind === 'package') bonusMarker = null;
+      activeEvent = null;
+      eventTimer = 25 + Math.random() * 15;
+    }
+  } else if (eventTimer <= 0) {
+    triggerRoadEvent();
+    eventTimer = 25 + Math.random() * 15;
+  }
+  // Bonus marker pickup
+  if (bonusMarker && Math.hypot(pug.x - bonusMarker.x, pug.y - bonusMarker.y) < 44) {
+    const bonus = 36;
+    time = Math.min(time + bonus, 60);
+    deliveries++;
+    sfx.arp([523, 880, 1320, 1760], 'triangle', 0.06, 0.25, 0.35);
+    addPopup(bonusMarker.x, bonusMarker.y - 10, `+${bonus}s · BONUS!`, '#b055ff');
+    addBurst(bonusMarker.x, bonusMarker.y, '#b055ff', 22);
+    addShake(6, 0.24);
+    toasts.push({ text: 'MYSTERY PACKAGE DELIVERED!', t: 0 });
+    bonusMarker = null;
+    if (activeEvent && activeEvent.kind === 'package') { activeEvent.t = activeEvent.life; }
+  }
 
   // Top-down WASD (consistent with all other games)
   let mx = 0, my = 0;
@@ -488,6 +711,215 @@ function render() {
     ctx.ellipse(x, y, 10 + (i % 4) * 2, 6 + (i % 3) * 2, (i % 7) * 0.4, 0, Math.PI * 2);
     ctx.fill();
   }
+  // Per-weather: rain reflective shine streaks on the road
+  if (weather === 'rain') {
+    ctx.fillStyle = 'rgba(160,200,255,0.07)';
+    for (let i = 0; i < 80; i++) {
+      const xx = ((i * 263) + (performance.now() * 0.02)) % WORLD_W;
+      const yy = (i * 197) % WORLD_H;
+      ctx.fillRect(xx, yy, 60, 2);
+    }
+  }
+  // CITY CENTER landmark — crashed bus, radio tower, debris, campfire (the campfire is rendered below with others)
+  if (cityCenter) {
+    const cx = cityCenter.x, cy = cityCenter.y;
+    // base scorch
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.beginPath(); ctx.ellipse(cx, cy, 160, 110, 0, 0, Math.PI * 2); ctx.fill();
+    // Radio tower (offset to one side)
+    const tx = cx + 60, tyBase = cy - 30;
+    // tower struts (60px tall pylon up-and-back)
+    ctx.strokeStyle = '#888'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(tx - 12, tyBase); ctx.lineTo(tx, tyBase - 70); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(tx + 12, tyBase); ctx.lineTo(tx, tyBase - 70); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(tx - 6, tyBase - 30); ctx.lineTo(tx + 6, tyBase - 30); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(tx - 4, tyBase - 50); ctx.lineTo(tx + 4, tyBase - 50); ctx.stroke();
+    // dish
+    ctx.fillStyle = '#aaa'; ctx.fillRect(tx - 5, tyBase - 75, 10, 4);
+    // red strobe
+    const strobe = (Math.floor(performance.now() / 400) % 2 === 0);
+    ctx.fillStyle = strobe ? '#ff3a3a' : '#5a1a1a';
+    ctx.fillRect(tx - 2, tyBase - 76, 4, 4);
+    if (strobe) {
+      ctx.fillStyle = 'rgba(255,58,58,0.25)';
+      ctx.beginPath(); ctx.arc(tx, tyBase - 75, 10, 0, Math.PI * 2); ctx.fill();
+    }
+    // Crashed bus (rotated, tipped)
+    ctx.save();
+    ctx.translate(cx - 30, cy + 10);
+    ctx.rotate(-0.3);
+    ctx.fillStyle = '#c89020'; ctx.fillRect(-50, -16, 100, 32); // body
+    ctx.fillStyle = '#5a3a1c'; ctx.fillRect(-50, 8, 100, 8);
+    ctx.fillStyle = '#3a2a1a'; ctx.fillRect(-50, -16, 100, 4);
+    ctx.fillStyle = '#1a1a22';
+    for (let wi = 0; wi < 4; wi++) {
+      ctx.fillRect(-40 + wi * 24, -12, 14, 12);
+    }
+    // broken wheels
+    ctx.fillStyle = '#1a0d05';
+    ctx.beginPath(); ctx.arc(-30, 16, 7, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(30, 16, 7, 0, Math.PI * 2); ctx.fill();
+    // smoke from front
+    ctx.fillStyle = 'rgba(80,80,80,0.55)';
+    for (let s = 0; s < 3; s++) {
+      const ya = Math.sin(performance.now() / 600 + s);
+      ctx.beginPath(); ctx.arc(-50 - s * 6, -20 - s * 8 + ya * 2, 6 + s * 2, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+    // Debris scattered around landmark
+    for (const d of debris) {
+      ctx.save();
+      ctx.translate(d.x, d.y);
+      ctx.rotate(d.ang);
+      ctx.fillStyle = d.color;
+      ctx.fillRect(-d.sz / 2, -d.sz / 2, d.sz, d.sz);
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.fillRect(-d.sz / 2, d.sz / 2 - 1, d.sz, 1);
+      ctx.restore();
+    }
+    // Landmark sign
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(cx - 50, cy - 90, 100, 14);
+    ctx.fillStyle = '#ffd23f';
+    ctx.font = "9px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText('CITY CENTER', cx, cy - 80);
+  }
+  // Traffic lights at intersections
+  for (const tl of trafficLights) {
+    // post
+    ctx.fillStyle = '#1a1a22'; ctx.fillRect(tl.x - 1, tl.y, 2, 24);
+    // housing
+    ctx.fillStyle = '#3a3a3a'; ctx.fillRect(tl.x - 6, tl.y - 22, 12, 22);
+    // bulbs
+    const phaseColors = ['#ff3a3a', '#ffd23f', '#5ef38c'];
+    for (let i = 0; i < 3; i++) {
+      const lit = tl.phase === i;
+      ctx.fillStyle = lit ? phaseColors[i] : '#1a1a1a';
+      ctx.fillRect(tl.x - 3, tl.y - 19 + i * 6, 6, 5);
+      if (lit) {
+        ctx.fillStyle = phaseColors[i] + '40';
+        ctx.beginPath(); ctx.arc(tl.x, tl.y - 17 + i * 6, 7, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+  }
+  // Wrecked cars
+  for (const w of wreckedCars) {
+    ctx.save();
+    ctx.translate(w.x, w.y);
+    ctx.rotate(w.ang);
+    ctx.fillStyle = w.color; ctx.fillRect(-16, -10, 32, 20);
+    ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(-14, -8, 28, 4);
+    // rust spots
+    ctx.fillStyle = '#7a4a2a'; ctx.fillRect(-12, -2, 6, 4); ctx.fillRect(6, 0, 6, 4);
+    // flat tires (broken rect)
+    ctx.fillStyle = '#1a0d05';
+    ctx.fillRect(-14, 8, 6, 3); ctx.fillRect(8, 8, 6, 3);
+    ctx.fillRect(-14, -11, 6, 3); ctx.fillRect(8, -11, 6, 3);
+    // shattered window
+    ctx.fillStyle = '#5a5a7a';
+    ctx.fillRect(-6, -4, 12, 6);
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(-6, -4); ctx.lineTo(6, 2); ctx.stroke();
+    ctx.restore();
+  }
+  // Billboards
+  for (const b of billboards) {
+    ctx.save();
+    ctx.translate(b.x, b.y);
+    ctx.rotate(b.ang);
+    // post
+    ctx.fillStyle = '#3a2a1c'; ctx.fillRect(-2, 16, 4, 14);
+    // panel
+    ctx.fillStyle = '#1a1a22'; ctx.fillRect(-30, -16, 60, 34);
+    ctx.fillStyle = b.color; ctx.fillRect(-28, -14, 56, 30);
+    // scrolling text loop
+    ctx.fillStyle = '#1a1a22';
+    ctx.font = "10px 'Press Start 2P', monospace"; ctx.textAlign = 'left';
+    const off = (b.scrollT * 24) % 100;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(-28, -14, 56, 30); ctx.clip();
+    ctx.fillText(b.text, -28 + 60 - off, 4);
+    ctx.fillText(b.text, -28 + 120 - off, 4);
+    ctx.restore();
+    // pixel border
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 1;
+    ctx.strokeRect(-28, -14, 56, 30);
+    ctx.restore();
+  }
+  // Telephone poles + sagging wires
+  for (const p of phonePoles) {
+    if (p.neighbor) {
+      const midX = (p.x + p.neighbor.x) / 2;
+      const midY = (p.y + p.neighbor.y) / 2 + 14; // sag
+      ctx.strokeStyle = 'rgba(0,0,0,0.55)'; ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y - 18);
+      ctx.quadraticCurveTo(midX, midY, p.neighbor.x, p.neighbor.y - 18);
+      ctx.stroke();
+    }
+    // pole
+    ctx.fillStyle = '#3a2818'; ctx.fillRect(p.x - 2, p.y - 28, 4, 32);
+    // cross arm
+    ctx.fillStyle = '#3a2818'; ctx.fillRect(p.x - 8, p.y - 18, 16, 2);
+    // base shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.fillRect(p.x - 6, p.y + 4, 12, 2);
+  }
+  // Campfires (under cars/etc — but vehicles render later)
+  for (const cf of campfires) {
+    // ring of stones
+    ctx.fillStyle = '#3a3a3a';
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      ctx.fillRect(cf.x + Math.cos(a) * 8 - 2, cf.y + Math.sin(a) * 8 - 2, 4, 4);
+    }
+    // flame
+    const flick = 0.7 + Math.sin(performance.now() / 80 + cf.x) * 0.3;
+    ctx.fillStyle = `rgba(255,142,60,${0.7 * flick})`;
+    ctx.beginPath(); ctx.arc(cf.x, cf.y - 4, 7 * flick, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = `rgba(255,210,63,${0.9 * flick})`;
+    ctx.beginPath(); ctx.arc(cf.x, cf.y - 2, 4 * flick, 0, Math.PI * 2); ctx.fill();
+    // glow
+    const grd = ctx.createRadialGradient(cf.x, cf.y - 2, 4, cf.x, cf.y - 2, 40);
+    grd.addColorStop(0, 'rgba(255,142,60,0.35)');
+    grd.addColorStop(1, 'rgba(255,142,60,0)');
+    ctx.fillStyle = grd;
+    ctx.beginPath(); ctx.arc(cf.x, cf.y - 2, 40, 0, Math.PI * 2); ctx.fill();
+    // sparks
+    for (const s of cf.sparks) {
+      const a = Math.max(0, 1 - s.t / s.life);
+      ctx.fillStyle = `rgba(255,210,63,${a})`;
+      ctx.fillRect(s.x - 1, s.y - 1, 2, 2);
+    }
+  }
+  // Active road event visuals
+  if (activeEvent && activeEvent.kind === 'flood') {
+    const e = activeEvent;
+    const pulse = 0.4 + Math.sin(performance.now() / 200) * 0.15;
+    ctx.fillStyle = `rgba(76,130,240,${pulse})`;
+    ctx.fillRect(e.x - e.w / 2, e.y - e.h / 2, e.w, e.h);
+    // ripples
+    ctx.strokeStyle = 'rgba(180,220,255,0.55)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 4; i++) {
+      const r = ((performance.now() / 300) + i * 0.25) % 1;
+      ctx.beginPath();
+      ctx.arc(e.x, e.y, r * Math.min(e.w, e.h) / 2, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    // warning border
+    ctx.strokeStyle = '#4cc9f0'; ctx.lineWidth = 3;
+    ctx.strokeRect(e.x - e.w / 2, e.y - e.h / 2, e.w, e.h);
+  }
+  if (bonusMarker) {
+    ctx.shadowColor = '#b055ff'; ctx.shadowBlur = 22;
+    ctx.strokeStyle = '#b055ff'; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.arc(bonusMarker.x, bonusMarker.y, 36 + Math.sin(performance.now() / 150) * 6, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = '#b055ff'; ctx.fillRect(bonusMarker.x - 12, bonusMarker.y - 12, 24, 24);
+    ctx.fillStyle = '#fff';
+    ctx.font = "10px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText('?', bonusMarker.x, bonusMarker.y + 4);
+    ctx.shadowBlur = 0;
+  }
   // Toxic puddles
   for (const p of toxicPuddles) {
     ctx.fillStyle = `rgba(94,243,140,${0.3 + Math.sin(performance.now()/300) * 0.1})`;
@@ -553,18 +985,14 @@ function render() {
       ctx.fillRect(p.x - 2, p.y - 6, 4, 12);
     }
   }
-  // Pug-vehicle
+  // Pug-vehicle — vehicle chassis + high-detail pug rider
   ctx.save();
   ctx.translate(pug.x, pug.y);
-  ctx.rotate(pug.ang);
+  ctx.rotate(pug.ang + Math.PI / 2); // rotate so the pug faces movement direction
   ctx.fillStyle = vehicle.color;
   ctx.fillRect(-18, -10, 36, 20);
-  ctx.fillStyle = '#c8854a';
-  ctx.fillRect(-10, -8, 20, 16);
-  ctx.fillStyle = '#1a0d05';
-  ctx.fillRect(-6, -4, 12, 8);
-  ctx.fillStyle = '#fff';
-  ctx.fillRect(-3, -3, 2, 2); ctx.fillRect(1, -3, 2, 2);
+  // pug rider centered on chassis
+  drawPug(ctx, 0, 0, { size: 26, helmet: true, helmetColor: '#ff3a3a' });
   // damage flash
   if (invuln > 0) {
     ctx.fillStyle = `rgba(255,58,58,${invuln})`;
@@ -626,15 +1054,36 @@ function render() {
 
   // Weather overlay (full-screen, after world render)
   if (weather === 'night') {
-    const grd = ctx.createRadialGradient(W / 2, H / 2, 80, W / 2, H / 2, 320);
+    // Night tightens vignette — only ~180px around pug is lit
+    const grd = ctx.createRadialGradient(W / 2, H / 2, 60, W / 2, H / 2, 240);
     grd.addColorStop(0, 'rgba(0,0,0,0)');
-    grd.addColorStop(1, 'rgba(0,0,0,0.85)');
+    grd.addColorStop(1, 'rgba(0,0,0,0.92)');
     ctx.fillStyle = grd; ctx.fillRect(0, 0, W, H);
+    // small headlight cone in the direction of motion
+    const sp = Math.hypot(pug.vx, pug.vy);
+    if (sp > 30) {
+      const dir = Math.atan2(pug.vy, pug.vx);
+      ctx.save();
+      ctx.translate(W / 2, H / 2);
+      ctx.rotate(dir);
+      const hgrd = ctx.createRadialGradient(0, 0, 10, 80, 0, 120);
+      hgrd.addColorStop(0, 'rgba(255,230,180,0.18)');
+      hgrd.addColorStop(1, 'rgba(255,230,180,0)');
+      ctx.fillStyle = hgrd;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.arc(0, 0, 220, -0.45, 0.45);
+      ctx.closePath(); ctx.fill();
+      ctx.restore();
+    }
   } else if (weather === 'fog') {
     const grd = ctx.createRadialGradient(W / 2, H / 2, 140, W / 2, H / 2, 460);
     grd.addColorStop(0, 'rgba(180,180,200,0)');
     grd.addColorStop(1, 'rgba(180,180,200,0.85)');
     ctx.fillStyle = grd; ctx.fillRect(0, 0, W, H);
+    // Extra grey overlay so distance fades to grey
+    ctx.fillStyle = 'rgba(180,180,200,0.12)';
+    ctx.fillRect(0, 0, W, H);
   } else if (weather === 'rain') {
     ctx.fillStyle = 'rgba(0,0,40,0.18)'; ctx.fillRect(0, 0, W, H);
     ctx.strokeStyle = 'rgba(140,180,255,0.5)';

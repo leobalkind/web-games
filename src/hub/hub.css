@@ -178,6 +178,42 @@ body::after {
   letter-spacing: 0.1em;
   margin-top: 36px;
 }
+
+.hub__cats {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin: 14px auto 0;
+  max-width: 760px;
+  padding: 0 12px;
+}
+.hub__cat {
+  font-family: var(--font-display);
+  font-size: 0.45rem;
+  letter-spacing: 0.12em;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: rgba(10, 7, 22, 0.55);
+  border: 1px solid var(--border);
+  color: var(--text-soft);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+.hub__cat:hover {
+  border-color: var(--neon-cyan);
+  color: var(--neon-cyan);
+}
+.hub__cat.is-active {
+  border-color: var(--neon-pink);
+  color: var(--neon-pink);
+  background: rgba(255, 58, 161, 0.12);
+  box-shadow: 0 0 10px rgba(255, 58, 161, 0.35);
+}
+.hub__cat:focus-visible {
+  outline: 2px solid var(--neon-cyan);
+  outline-offset: 2px;
+}
 .hub__chip {
   font-family: var(--font-display);
   font-size: 0.5rem;
@@ -607,6 +643,50 @@ body::after {
   font-size: 0.85rem;
   color: var(--text-soft);
 }
+
+/* Stats modal table */
+.stats-summary {
+  font-family: var(--font-display);
+  font-size: 0.65rem;
+  letter-spacing: 0.1em;
+  color: var(--neon-cyan);
+  text-align: center;
+  padding: 8px 10px;
+  margin-bottom: 14px;
+  background: rgba(76, 201, 240, 0.08);
+  border: 1px solid var(--neon-cyan);
+  border-radius: 4px;
+}
+.stats-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  color: var(--text-soft);
+  margin-bottom: 4px;
+}
+.stats-table thead th {
+  font-family: var(--font-display);
+  font-size: 0.5rem;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.stats-table thead th:last-child { text-align: right; }
+.stats-table tbody td {
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(42, 37, 64, 0.5);
+}
+.stats-table tbody td:nth-child(2) { color: var(--neon-yellow); font-family: var(--font-display); font-size: 0.6rem; }
+.stats-table tbody td:nth-child(3) { color: var(--muted); text-align: right; font-size: 0.75rem; }
+.stats-table tbody tr:hover td { background: rgba(76, 201, 240, 0.05); }
+.stats-empty {
+  text-align: center;
+  color: var(--muted);
+  padding: 24px 10px;
+  font-style: italic;
+}
 .hub-changelog li {
   padding: 10px 12px;
   border-left: 3px solid var(--neon-cyan);
@@ -733,6 +813,48 @@ body.colorblind {
 .hub__chips .hub__chip:nth-child(1) { animation-delay: 0.35s; }
 .hub__chips .hub__chip:nth-child(2) { animation-delay: 0.45s; }
 .hub__chips .hub__chip:nth-child(3) { animation-delay: 0.55s; }
+
+/* Category filter chips: also drop in with stagger. */
+.hub__cats .hub__cat {
+  opacity: 0;
+  animation: hubChipDrop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+.hub__cats .hub__cat:nth-child(1)  { animation-delay: 0.55s; }
+.hub__cats .hub__cat:nth-child(2)  { animation-delay: 0.60s; }
+.hub__cats .hub__cat:nth-child(3)  { animation-delay: 0.62s; }
+.hub__cats .hub__cat:nth-child(4)  { animation-delay: 0.64s; }
+.hub__cats .hub__cat:nth-child(5)  { animation-delay: 0.66s; }
+.hub__cats .hub__cat:nth-child(6)  { animation-delay: 0.68s; }
+.hub__cats .hub__cat:nth-child(7)  { animation-delay: 0.70s; }
+.hub__cats .hub__cat:nth-child(8)  { animation-delay: 0.72s; }
+.hub__cats .hub__cat:nth-child(9)  { animation-delay: 0.74s; }
+.hub__cats .hub__cat:nth-child(10) { animation-delay: 0.76s; }
+
+/* === Mobile / narrow viewport tweaks ============================ */
+@media (max-width: 600px) {
+  .hub { padding: 48px 14px 36px; }
+  .hub__header { margin-bottom: 36px; }
+  .hub__chips { gap: 6px; }
+  .hub__chip { font-size: 0.45rem; padding: 4px 8px; }
+  .hub__search { font-size: 0.9rem; padding: 9px 12px; }
+  .hub__cats { gap: 5px; margin-top: 10px; padding: 0 4px; }
+  .hub__cat { font-size: 0.4rem; padding: 4px 7px; letter-spacing: 0.08em; }
+  .hub__grid { gap: 18px; grid-template-columns: 1fr; }
+  .card__art { height: 160px; }
+  .card__body { padding: 16px 16px 18px; }
+  .card__title { font-size: 0.85rem; }
+  .hub__footer { margin-top: 36px; font-size: 0.7rem; }
+  .hub__footer span { padding: 4px 9px; }
+  .hub-modal__panel { padding: 22px 18px; }
+  .stats-table { font-size: 0.75rem; }
+  .stats-table thead th { font-size: 0.42rem; }
+}
+
+@media (max-width: 400px) {
+  .hub__header h1 { font-size: clamp(1.4rem, 7vw, 2rem); }
+  .hub__tagline { font-size: 0.9rem; }
+  .hub__cat { font-size: 0.36rem; padding: 3px 6px; }
+}
 
 /* Cards stagger-fade-up on first paint. */
 .hub__grid .card,

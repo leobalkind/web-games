@@ -5,6 +5,7 @@ import { submitRun, loadBest } from '../../src/persistence/highScores.js';
 import { createSfx } from '../../src/shared/miniSfx.js';
 import { showTip } from '../../src/shared/tutorialTip.js';
 import { drawIcon, iconSvg } from '../../src/shared/icons.js';
+import { drawPug } from '../../src/shared/pugSprite.js';
 
 const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
@@ -51,6 +52,16 @@ let lootValueThisFloor = 0;
 let floorStartTime = 0;
 let achievementsSeen = new Set();
 let cats = [];
+// Map upgrade: room types + furniture per cell, central staircase, TV light pools.
+let roomTypes = [];   // 2D array [rows][cols] = 'bedroom'|'kitchen'|'living'|'office'|'vault'
+let furniture = [];   // {x, y, w, h, kind, room, ...}
+let tvs = [];         // {x, y, ang, flickerT, on, intensity}
+let staircase = null; // {x, y, w, h} — strong landmark in exit room
+// THROW DISTRACTION mechanic
+let throwsLeft = 0;
+let throwCd = 0;
+let vases = [];       // {x, y, vx, vy, tx, ty, t, life}  (in-flight vases)
+let noiseRings = [];  // {x, y, t, life, r} (visible ping where vase landed)
 // --- Juice ---
 let shakeT = 0, shakeMag = 0;
 let hitFlashT = 0;
@@ -147,6 +158,62 @@ function genFloor(level) {
   alertedThisFloor = false;
   lootValueThisFloor = 0;
   floorStartTime = performance.now();
+  // Throw distraction: 2 vases per floor, no cooldown to start
+  throwsLeft = 2; throwCd = 0; vases = []; noiseRings = [];
+  // Assign a room "type" per cell (deterministic per floor)
+  const ROOM_TYPES = ['bedroom', 'kitchen', 'living', 'office', 'vault'];
+  roomTypes = [];
+  for (let r = 0; r < rows; r++) {
+    roomTypes[r] = [];
+    for (let c = 0; c < cols; c++) {
+      roomTypes[r][c] = ROOM_TYPES[(r * 11 + c * 5 + (level || 1) * 3) % ROOM_TYPES.length];
+    }
+  }
+  // Central staircase landmark: pick the cell nearest the exit corner
+  const exitCol = cols - 1, exitRow = 0;
+  staircase = {
+    x: exitCol * cw + cw / 2 - 38,
+    y: exitRow * ch + ch / 2 + 6,
+    w: 76, h: 56,
+  };
+  // Furniture per room — pick a few props per cell based on its type
+  furniture = [];
+  tvs = [];
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      // Skip the cell that hosts the staircase (don't overlap landmark)
+      if (r === exitRow && c === exitCol) continue;
+      const cx0 = c * cw, cy0 = r * ch;
+      const inset = 28;
+      const type = roomTypes[r][c];
+      const props = roomPropList(type);
+      let tries = 0;
+      for (const p of props) {
+        let placed = false;
+        for (let k = 0; k < 18 && !placed; k++) {
+          const px = cx0 + inset + Math.random() * (cw - inset * 2 - p.w);
+          const py = cy0 + inset + Math.random() * (ch - inset * 2 - p.h);
+          // avoid walls + already-placed furniture in this room
+          const cx = px + p.w / 2, cy = py + p.h / 2;
+          if (isWallNear(cx, cy, Math.max(p.w, p.h) / 2 + 4)) continue;
+          let overlap = false;
+          for (const f of furniture) {
+            if (f.room && f.room.r === r && f.room.c === c) {
+              if (px < f.x + f.w + 6 && px + p.w + 6 > f.x && py < f.y + f.h + 6 && py + p.h + 6 > f.y) {
+                overlap = true; break;
+              }
+            }
+          }
+          if (overlap) continue;
+          const item = { x: px, y: py, w: p.w, h: p.h, kind: p.kind, room: { r, c } };
+          furniture.push(item);
+          if (p.kind === 'tv') tvs.push({ x: px + p.w / 2, y: py + p.h / 2, ang: Math.PI / 2, flickerT: 0, on: true, intensity: 0.7 });
+          placed = true;
+        }
+        tries++;
+      }
+    }
+  }
   // Ceiling lights — one per "room" cell
   lights = [];
   for (let r = 0; r < rows; r++) {
@@ -211,9 +278,15 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'q' || e.key === 'Q') doSmoke();
   if (e.key === 'g' || e.key === 'G') doTongue();
   if (e.key === 't' || e.key === 'T') doDecoy();
+  if (e.key === 'x' || e.key === 'X') doThrow();
 });
 window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 let touchAim = null;
+const _throwBtn = document.getElementById('throw-btn');
+if (_throwBtn) {
+  _throwBtn.addEventListener('click', doThrow);
+  if ('ontouchstart' in window) _throwBtn.style.display = 'block';
+}
 canvas.addEventListener('touchstart', (e) => { touchAim = e.touches[0]; e.preventDefault(); }, { passive: false });
 canvas.addEventListener('touchmove', (e) => { touchAim = e.touches[0]; e.preventDefault(); }, { passive: false });
 canvas.addEventListener('touchend', () => touchAim = null);
@@ -285,6 +358,87 @@ function doDecoy() {
   }
   sfx.tone(440, 'square', 0.1, 0.2);
 }
+// Room furniture catalog — kinds rendered in render() below
+function roomPropList(type) {
+  switch (type) {
+    case 'bedroom':
+      return [
+        { kind: 'bed',     w: 56, h: 38 },
+        { kind: 'lamp',    w: 14, h: 14 },
+        { kind: 'dresser', w: 36, h: 18 },
+        { kind: 'rug',     w: 60, h: 36 },
+        { kind: 'painting',w: 28, h: 4 },
+      ];
+    case 'kitchen':
+      return [
+        { kind: 'counter', w: 64, h: 18 },
+        { kind: 'fridge',  w: 24, h: 30 },
+        { kind: 'kettle',  w: 14, h: 14 },
+        { kind: 'stool',   w: 12, h: 12 },
+        { kind: 'tiles',   w: 50, h: 30 },
+      ];
+    case 'living':
+      return [
+        { kind: 'couch',   w: 64, h: 22 },
+        { kind: 'tv',      w: 36, h: 14 },
+        { kind: 'rug',     w: 70, h: 42 },
+        { kind: 'plant',   w: 14, h: 22 },
+        { kind: 'coffee',  w: 30, h: 16 },
+      ];
+    case 'office':
+      return [
+        { kind: 'desk',    w: 52, h: 22 },
+        { kind: 'monitor', w: 22, h: 14 },
+        { kind: 'chair',   w: 18, h: 18 },
+        { kind: 'cabinet', w: 24, h: 30 },
+        { kind: 'painting',w: 28, h: 4 },
+      ];
+    case 'vault':
+      return [
+        { kind: 'safe',    w: 32, h: 32 },
+        { kind: 'painting',w: 32, h: 4 },
+        { kind: 'vase',    w: 12, h: 16 },
+        { kind: 'vase',    w: 12, h: 16 },
+        { kind: 'pedestal',w: 18, h: 18 },
+      ];
+    default:
+      return [];
+  }
+}
+
+function doThrow() {
+  if (throwCd > 0 || !running || throwsLeft <= 0) return;
+  throwCd = 6;
+  throwsLeft--;
+  // Throw direction: last movement direction OR (if stopped) facing right
+  let dx = 0, dy = 0;
+  if (keys.has('w') || keys.has('arrowup')) dy -= 1;
+  if (keys.has('s') || keys.has('arrowdown')) dy += 1;
+  if (keys.has('a') || keys.has('arrowleft')) dx -= 1;
+  if (keys.has('d') || keys.has('arrowright')) dx += 1;
+  if (touchAim) { dx = touchAim.clientX - pug.x; dy = touchAim.clientY - pug.y; }
+  const l = Math.hypot(dx, dy);
+  if (l < 0.1) { dx = 1; dy = 0; } else { dx /= l; dy /= l; }
+  // Land target: 180px ahead, clamped inside walls
+  let tx = pug.x + dx * 180, ty = pug.y + dy * 180;
+  tx = Math.max(20, Math.min(W - 20, tx));
+  ty = Math.max(20, Math.min(H - 20, ty));
+  // Stop at first wall along path
+  const steps = 24;
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps;
+    const sx = pug.x + (tx - pug.x) * t;
+    const sy = pug.y + (ty - pug.y) * t;
+    if (isWallNear(sx, sy, 4)) {
+      tx = pug.x + (tx - pug.x) * ((i - 1) / steps);
+      ty = pug.y + (ty - pug.y) * ((i - 1) / steps);
+      break;
+    }
+  }
+  vases.push({ x: pug.x, y: pug.y, sx: pug.x, sy: pug.y, tx, ty, t: 0, life: 0.4 });
+  sfx.tone(560, 'triangle', 0.08, 0.18);
+}
+
 function spawnParticles(x, y, color) {
   for (let i = 0; i < 10; i++) {
     const a = Math.random() * Math.PI * 2;
@@ -343,6 +497,50 @@ function tick(dt) {
   smokeCd = Math.max(0, smokeCd - dt);
   tongueCd = Math.max(0, tongueCd - dt);
   decoyCd = Math.max(0, decoyCd - dt);
+  throwCd = Math.max(0, throwCd - dt);
+  // Vases: arc through air; on land create noise ring + distract nearest human within 200px
+  for (let i = vases.length - 1; i >= 0; i--) {
+    const v = vases[i];
+    v.t += dt;
+    if (v.t >= v.life) {
+      const lx = v.tx, ly = v.ty;
+      noiseRings.push({ x: lx, y: ly, t: 0, life: 1.4, r: 0 });
+      // Particle burst (vase shatter)
+      for (let k = 0; k < 14; k++) {
+        const a = Math.random() * Math.PI * 2;
+        const s = 50 + Math.random() * 90;
+        particles.push({ x: lx, y: ly, vx: Math.cos(a) * s, vy: Math.sin(a) * s, color: '#e0d8c4', life: 0.5, t: 0, size: 3 });
+      }
+      sfx.tone(220, 'square', 0.06, 0.22);
+      addShake(2, 0.1);
+      // Distract nearest human within 200px of landing
+      let near = null, bestD = 200;
+      for (const h of humans) {
+        const d = Math.hypot(h.x - lx, h.y - ly);
+        if (d < bestD) { bestD = d; near = h; }
+      }
+      if (near) {
+        near.distractTarget = { x: lx, y: ly };
+        near.state = 'distracted';
+        near.alertT = 3.2;
+      }
+      vases.splice(i, 1);
+    }
+  }
+  // Noise rings expand visually
+  for (const n of noiseRings) {
+    n.t += dt;
+    n.r = (n.t / n.life) * 120;
+  }
+  noiseRings = noiseRings.filter((n) => n.t < n.life);
+  // TV flicker
+  for (const tv of tvs) {
+    tv.flickerT -= dt;
+    if (tv.flickerT <= 0) {
+      tv.intensity = 0.5 + Math.random() * 0.5;
+      tv.flickerT = 0.08 + Math.random() * 0.18;
+    }
+  }
   // Cat ally — wanders, periodically distracts a random human
   for (const c of cats) {
     c.t += dt;
@@ -425,14 +623,20 @@ function tick(dt) {
       if (d > 20) rectCollide(h, (dx / d) * 60 * dt, (dy / d) * 60 * dt);
       if (h.alertT <= 0) { h.state = 'patrol'; h.distractTarget = null; }
     }
-    // Vision cone check
+    // Vision cone check — pug in TV light gets spotted easier (cone reach +40)
     const dx = pug.x - h.x, dy = pug.y - h.y;
     const d = Math.hypot(dx, dy);
     const ang = Math.atan2(dy, dx);
     let diff = ang - h.ang;
     while (diff > Math.PI) diff -= Math.PI * 2;
     while (diff < -Math.PI) diff += Math.PI * 2;
-    const inCone = d < 180 && Math.abs(diff) < 0.6;
+    let coneReach = 180;
+    for (const tv of tvs) {
+      // TV light pool is a downward 80px-radius half-disc in front of the screen
+      const tdx = pug.x - tv.x, tdy = pug.y - tv.y;
+      if (tdy > -10 && Math.hypot(tdx, tdy) < 80) { coneReach = 220; break; }
+    }
+    const inCone = d < coneReach && Math.abs(diff) < 0.6;
     // line-of-sight: any wall between?
     let blocked = false;
     if (inCone) {
@@ -500,14 +704,20 @@ function render() {
   // BG: vary tile color by room cell (bedroom / hallway / vault look)
   const cols = 4, rows = 3;
   const cw = W / cols, ch = H / rows;
-  // Per-room palette (deterministic by floor seed via index)
-  const palettes = [
-    ['#3a2a5a', '#2e2148'], // hallway
-    ['#4a2a3a', '#3a1f2e'], // bedroom (warm)
-    ['#2a3a4a', '#1e2e3a'], // study (cool)
-    ['#5a4a2a', '#4a3a1f'], // vault (gold-tint)
-    ['#2a4a3a', '#1e3a2e'], // green office
+  // Per-floor master palette — each floor feels like a different house
+  const floorPalettes = [
+    // floor 1: tan/beige bungalow
+    [['#5a4530', '#4a3520'], ['#6a4540', '#52302e'], ['#5a5036', '#42381f'], ['#5a4830', '#42321f'], ['#5a4030', '#3a2820']],
+    // floor 2: blue/grey condo
+    [['#2a3a4a', '#1e2e3a'], ['#3a3a52', '#2e2e42'], ['#3a4a5a', '#28384a'], ['#2a3a52', '#1e2e42'], ['#324050', '#202e3e']],
+    // floor 3: maroon mansion
+    [['#5a2030', '#42121f'], ['#5a3030', '#42201f'], ['#3a1a28', '#2a0a18'], ['#5a2a3a', '#42182a'], ['#502028', '#3a0e1a']],
+    // floor 4: emerald villa
+    [['#2a4a3a', '#1e3a2e'], ['#345240', '#1e3a28'], ['#3a5a42', '#1e3a2e'], ['#2a4032', '#1a2e22'], ['#42584a', '#1e3a30']],
+    // floor 5: deep purple penthouse
+    [['#3a2a5a', '#2e2148'], ['#4a2a52', '#341e3a'], ['#3a1e4a', '#28104a'], ['#4a3a5a', '#2e1e42'], ['#3a2a52', '#221842']],
   ];
+  const palettes = floorPalettes[((floor || 1) - 1) % floorPalettes.length];
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const p = palettes[(r * 7 + c * 3 + (floor || 1)) % palettes.length];
@@ -559,6 +769,45 @@ function render() {
       ctx.strokeRect(s.x, s.y, s.sz, s.sz);
     }
   }
+  // Staircase landmark (isometric-style stack of nested rects)
+  if (staircase) {
+    const s = staircase;
+    // shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    ctx.fillRect(s.x - 4, s.y + s.h - 4, s.w + 8, 8);
+    // nested treads — each step a darker rect, offset upward
+    const steps = 6;
+    for (let i = 0; i < steps; i++) {
+      const f = i / steps;
+      const treadW = s.w * (1 - f * 0.45);
+      const treadH = s.h / steps;
+      const tx = s.x + (s.w - treadW) / 2;
+      const ty = s.y + s.h - (i + 1) * treadH;
+      ctx.fillStyle = i % 2 === 0 ? '#4a3424' : '#3a2818';
+      ctx.fillRect(tx, ty, treadW, treadH);
+      // tread highlight
+      ctx.fillStyle = 'rgba(255,210,150,0.25)';
+      ctx.fillRect(tx, ty, treadW, 1);
+      // tread shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.fillRect(tx, ty + treadH - 1, treadW, 1);
+    }
+    // top arrow "UP" hint
+    ctx.fillStyle = '#ffd23f';
+    ctx.font = "7px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText('STAIRS', s.x + s.w / 2, s.y - 4);
+  }
+  // Furniture (per room)
+  for (const f of furniture) drawFurniture(f);
+  // TV-cast flickering light pool on the floor in front of the TV
+  for (const tv of tvs) {
+    const intensity = tv.intensity || 0.6;
+    const grd = ctx.createRadialGradient(tv.x, tv.y + 18, 4, tv.x, tv.y + 18, 80);
+    grd.addColorStop(0, `rgba(120,180,255,${0.32 * intensity})`);
+    grd.addColorStop(1, 'rgba(120,180,255,0)');
+    ctx.fillStyle = grd;
+    ctx.beginPath(); ctx.arc(tv.x, tv.y + 18, 80, 0, Math.PI * 2); ctx.fill();
+  }
   // Walls — thicker with highlight/shadow for depth
   ctx.fillStyle = '#1a0d05';
   for (const w of walls) ctx.fillRect(w.x, w.y, w.w, w.h);
@@ -598,11 +847,8 @@ function render() {
     ctx.moveTo(h.x, h.y);
     ctx.arc(h.x, h.y, 180, h.ang - 0.6, h.ang + 0.6);
     ctx.closePath(); ctx.fill();
-    // body
-    ctx.fillStyle = '#4a4a52';
-    ctx.fillRect(h.x - 12, h.y - 12, 24, 24);
-    ctx.fillStyle = '#e0a566';
-    ctx.fillRect(h.x - 8, h.y - 18, 16, 8);
+    // body — high-detail human-pug
+    drawPug(ctx, h.x, h.y, { size: 32, body: '#a89888', mask: '#3a2810' });
     // facing dot
     ctx.fillStyle = '#fff';
     ctx.beginPath(); ctx.arc(h.x + Math.cos(h.ang) * 10, h.y + Math.sin(h.ang) * 10, 3, 0, Math.PI * 2); ctx.fill();
@@ -630,20 +876,42 @@ function render() {
     ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
     ctx.globalAlpha = 1;
   }
-  // Cat allies
-  for (const c of cats) {
-    ctx.fillStyle = '#5a5a5a'; ctx.beginPath(); ctx.arc(c.x, c.y, 8, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#222'; ctx.fillRect(c.x - 7, c.y - 12, 3, 5); ctx.fillRect(c.x + 4, c.y - 12, 3, 5);
-    ctx.fillStyle = '#5ef38c'; ctx.fillRect(c.x - 3, c.y - 2, 2, 2); ctx.fillRect(c.x + 1, c.y - 2, 2, 2);
-    // Indicator
-    ctx.fillStyle = '#5ef38c'; ctx.font = "8px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
-    ctx.fillText('ALLY', c.x, c.y - 16);
+  // Noise rings (where vase landed)
+  for (const n of noiseRings) {
+    const a = Math.max(0, 1 - n.t / n.life);
+    ctx.strokeStyle = `rgba(255,210,63,${a * 0.9})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = `rgba(255,210,63,${a * 0.5})`;
+    ctx.beginPath(); ctx.arc(n.x, n.y, n.r * 0.6, 0, Math.PI * 2); ctx.stroke();
   }
-  // Pug
-  ctx.fillStyle = '#c8854a';
-  ctx.beginPath(); ctx.arc(pug.x, pug.y, 10, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#1a0d05';
-  ctx.fillRect(pug.x - 3, pug.y - 2, 2, 2); ctx.fillRect(pug.x + 1, pug.y - 2, 2, 2);
+  // Vases in flight (arc trajectory with little "lift")
+  for (const v of vases) {
+    const t = v.t / v.life;
+    const cx = v.sx + (v.tx - v.sx) * t;
+    const cy = v.sy + (v.ty - v.sy) * t - Math.sin(t * Math.PI) * 28; // arc up
+    // shadow on ground
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.beginPath(); ctx.ellipse(v.sx + (v.tx - v.sx) * t, v.sy + (v.ty - v.sy) * t + 4, 5, 2, 0, 0, Math.PI * 2); ctx.fill();
+    // vase body
+    ctx.fillStyle = '#8a4a9a'; ctx.fillRect(cx - 4, cy - 6, 8, 12);
+    ctx.fillStyle = '#aa6abe'; ctx.fillRect(cx - 3, cy - 5, 6, 2);
+    ctx.fillStyle = '#5a2a6a'; ctx.fillRect(cx - 4, cy + 4, 8, 2);
+  }
+  // Cat allies — small grey pug variant
+  for (const c of cats) {
+    drawPug(ctx, c.x, c.y, { size: 22, body: '#5a5a5a', mask: '#2a2a2a', tongueOut: false });
+    ctx.fillStyle = '#5ef38c'; ctx.font = "8px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText('ALLY', c.x, c.y - 22);
+  }
+  // Pug — hero (with hit flash overlay)
+  if (hitFlashT > 0) {
+    ctx.save(); ctx.filter = 'brightness(2.5) saturate(0)';
+    drawPug(ctx, pug.x, pug.y, { size: 30 });
+    ctx.filter = 'none'; ctx.restore();
+  } else {
+    drawPug(ctx, pug.x, pug.y, { size: 30 });
+  }
   // fart cloud
   if (pug.fartT > 0) {
     ctx.fillStyle = `rgba(94,243,140,${pug.fartT / 1.5 * 0.6})`;
@@ -728,6 +996,155 @@ function render() {
   drawGadgetHud();
 }
 
+function drawFurniture(f) {
+  const x = f.x, y = f.y, w = f.w, h = f.h;
+  // Generic shadow under most pieces
+  const shadowKinds = ['bed','dresser','counter','fridge','couch','tv','desk','monitor','cabinet','safe','coffee','plant','pedestal'];
+  if (shadowKinds.includes(f.kind)) {
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    ctx.fillRect(x + 2, y + h - 2, w, 3);
+  }
+  switch (f.kind) {
+    case 'bed':
+      ctx.fillStyle = '#6a4a2e'; ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = '#e0d8c0'; ctx.fillRect(x + 4, y + 4, w - 8, h - 12);
+      ctx.fillStyle = '#b04a4a'; ctx.fillRect(x + 4, y + 4, w - 8, 8); // pillow band
+      ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillRect(x, y + h - 4, w, 4);
+      break;
+    case 'lamp':
+      ctx.fillStyle = '#3a2818'; ctx.fillRect(x + w / 2 - 1, y + 4, 2, h - 6);
+      ctx.fillStyle = '#ffd23f'; ctx.fillRect(x, y, w, 6);
+      ctx.fillStyle = 'rgba(255,210,63,0.18)';
+      ctx.beginPath(); ctx.arc(x + w / 2, y + h / 2, 18, 0, Math.PI * 2); ctx.fill();
+      break;
+    case 'dresser':
+      ctx.fillStyle = '#5a3a22'; ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = '#3a2010'; ctx.fillRect(x + 2, y + h / 2, w - 4, 1);
+      ctx.fillStyle = '#c8a872'; ctx.fillRect(x + 4, y + 4, 4, 2); ctx.fillRect(x + w - 8, y + 4, 4, 2);
+      ctx.fillStyle = '#c8a872'; ctx.fillRect(x + 4, y + h - 6, 4, 2); ctx.fillRect(x + w - 8, y + h - 6, 4, 2);
+      break;
+    case 'rug':
+      ctx.fillStyle = 'rgba(180,40,60,0.28)';
+      ctx.fillRect(x, y, w, h);
+      ctx.strokeStyle = 'rgba(255,210,63,0.35)'; ctx.lineWidth = 1;
+      ctx.strokeRect(x + 2, y + 2, w - 4, h - 4);
+      break;
+    case 'painting':
+      ctx.fillStyle = '#3a2010'; ctx.fillRect(x, y, w, h + 2);
+      ctx.fillStyle = '#5ea0c8'; ctx.fillRect(x + 1, y + 1, w - 2, h);
+      ctx.fillStyle = '#ffd23f'; ctx.fillRect(x + w * 0.3, y + h * 0.3, 4, 2);
+      break;
+    case 'counter':
+      ctx.fillStyle = '#7a7a7a'; ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = '#a0a0a0'; ctx.fillRect(x, y, w, 3);
+      ctx.fillStyle = '#3a3a3a'; ctx.fillRect(x + 4, y + 6, 6, 6); // sink
+      ctx.fillStyle = '#5a5a5a'; ctx.fillRect(x + w - 14, y + 6, 8, 6); // stove
+      ctx.fillStyle = '#ff8e3c'; ctx.fillRect(x + w - 12, y + 8, 2, 2);
+      break;
+    case 'fridge':
+      ctx.fillStyle = '#e0e0e8'; ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = '#a0a0a8'; ctx.fillRect(x + 1, y + 1, w - 2, h - 2);
+      ctx.fillStyle = '#ffffff'; ctx.fillRect(x + 2, y + 2, w - 4, h - 4);
+      ctx.fillStyle = '#3a2818'; ctx.fillRect(x + w - 5, y + 8, 2, 6);
+      ctx.fillStyle = '#5ef38c'; ctx.fillRect(x + 4, y + 4, 4, 2);
+      break;
+    case 'kettle':
+      ctx.fillStyle = '#3a3a3a'; ctx.fillRect(x + 2, y + 4, w - 4, h - 4);
+      ctx.fillStyle = '#5a5a5a'; ctx.fillRect(x + 4, y + 2, w - 8, 2);
+      ctx.fillStyle = '#c8c8c8'; ctx.fillRect(x + 2, y + 8, 1, 4);
+      break;
+    case 'stool':
+      ctx.fillStyle = '#8a5a30'; ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = '#3a2010'; ctx.fillRect(x + 2, y + h - 2, w - 4, 2);
+      break;
+    case 'tiles':
+      ctx.strokeStyle = 'rgba(255,255,255,0.07)'; ctx.lineWidth = 1;
+      for (let i = 0; i <= w; i += 10) {
+        ctx.beginPath(); ctx.moveTo(x + i + 0.5, y); ctx.lineTo(x + i + 0.5, y + h); ctx.stroke();
+      }
+      for (let j = 0; j <= h; j += 10) {
+        ctx.beginPath(); ctx.moveTo(x, y + j + 0.5); ctx.lineTo(x + w, y + j + 0.5); ctx.stroke();
+      }
+      break;
+    case 'couch':
+      ctx.fillStyle = '#5e3a82'; ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = '#7a4ea6'; ctx.fillRect(x + 2, y + 2, w - 4, h - 8);
+      ctx.fillStyle = '#2a1844'; ctx.fillRect(x, y, 4, h);
+      ctx.fillStyle = '#2a1844'; ctx.fillRect(x + w - 4, y, 4, h);
+      ctx.fillStyle = '#9a6ed8';
+      ctx.fillRect(x + 8, y + 4, 12, 6); ctx.fillRect(x + w - 20, y + 4, 12, 6);
+      break;
+    case 'tv': {
+      const tv = tvs.find((t) => Math.abs(t.x - (x + w / 2)) < 1 && Math.abs(t.y - (y + h / 2)) < 1);
+      const intensity = tv ? tv.intensity : 0.6;
+      ctx.fillStyle = '#1a1a1a'; ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = `rgba(120,180,255,${0.55 + intensity * 0.4})`;
+      ctx.fillRect(x + 2, y + 2, w - 4, h - 4);
+      // scanline pattern flicker
+      ctx.fillStyle = `rgba(255,255,255,${intensity * 0.25})`;
+      ctx.fillRect(x + 2, y + 2 + (Math.floor((performance.now() / 80) % (h - 6))), w - 4, 1);
+      ctx.fillStyle = '#3a2818'; ctx.fillRect(x + w / 2 - 6, y + h, 12, 3); // stand
+      break;
+    }
+    case 'plant':
+      ctx.fillStyle = '#5a3a1c'; ctx.fillRect(x + 2, y + h - 6, w - 4, 6);
+      ctx.fillStyle = '#2a6a3a'; ctx.beginPath(); ctx.arc(x + w / 2, y + h - 8, w * 0.8, Math.PI, 0); ctx.fill();
+      ctx.fillStyle = '#3a8a4a'; ctx.fillRect(x + w / 2 - 1, y, 2, h - 8);
+      break;
+    case 'coffee':
+      ctx.fillStyle = '#3a2010'; ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = '#5a3820'; ctx.fillRect(x + 1, y + 1, w - 2, h - 4);
+      ctx.fillStyle = '#c8a872'; ctx.fillRect(x + 4, y + 4, 6, 3); // book
+      ctx.fillStyle = '#ffd23f'; ctx.fillRect(x + w - 8, y + 4, 4, 4); // cup
+      break;
+    case 'desk':
+      ctx.fillStyle = '#4a3220'; ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = '#6a4a2e'; ctx.fillRect(x + 2, y + 2, w - 4, 3);
+      ctx.fillStyle = '#2a1a0a'; ctx.fillRect(x, y + h - 3, w, 3);
+      ctx.fillStyle = '#c8c8c8'; ctx.fillRect(x + 4, y + 6, 8, 4); // paper
+      break;
+    case 'monitor':
+      ctx.fillStyle = '#1a1a22'; ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = '#4cc9f0'; ctx.fillRect(x + 2, y + 2, w - 4, h - 4);
+      ctx.fillStyle = '#1a1a22'; ctx.fillRect(x + w / 2 - 4, y + h, 8, 2);
+      break;
+    case 'chair':
+      ctx.fillStyle = '#3a2010'; ctx.fillRect(x + 2, y, w - 4, h);
+      ctx.fillStyle = '#5a3220'; ctx.fillRect(x + 2, y, w - 4, 4); // back
+      ctx.fillStyle = '#1a0d05'; ctx.fillRect(x, y + h - 2, 2, 2); ctx.fillRect(x + w - 2, y + h - 2, 2, 2);
+      break;
+    case 'cabinet':
+      ctx.fillStyle = '#3a2818'; ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = '#1a0d05'; ctx.fillRect(x + w / 2 - 0.5, y, 1, h);
+      ctx.fillStyle = '#c8a872';
+      ctx.fillRect(x + w / 2 - 4, y + h / 2 - 1, 3, 2);
+      ctx.fillRect(x + w / 2 + 1, y + h / 2 - 1, 3, 2);
+      break;
+    case 'safe':
+      ctx.fillStyle = '#2a2a2a'; ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = '#1a1a1a'; ctx.fillRect(x + 2, y + 2, w - 4, h - 4);
+      ctx.fillStyle = '#ffd23f';
+      ctx.beginPath(); ctx.arc(x + w / 2, y + h / 2, 4, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#3a3a3a';
+      for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * Math.PI * 2;
+        ctx.fillRect(x + w / 2 + Math.cos(a) * 7 - 1, y + h / 2 + Math.sin(a) * 7 - 1, 2, 2);
+      }
+      break;
+    case 'vase':
+      ctx.fillStyle = '#8a4a9a'; ctx.fillRect(x + 2, y + 4, w - 4, h - 6);
+      ctx.fillStyle = '#aa6abe'; ctx.fillRect(x + 3, y + 5, w - 6, 2);
+      ctx.fillStyle = '#5a2a6a'; ctx.fillRect(x + 1, y + h - 3, w - 2, 3);
+      ctx.fillStyle = '#3a8a4a'; ctx.fillRect(x + w / 2 - 1, y, 2, 4);
+      break;
+    case 'pedestal':
+      ctx.fillStyle = '#c8c8d8'; ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = '#888898'; ctx.fillRect(x + 2, y + 2, w - 4, 2);
+      ctx.fillStyle = '#3a3a3a'; ctx.fillRect(x, y + h - 2, w, 2);
+      break;
+  }
+}
+
 function updateHud() {
   const t = loot.filter((l) => l.taken).length;
   document.getElementById('hud-loot').textContent = `${t}/${loot.length}`;
@@ -746,18 +1163,26 @@ function updateHud() {
 }
 
 function drawGadgetHud() {
-  const ox = W - 200, oy = H - 80;
+  const ox = W - 200, oy = H - 98;
   ctx.fillStyle = 'rgba(0,0,0,0.6)';
-  ctx.fillRect(ox - 8, oy - 8, 190, 70);
+  ctx.fillRect(ox - 8, oy - 8, 190, 88);
   // Row icons: smokeBomb / no-match tongue / bone — drawn pixel-art at left of row
   drawIcon.smokeBomb(ctx, ox + 8, oy + 4, 14);
   // tongue has no library match — keep a tiny pink rounded blob
   ctx.fillStyle = '#ff8ac8'; ctx.fillRect(ox + 2, oy + 21, 12, 4); ctx.fillRect(ox + 4, oy + 19, 8, 2);
   drawIcon.bone(ctx, ox + 8, oy + 40, 14);
+  // Throw row: tiny vase glyph
+  ctx.fillStyle = '#8a4a9a'; ctx.fillRect(ox + 4, oy + 56, 8, 10);
+  ctx.fillStyle = '#aa6abe'; ctx.fillRect(ox + 5, oy + 57, 6, 2);
+  ctx.fillStyle = '#3a8a4a'; ctx.fillRect(ox + 7, oy + 54, 2, 3);
   ctx.fillStyle = '#fff'; ctx.font = "9px 'Press Start 2P', monospace"; ctx.textAlign = 'left';
   ctx.fillText('SMOKE [Q]  ' + (smokeCd > 0 ? smokeCd.toFixed(1) + 's' : 'READY'), ox + 22, oy + 8);
   ctx.fillText('TONGUE [G] ' + (tongueCd > 0 ? tongueCd.toFixed(1) + 's' : 'READY'), ox + 22, oy + 26);
   ctx.fillText('DECOY [T]  ' + (decoyCd > 0 ? decoyCd.toFixed(1) + 's' : 'READY'), ox + 22, oy + 44);
+  const tStat = throwsLeft <= 0 ? 'EMPTY' : (throwCd > 0 ? throwCd.toFixed(1) + 's' : 'READY');
+  const tColor = throwsLeft <= 0 ? '#888' : '#fff';
+  ctx.fillStyle = tColor;
+  ctx.fillText(`THROW [X]  ${tStat}  x${throwsLeft}`, ox + 22, oy + 62);
   // Loot value running total
   ctx.fillStyle = '#ffd23f'; ctx.font = "11px 'Press Start 2P', monospace"; ctx.textAlign = 'right';
   ctx.fillText(`$ ${totalLootValue}`, W - 16, 26);
@@ -798,7 +1223,7 @@ const _startOv = document.getElementById('overlay');
 if (_startOv) {
   const _showOnHide = () => {
     if (_startOv.classList.contains('is-hidden') || _startOv.hidden) {
-      showTip('WASD sneak · avoid red vision cones · Q smoke · G tongue · T decoy', 6000);
+      showTip('WASD sneak · Q smoke · G tongue · T decoy · X throw vase (distract!)', 6000);
     }
   };
   new MutationObserver(_showOnHide).observe(_startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });

@@ -5,6 +5,7 @@ import { submitRun, loadBest } from '../../src/persistence/highScores.js';
 import { createSfx } from '../../src/shared/miniSfx.js';
 import { showTip } from '../../src/shared/tutorialTip.js';
 import { drawIcon } from '../../src/shared/icons.js';
+import { drawPug } from '../../src/shared/pugSprite.js';
 
 const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
@@ -24,7 +25,7 @@ window.addEventListener('resize', resize); resize();
 const GRAV = 1400;
 const JUMP_V = -680;
 let pug, plats, treats, powerups, blobs, lavaY, height, maxHeight, score, treatsGot, running, lastPlatY;
-let jetpackT = 0, freezeT = 0, shrinkT = 0;
+let jetpackT = 0, freezeT = 0, shrinkT = 0, wingsT = 0;
 // Juice + visual layers
 let embers = [];      // {x,y,vx,vy,life,max,r}
 let lavaBubbles = []; // {x,y,r,life,max}
@@ -34,19 +35,40 @@ let nextMilestone = 5;
 let hitFlashT = 0;
 let shakeT = 0, shakeMag = 0;
 let caveOffset = 0;   // background parallax y scroll
+// Map decor — stalactites/stalagmites + strata bands stored as world-y arrays
+let caveSpikes = [];  // {x, y, side: 'top'|'bot'|'left'|'right', h}
+let strataBands = []; // {y, color}
 function reset() {
   pug = { x: W / 2, y: H - 200, vx: 0, vy: 0, onGround: false, jumpsLeft: 2, w: 22, h: 22 };
   plats = []; treats = []; powerups = []; blobs = [];
   embers = []; lavaBubbles = []; popups = []; banner = null;
+  caveSpikes = []; strataBands = [];
   nextMilestone = 5;
   hitFlashT = 0; shakeT = 0; shakeMag = 0; caveOffset = 0;
   lastPlatY = H - 100;
   // Initial ground
-  plats.push({ x: W / 2 - 80, y: H - 100, w: 160, h: 16, kind: 'normal' });
+  plats.push({ x: W / 2 - 80, y: H - 100, w: 160, h: 16, kind: 'normal', baseX: W / 2 - 80, alive: true });
+  // Seed initial wall decor (stalactites/stalagmites) above starting view
+  for (let yy = H - 200; yy > -2000; yy -= 120) seedCaveSpikes(yy);
+  // Strata bands every ~200px world space
+  for (let yy = H; yy > -3000; yy -= 200) {
+    strataBands.push({ y: yy, color: `rgba(${40 + Math.floor(Math.random()*20)},${20 + Math.floor(Math.random()*15)},${20},${0.08 + Math.random() * 0.06})` });
+  }
   for (let i = 0; i < 30; i++) addPlatformAbove();
   lavaY = H + 200;
   height = 0; maxHeight = 0; score = 0; treatsGot = 0;
-  jetpackT = 0; freezeT = 0; shrinkT = 0;
+  jetpackT = 0; freezeT = 0; shrinkT = 0; wingsT = 0;
+}
+function seedCaveSpikes(yAround) {
+  // ~6 per "slice" — split between left/right walls, top/bottom orientation
+  for (let i = 0; i < 6; i++) {
+    const side = Math.random() < 0.5 ? 'left' : 'right';
+    const orient = Math.random() < 0.5 ? 'top' : 'bot';
+    const h = 14 + Math.random() * 18;
+    const x = side === 'left' ? 8 + Math.random() * 16 : W - 8 - Math.random() * 16;
+    const y = yAround - Math.random() * 120;
+    caveSpikes.push({ x, y, side, orient, h });
+  }
 }
 function shake(mag, dur) { shakeMag = Math.max(shakeMag, mag); shakeT = Math.max(shakeT, dur); }
 function pop(x, y, text, color) {
@@ -63,12 +85,27 @@ function addPlatformAbove() {
   let kind = 'normal';
   if (depth > 3 && r < 0.18) kind = 'crumble';
   else if (depth > 2 && r < 0.30) kind = 'bouncy';
-  plats.push({ x, y: lastPlatY, w, h: 14, kind, t: 0, alive: true });
-  if (Math.random() < 0.45) treats.push({ x: x + w / 2, y: lastPlatY - 24 });
-  // Powerup (rare)
-  if (depth > 4 && Math.random() < 0.06) {
+  // ~25% of new platforms drift left-right (skip if it's the very first ground platform)
+  const drifts = Math.random() < 0.25 && lastPlatY < H - 150;
+  const baseX = x;
+  const driftAmp = drifts ? 26 + Math.random() * 12 : 0;
+  const driftPhase = Math.random() * Math.PI * 2;
+  // 5% chance of a spike on top — but never on the lowest visible platform
+  const hasSpike = lastPlatY < H - 200 && Math.random() < 0.05 && kind !== 'crumble' && kind !== 'bouncy';
+  // 1/40 chance to spawn WINGS powerup
+  const wingsHere = Math.random() < 1 / 40 && !hasSpike;
+  plats.push({
+    x, y: lastPlatY, w, h: 14, kind, t: 0, alive: true,
+    baseX, driftAmp, driftPhase, hasSpike, vine: Math.random() < 0.18,
+    crumbleStartT: 0,
+  });
+  if (!hasSpike && Math.random() < 0.45) treats.push({ x: x + w / 2, y: lastPlatY - 24, baseX: x + w / 2, plat: plats[plats.length - 1] });
+  // Wings powerup (rare)
+  if (wingsHere) {
+    powerups.push({ x: x + w / 2, y: lastPlatY - 38, type: 'wings', plat: plats[plats.length - 1] });
+  } else if (depth > 4 && Math.random() < 0.06) {
     const pwTypes = ['jetpack', 'freeze', 'shrink'];
-    powerups.push({ x: x + w / 2, y: lastPlatY - 38, type: pwTypes[Math.floor(Math.random() * pwTypes.length)] });
+    powerups.push({ x: x + w / 2, y: lastPlatY - 38, type: pwTypes[Math.floor(Math.random() * pwTypes.length)], plat: plats[plats.length - 1] });
   }
   // Lava blob (rare, only deep up)
   if (depth > 6 && Math.random() < 0.08) {
@@ -91,11 +128,12 @@ if ('ontouchstart' in window) document.getElementById('jump-btn').style.display 
 
 function jump() {
   if (!running || pug.jumpsLeft <= 0) return;
-  pug.vy = JUMP_V;
+  pug.vy = JUMP_V * (wingsT > 0 ? 1.1 : 1);
   pug.jumpsLeft--;
   pug.onGround = false;
-  sfx.tone(pug.jumpsLeft === 1 ? 660 : 880, 'triangle', 0.08, 0.18);
+  sfx.tone(wingsT > 0 ? 990 : (pug.jumpsLeft === 1 ? 660 : 880), 'triangle', 0.08, 0.18);
 }
+function refillJumps() { pug.jumpsLeft = wingsT > 0 ? 3 : 2; }
 
 function tick(dt) {
   if (!running) return;
@@ -111,6 +149,19 @@ function tick(dt) {
   jetpackT = Math.max(0, jetpackT - dt);
   freezeT = Math.max(0, freezeT - dt);
   shrinkT = Math.max(0, shrinkT - dt);
+  wingsT = Math.max(0, wingsT - dt);
+  // Drift platforms left/right (sin oscillation around baseX)
+  const driftT = performance.now() * 0.001;
+  for (const p of plats) {
+    if (p.driftAmp > 0) {
+      const nx = p.baseX + Math.sin(driftT * Math.PI + p.driftPhase) * p.driftAmp;
+      // Move treats/powerups that ride this plat
+      const dx = nx - p.x;
+      p.x = nx;
+      for (const t of treats) if (t.plat === p) t.x += dx;
+      for (const pw of powerups) if (pw.plat === p) pw.x += dx;
+    }
+  }
   pug.vx += mx * 1200 * dt;
   pug.vx *= Math.pow(0.5, dt * 5);
   pug.vy += (jetpackT > 0 ? GRAV * 0.15 : GRAV) * dt;
@@ -129,20 +180,30 @@ function tick(dt) {
       if (!p.alive) continue;
       if (pug.x + hw > p.x && pug.x - hw < p.x + p.w) {
         if (pug.y + pug.h / 2 > p.y && pug.y + pug.h / 2 < p.y + p.h + 12) {
+          // Spike kills on landing
+          if (p.hasSpike) { hitFlashT = 0.3; shake(8, 0.4); return die(); }
           if (p.kind === 'bouncy') {
             pug.vy = JUMP_V * 1.3;
-            pug.jumpsLeft = 2;
+            refillJumps();
             sfx.tone(990, 'triangle', 0.08, 0.2);
             shake(2, 0.12);
           } else {
             pug.y = p.y - pug.h / 2;
             pug.vy = 0;
             pug.onGround = true;
-            pug.jumpsLeft = 2;
+            refillJumps();
             if (p.kind === 'crumble') {
-              p.t += dt * 8; // tick fast while standing
               if (!p.crumbleStartT) p.crumbleStartT = performance.now();
-              if (performance.now() - p.crumbleStartT > 700) p.alive = false;
+              const elapsed = performance.now() - p.crumbleStartT;
+              if (elapsed > 1500) {
+                p.alive = false;
+                // shed particles
+                for (let i = 0; i < 6; i++) {
+                  if (embers.length > 150) break;
+                  embers.push({ x: p.x + Math.random() * p.w, y: p.y, vx: (Math.random() - 0.5) * 60, vy: 40 + Math.random() * 40, life: 0, max: 0.5, r: 1.5 });
+                }
+                shake(3, 0.18);
+              }
             }
           }
         }
@@ -157,6 +218,12 @@ function tick(dt) {
       if (p.type === 'jetpack') jetpackT = 5;
       else if (p.type === 'freeze') freezeT = 4;
       else if (p.type === 'shrink') shrinkT = 6;
+      else if (p.type === 'wings') {
+        wingsT = 6;
+        pug.jumpsLeft = 3;
+        pop(p.x, p.y - 10, 'WINGS!', '#fff7d0');
+        shake(3, 0.18);
+      }
       sfx.tone(1320, 'triangle', 0.12, 0.22);
     }
   }
@@ -181,11 +248,25 @@ function tick(dt) {
     lavaY += dy;
     for (const p of plats) p.y += dy;
     for (const t of treats) t.y += dy;
+    for (const pw of powerups) pw.y += dy;
+    for (const s of caveSpikes) s.y += dy;
+    for (const b of strataBands) b.y += dy;
+    lastPlatY += dy;
+    // Seed new cave decor as we scroll up
+    if (caveSpikes.length && caveSpikes[caveSpikes.length - 1].y > -200) seedCaveSpikes(caveSpikes[caveSpikes.length - 1].y - 120);
+    // New strata bands
+    while (strataBands.length === 0 || strataBands[strataBands.length - 1].y > -200) {
+      const lastY = strataBands.length ? strataBands[strataBands.length - 1].y : H;
+      strataBands.push({ y: lastY - 200, color: `rgba(${40 + Math.floor(Math.random()*20)},${20 + Math.floor(Math.random()*15)},${20},${0.08 + Math.random() * 0.06})` });
+    }
   }
   // Recycle platforms above viewport
   while (lastPlatY > -200) addPlatformAbove();
   for (let i = plats.length - 1; i >= 0; i--) if (plats[i].y > H + 100) plats.splice(i, 1);
   for (let i = treats.length - 1; i >= 0; i--) if (treats[i].y > H + 100) treats.splice(i, 1);
+  for (let i = powerups.length - 1; i >= 0; i--) if (powerups[i].y > H + 100) powerups.splice(i, 1);
+  for (let i = caveSpikes.length - 1; i >= 0; i--) if (caveSpikes[i].y > H + 100) caveSpikes.splice(i, 1);
+  for (let i = strataBands.length - 1; i >= 0; i--) if (strataBands[i].y > H + 100) strataBands.splice(i, 1);
 
   // Treats
   for (let i = treats.length - 1; i >= 0; i--) {
@@ -277,6 +358,19 @@ function render() {
   const grd = ctx.createLinearGradient(0, 0, 0, H);
   grd.addColorStop(0, '#0a0716'); grd.addColorStop(1, '#3a1a14');
   ctx.fillStyle = grd; ctx.fillRect(-8, -8, W + 16, H + 16);
+  // Distant pulsing red glow (core of the mountain) — behind cave walls
+  const glowPulse = 0.55 + 0.25 * Math.sin(performance.now() * 0.0008);
+  const coreGrad = ctx.createRadialGradient(W / 2, H * 0.55, 40, W / 2, H * 0.55, Math.max(W, H) * 0.7);
+  coreGrad.addColorStop(0, `rgba(180,30,20,${0.25 * glowPulse})`);
+  coreGrad.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = coreGrad; ctx.fillRect(0, 0, W, H);
+  // Strata bands — decorative horizontal bands
+  for (const sb of strataBands) {
+    if (sb.y < -20 || sb.y > H + 20) continue;
+    ctx.fillStyle = sb.color;
+    ctx.fillRect(0, sb.y, W, 6);
+  }
+  // 20m level markers — when world altitude crosses a "20m line" draw small chip
   // Background parallax: distant cave walls (slow scroll, repeating)
   const parY = (caveOffset * 0.4) % 200;
   ctx.fillStyle = 'rgba(60,18,18,0.55)';
@@ -291,6 +385,54 @@ function render() {
       ctx.lineTo(cx + 60, cy);
       ctx.closePath(); ctx.fill();
     }
+  }
+  // Mining cart tracks (decorative) — rust rails on left wall, repeating
+  const rk = (caveOffset * 1.0) % 90;
+  for (let yy = -90; yy < H + 90; yy += 90) {
+    const ty = yy + rk;
+    ctx.fillStyle = 'rgba(120,60,30,0.5)';
+    ctx.fillRect(2, ty, 4, 60); ctx.fillRect(W - 6, ty, 4, 60);
+    ctx.fillStyle = 'rgba(180,90,40,0.4)';
+    ctx.fillRect(2, ty + 14, 4, 1); ctx.fillRect(W - 6, ty + 14, 4, 1);
+    // ties
+    for (let cy = 0; cy < 60; cy += 14) {
+      ctx.fillStyle = 'rgba(70,40,20,0.5)';
+      ctx.fillRect(0, ty + cy, 8, 3); ctx.fillRect(W - 8, ty + cy, 8, 3);
+    }
+  }
+  // Stalactites/stalagmites (cave spikes) — cone shapes hugging side walls
+  for (const s of caveSpikes) {
+    if (s.y < -30 || s.y > H + 30) continue;
+    ctx.save();
+    ctx.fillStyle = '#5a3a1c';
+    ctx.beginPath();
+    if (s.side === 'left') {
+      // narrow cones pointing right
+      if (s.orient === 'top') {
+        ctx.moveTo(s.x, s.y); ctx.lineTo(s.x + s.h, s.y + 3); ctx.lineTo(s.x, s.y + 8);
+      } else {
+        ctx.moveTo(s.x, s.y); ctx.lineTo(s.x + s.h, s.y - 3); ctx.lineTo(s.x, s.y - 8);
+      }
+    } else {
+      if (s.orient === 'top') {
+        ctx.moveTo(s.x, s.y); ctx.lineTo(s.x - s.h, s.y + 3); ctx.lineTo(s.x, s.y + 8);
+      } else {
+        ctx.moveTo(s.x, s.y); ctx.lineTo(s.x - s.h, s.y - 3); ctx.lineTo(s.x, s.y - 8);
+      }
+    }
+    ctx.closePath(); ctx.fill();
+    // darker shading
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.beginPath();
+    if (s.side === 'left') {
+      if (s.orient === 'top') { ctx.moveTo(s.x, s.y + 4); ctx.lineTo(s.x + s.h, s.y + 3); ctx.lineTo(s.x, s.y + 8); }
+      else { ctx.moveTo(s.x, s.y - 4); ctx.lineTo(s.x + s.h, s.y - 3); ctx.lineTo(s.x, s.y - 8); }
+    } else {
+      if (s.orient === 'top') { ctx.moveTo(s.x, s.y + 4); ctx.lineTo(s.x - s.h, s.y + 3); ctx.lineTo(s.x, s.y + 8); }
+      else { ctx.moveTo(s.x, s.y - 4); ctx.lineTo(s.x - s.h, s.y - 3); ctx.lineTo(s.x, s.y - 8); }
+    }
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
   }
   // Mid parallax: closer rocks (faster)
   const parY2 = (caveOffset * 0.85) % 160;
@@ -316,12 +458,42 @@ function render() {
     if (!p.alive) continue;
     const isCrumble = p.kind === 'crumble';
     const isBouncy = p.kind === 'bouncy';
-    const color = isBouncy ? '#b055ff' : (isCrumble ? '#8a6a4a' : '#5a3a1c');
-    const topColor = isBouncy ? '#d59aff' : (isCrumble ? '#a68a6a' : '#7a5a3a');
+    // crumble turns red after 0.5s of standing
+    const crumbleAge = p.crumbleStartT ? (performance.now() - p.crumbleStartT) : 0;
+    const crumbleRed = isCrumble && crumbleAge > 500;
+    const color = crumbleRed ? '#a83830' : (isBouncy ? '#b055ff' : (isCrumble ? '#8a6a4a' : '#5a3a1c'));
+    const topColor = crumbleRed ? '#d05050' : (isBouncy ? '#d59aff' : (isCrumble ? '#a68a6a' : '#7a5a3a'));
     const grassColor = isBouncy ? '#ff8aa8' : (isCrumble ? '#ff8e3c' : '#5ef38c');
     ctx.fillStyle = color; ctx.fillRect(p.x, p.y, p.w, p.h);
     ctx.fillStyle = topColor; ctx.fillRect(p.x, p.y, p.w, 3);
     ctx.fillStyle = grassColor; ctx.fillRect(p.x, p.y - 3, p.w, 3);
+    // SPIKE on top (kills on landing)
+    if (p.hasSpike) {
+      const sx = p.x + p.w / 2;
+      ctx.fillStyle = '#cacad6';
+      ctx.beginPath();
+      ctx.moveTo(sx - 5, p.y - 3); ctx.lineTo(sx + 5, p.y - 3); ctx.lineTo(sx, p.y - 14);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#8a8a9a';
+      ctx.beginPath();
+      ctx.moveTo(sx, p.y - 3); ctx.lineTo(sx + 5, p.y - 3); ctx.lineTo(sx, p.y - 14);
+      ctx.closePath(); ctx.fill();
+      // base
+      ctx.fillStyle = '#5a5a72';
+      ctx.fillRect(sx - 6, p.y - 4, 12, 2);
+    }
+    // Hanging vines under platform
+    if (p.vine && !isCrumble) {
+      const vx = p.x + 12;
+      const sway = Math.sin(performance.now() * 0.002 + p.x * 0.05) * 4;
+      ctx.strokeStyle = '#3a8e4c'; ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(vx, p.y + p.h);
+      ctx.quadraticCurveTo(vx + sway, p.y + p.h + 14, vx + sway, p.y + p.h + 28);
+      ctx.stroke();
+      ctx.fillStyle = '#5ef38c';
+      ctx.fillRect(vx + sway - 2, p.y + p.h + 26, 4, 4);
+    }
     // Wood-grain texture (vertical streaks)
     if (!isBouncy) {
       ctx.fillStyle = 'rgba(0,0,0,0.18)';
@@ -345,10 +517,9 @@ function render() {
       ctx.fillRect(p.x + p.w / 2 - 2, p.y + 3, 1, p.h - 4);
     }
   }
-  // Powerups — jetpack uses pixel-art flame; freeze/shrink have no library match,
-  // so we render simple primitives (snowflake cross, downward triangle) instead of emoji.
+  // Powerups — jetpack uses pixel-art flame; freeze/shrink/wings use primitives.
   for (const p of powerups) {
-    const colors = { jetpack: '#ff8e3c', freeze: '#4cc9f0', shrink: '#b055ff' };
+    const colors = { jetpack: '#ff8e3c', freeze: '#4cc9f0', shrink: '#b055ff', wings: '#fff7d0' };
     ctx.shadowColor = colors[p.type]; ctx.shadowBlur = 12;
     ctx.fillStyle = colors[p.type]; ctx.fillRect(p.x - 10, p.y - 10, 20, 20);
     ctx.shadowBlur = 0;
@@ -360,11 +531,26 @@ function render() {
       ctx.fillRect(p.x - 1, p.y - 7, 2, 14);
       ctx.fillRect(p.x - 5, p.y - 5, 2, 2); ctx.fillRect(p.x + 3, p.y - 5, 2, 2);
       ctx.fillRect(p.x - 5, p.y + 3, 2, 2); ctx.fillRect(p.x + 3, p.y + 3, 2, 2);
-    } else { // shrink — downward triangle
+    } else if (p.type === 'shrink') {
       ctx.fillStyle = '#fff';
       ctx.beginPath();
       ctx.moveTo(p.x - 7, p.y - 5); ctx.lineTo(p.x + 7, p.y - 5); ctx.lineTo(p.x, p.y + 7);
       ctx.closePath(); ctx.fill();
+    } else if (p.type === 'wings') {
+      // Pair of small wing shapes
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.moveTo(p.x - 1, p.y);
+      ctx.quadraticCurveTo(p.x - 9, p.y - 6, p.x - 8, p.y + 3);
+      ctx.quadraticCurveTo(p.x - 5, p.y + 1, p.x - 1, p.y + 2);
+      ctx.closePath(); ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(p.x + 1, p.y);
+      ctx.quadraticCurveTo(p.x + 9, p.y - 6, p.x + 8, p.y + 3);
+      ctx.quadraticCurveTo(p.x + 5, p.y + 1, p.x + 1, p.y + 2);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#ffd23f';
+      ctx.fillRect(p.x - 1, p.y - 1, 2, 4);
     }
   }
   // Lava blobs
@@ -410,21 +596,26 @@ function render() {
     const x = (i * 73 + performance.now() / 5) % W;
     ctx.beginPath(); ctx.arc(x, lavaY + 4 + Math.sin(t * 2 + i) * 2, 3, 0, Math.PI * 2); ctx.fill();
   }
-  // Pug
-  ctx.fillStyle = '#8a5a2c';
-  ctx.fillRect(pug.x - 10, pug.y - 16, 5, 5); ctx.fillRect(pug.x + 5, pug.y - 16, 5, 5);
-  const pugColor = hitFlashT > 0 ? '#ffffff' : '#c8854a';
-  ctx.fillStyle = pugColor;
-  ctx.fillRect(pug.x - pug.w / 2, pug.y - pug.h / 2, pug.w, pug.h);
-  ctx.fillStyle = '#1a0d05';
-  ctx.fillRect(pug.x - 8, pug.y - 5, 16, 8);
-  ctx.fillStyle = '#fff';
-  ctx.fillRect(pug.x - 6, pug.y - 4, 3, 3); ctx.fillRect(pug.x + 3, pug.y - 4, 3, 3);
-  ctx.fillStyle = '#000';
-  ctx.fillRect(pug.x - 5, pug.y - 3, 2, 2); ctx.fillRect(pug.x + 4, pug.y - 3, 2, 2);
-  // Jump indicator
-  ctx.fillStyle = '#5ef38c';
-  for (let i = 0; i < pug.jumpsLeft; i++) ctx.fillRect(pug.x - 6 + i * 8, pug.y - 24, 4, 4);
+  // Pug — high-detail climber sprite (with hit-flash brightness overlay)
+  if (hitFlashT > 0) {
+    ctx.save(); ctx.filter = 'brightness(2.5)';
+    drawPug(ctx, pug.x, pug.y, { size: 30 });
+    ctx.filter = 'none'; ctx.restore();
+  } else {
+    drawPug(ctx, pug.x, pug.y, { size: 30 });
+  }
+  // Jump indicator (more dots if wings active)
+  ctx.fillStyle = wingsT > 0 ? '#fff7d0' : '#5ef38c';
+  for (let i = 0; i < pug.jumpsLeft; i++) ctx.fillRect(pug.x - 8 + i * 6, pug.y - 24, 4, 4);
+  // Wings flap behind pug
+  if (wingsT > 0) {
+    const flap = Math.sin(performance.now() * 0.025) * 4;
+    ctx.fillStyle = 'rgba(255,247,208,0.85)';
+    ctx.beginPath();
+    ctx.moveTo(pug.x - 10, pug.y); ctx.quadraticCurveTo(pug.x - 18, pug.y - 4 - flap, pug.x - 14, pug.y + 6); ctx.closePath(); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(pug.x + 10, pug.y); ctx.quadraticCurveTo(pug.x + 18, pug.y - 4 - flap, pug.x + 14, pug.y + 6); ctx.closePath(); ctx.fill();
+  }
   // Active powerup HUD chips (bottom-left). `iconDraw` is an optional pixel-art icon drawer.
   let py = H - 30;
   const chip = (label, t, color, iconDraw) => {
@@ -446,6 +637,11 @@ function render() {
   chip('SHRINK', shrinkT, '#b055ff', (cx, cy) => {
     ctx.fillStyle = '#b055ff';
     ctx.beginPath(); ctx.moveTo(cx - 5, cy - 4); ctx.lineTo(cx + 5, cy - 4); ctx.lineTo(cx, cy + 5); ctx.closePath(); ctx.fill();
+  });
+  chip('WINGS', wingsT, '#fff7d0', (cx, cy) => {
+    ctx.fillStyle = '#fff7d0';
+    ctx.beginPath(); ctx.moveTo(cx - 1, cy); ctx.quadraticCurveTo(cx - 6, cy - 4, cx - 6, cy + 2); ctx.quadraticCurveTo(cx - 3, cy + 1, cx - 1, cy + 1); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(cx + 1, cy); ctx.quadraticCurveTo(cx + 6, cy - 4, cx + 6, cy + 2); ctx.quadraticCurveTo(cx + 3, cy + 1, cx + 1, cy + 1); ctx.closePath(); ctx.fill();
   });
   // Score popups
   ctx.textAlign = 'center';
@@ -525,7 +721,7 @@ const _startOv = document.getElementById('overlay');
 if (_startOv) {
   const _showOnHide = () => {
     if (_startOv.classList.contains('is-hidden') || _startOv.hidden) {
-      showTip('A/D move · SPACE jump (double-jump midair) · grab treats, dodge lava', 6000);
+      showTip('A/D move · SPACE jump · avoid SPIKES on platforms · grab WINGS for triple-jump', 6500);
     }
   };
   new MutationObserver(_showOnHide).observe(_startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });

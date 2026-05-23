@@ -3,6 +3,7 @@ import { submitRun, loadBest } from '../../src/persistence/highScores.js';
 import { createSfx } from '../../src/shared/miniSfx.js';
 import { showTip } from '../../src/shared/tutorialTip.js';
 import { drawIcon } from '../../src/shared/icons.js';
+import { drawPug } from '../../src/shared/pugSprite.js';
 
 // --- Custom weapon icons (drawn on canvas; size ~ 18px) -----------------------
 // Library doesn't have sausage / toast / bubble, so we draw them inline here in
@@ -66,7 +67,7 @@ function resize() {
   canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
 }
-window.addEventListener('resize', () => { resize(); if (crowd && crowd.length) buildCrowd(); }); resize();
+window.addEventListener('resize', () => { resize(); if (crowd && crowd.length) buildCrowd(); if (stove) { buildStove(); buildObstacles(); buildPuddles(); buildGoalPosts(); buildPedestal(); } }); resize();
 
 const WEAPONS = [
   { id: 'tennis',   name: 'Tennis', drawIconFn: drawIcon.tennisBall, cooldown: 0.4, speed: 480, dmg: 14, color: '#5ef38c', shape: 'ball' },
@@ -82,6 +83,16 @@ let lastHitT = 0; // for player hit-flash
 let crowd = [];
 let weaponPickups = []; // {x, y, weapon, t, bob}
 let weaponSpawnT = 0;   // seconds until next spawn
+// --- Map decor & hazards (kitchen arena) ----------------------------------
+let stove = null;       // central hazard {x, y, w, h, burners[]}
+let obstacles = [];     // {x, y, w, h, kind, c1, c2}  blocks movement
+let puddles = [];       // {x, y, r}  slip zones
+let goalPosts = [];     // {x, y, side}  decorative arches
+// --- Powerup pedestal -----------------------------------------------------
+const BUFF_TYPES = ['shield', 'damage', 'speed'];
+let pedestal = null;    // {x, y, ready, t, type}
+let pedestalCd = 0;     // seconds until next ready
+let activeBuffs = new Map(); // pug -> {type, t}
 function shake(amp, dur) { shakeAmp = Math.max(shakeAmp, amp); shakeT = Math.max(shakeT, dur); }
 function popup(x, y, text, color) {
   if (popups.length > 32) popups.shift();
@@ -96,16 +107,121 @@ function mkPug(x, y, isPlayer, color, mask) {
     jetT: 0, jetCd: 0,
     targetAng: 0,
     hitFlashT: 0,
+    slipT: 0, // when >0, controls reduced and velocity scaled
   };
+}
+// Build the central kitchen stove (large rectangle + 4 burners).
+function buildStove() {
+  const w = 130, h = 90;
+  stove = {
+    x: W / 2 - w / 2, y: H / 2 - h / 2, w, h,
+    burners: [
+      { dx: 28,    dy: 24, phase: Math.random() * Math.PI * 2 },
+      { dx: w-28,  dy: 24, phase: Math.random() * Math.PI * 2 },
+      { dx: 28,    dy: h-24, phase: Math.random() * Math.PI * 2 },
+      { dx: w-28,  dy: h-24, phase: Math.random() * Math.PI * 2 },
+    ],
+  };
+}
+// 6 fixed kitchen prop obstacles. Sized ~50x40. Placed away from stove + spawn.
+function buildObstacles() {
+  obstacles = [];
+  const stoveCx = W / 2, stoveCy = H / 2;
+  const props = [
+    { kind: 'fridge',   c1: '#cacad6', c2: '#8a8a9a' },
+    { kind: 'microwave',c1: '#2a2a3a', c2: '#4cc9f0' },
+    { kind: 'sink',     c1: '#9ec8d8', c2: '#4a7080' },
+    { kind: 'trash',    c1: '#3a5a3a', c2: '#2a4a2a' },
+    { kind: 'table',    c1: '#8a5a2c', c2: '#5a3a1c' },
+    { kind: 'icecream', c1: '#ff8ec7', c2: '#c8589a' },
+  ];
+  // Six anchor positions relative to screen
+  const anchors = [
+    { ax: 0.18, ay: 0.22 },
+    { ax: 0.82, ay: 0.22 },
+    { ax: 0.18, ay: 0.78 },
+    { ax: 0.82, ay: 0.78 },
+    { ax: 0.50, ay: 0.18 },
+    { ax: 0.50, ay: 0.82 },
+  ];
+  for (let i = 0; i < props.length; i++) {
+    const a = anchors[i];
+    const w = 50, h = 40;
+    const x = a.ax * W - w / 2;
+    const y = a.ay * H - h / 2;
+    // Skip if too close to stove center
+    if (Math.hypot((x + w/2) - stoveCx, (y + h/2) - stoveCy) < 110) continue;
+    obstacles.push({ x, y, w, h, ...props[i] });
+  }
+}
+function buildPuddles() {
+  puddles = [];
+  for (let i = 0; i < 4; i++) {
+    let tries = 0;
+    while (tries++ < 20) {
+      const x = 90 + Math.random() * (W - 180);
+      const y = 90 + Math.random() * (H - 180);
+      // avoid stove + obstacles
+      if (Math.hypot(x - W/2, y - H/2) < 100) continue;
+      let ok = true;
+      for (const o of obstacles) {
+        if (x > o.x - 30 && x < o.x + o.w + 30 && y > o.y - 30 && y < o.y + o.h + 30) { ok = false; break; }
+      }
+      if (ok) { puddles.push({ x, y, r: 22 + Math.random() * 10, phase: Math.random() * Math.PI * 2 }); break; }
+    }
+  }
+}
+function buildGoalPosts() {
+  // 4 corner arches (decorative landmarks)
+  goalPosts = [
+    { x: 60,       y: 60,     side: 'tl' },
+    { x: W - 60,   y: 60,     side: 'tr' },
+    { x: 60,       y: H - 60, side: 'bl' },
+    { x: W - 60,   y: H - 60, side: 'br' },
+  ];
+}
+function buildPedestal() {
+  pedestal = { x: W / 2, y: H / 2, ready: false, t: 0, type: BUFF_TYPES[0] };
+  pedestalCd = 8;
+}
+// Rect-circle resolve for obstacles (simple AABB-vs-pug)
+function resolveObstacles(p) {
+  const pr = 18;
+  for (const o of obstacles) {
+    const cx = Math.max(o.x, Math.min(p.x, o.x + o.w));
+    const cy = Math.max(o.y, Math.min(p.y, o.y + o.h));
+    const dx = p.x - cx, dy = p.y - cy;
+    const d2 = dx * dx + dy * dy;
+    if (d2 < pr * pr) {
+      const d = Math.sqrt(d2) || 0.001;
+      const nx = dx / d, ny = dy / d;
+      const push = pr - d;
+      p.x += nx * push; p.y += ny * push;
+      // dampen velocity into wall
+      const dot = p.vx * nx + p.vy * ny;
+      if (dot < 0) { p.vx -= nx * dot; p.vy -= ny * dot; }
+    }
+  }
+}
+function buffMod(p, key) {
+  const b = activeBuffs.get(p); if (!b) return 1;
+  if (b.type === 'shield' && key === 'damage_in') return 0.5;
+  if (b.type === 'damage' && key === 'damage_out') return 1.5;
+  if (b.type === 'speed' && key === 'speed') return 1.4;
+  return 1;
 }
 function buildCrowd() {
   crowd = [];
   // Top + bottom rows of silhouettes outside the stadium walls
   const STEP = 14;
   for (let x = 12; x < W; x += STEP) {
-    crowd.push({ x, y: 14, base: 14, phase: Math.random() * Math.PI * 2, c: ['#3a2a5a','#4a3a6a','#5a3a4a','#2a3a5a'][Math.floor(Math.random()*4)] });
-    crowd.push({ x, y: H - 14, base: H - 14, phase: Math.random() * Math.PI * 2, c: ['#3a2a5a','#4a3a6a','#5a3a4a','#2a3a5a'][Math.floor(Math.random()*4)] });
+    crowd.push({ x, y: 14, base: 14, phase: Math.random() * Math.PI * 2, c: ['#3a2a5a','#4a3a6a','#5a3a4a','#2a3a5a'][Math.floor(Math.random()*4)], waveT: 0 });
+    crowd.push({ x, y: H - 14, base: H - 14, phase: Math.random() * Math.PI * 2, c: ['#3a2a5a','#4a3a6a','#5a3a4a','#2a3a5a'][Math.floor(Math.random()*4)], waveT: 0 });
   }
+}
+function crowdCheer() {
+  // Triggered on kills — sweep wave across the stands
+  for (const c of crowd) c.waveT = 0.5 + Math.random() * 0.2;
 }
 function reset() {
   pug = mkPug(W / 2, H - 100, true, '#c8854a', '#1a0d05');
@@ -123,7 +239,13 @@ function reset() {
   shakeT = 0; shakeAmp = 0;
   weaponPickups = []; weaponSpawnT = 6; // first pickup after 6s
   mouse = { x: W / 2, y: H / 2 };
+  activeBuffs = new Map();
   buildCrowd();
+  buildStove();
+  buildObstacles();
+  buildPuddles();
+  buildGoalPosts();
+  buildPedestal();
 }
 function spawnWeaponPickup() {
   // Pick a random non-current weapon for variety
@@ -207,15 +329,17 @@ function tick(dt) {
       }
     }
   }
-  // Player movement
+  // Player movement (controls disabled while slipping)
   let mx = 0, my = 0;
-  if (keys.has('w')) my -= 1;
-  if (keys.has('s')) my += 1;
-  if (keys.has('a')) mx -= 1;
-  if (keys.has('d')) mx += 1;
+  if (pug.slipT <= 0) {
+    if (keys.has('w')) my -= 1;
+    if (keys.has('s')) my += 1;
+    if (keys.has('a')) mx -= 1;
+    if (keys.has('d')) mx += 1;
+  }
   if (mx || my) {
     const l = Math.hypot(mx, my);
-    const sp = (pug.jetT > 0 ? 480 : 220);
+    const sp = (pug.jetT > 0 ? 480 : 220) * buffMod(pug, 'speed');
     pug.vx += (mx / l) * sp * dt * 3;
     pug.vy += (my / l) * sp * dt * 3;
   }
@@ -259,10 +383,77 @@ function tick(dt) {
   // Physics
   for (const p of [pug, ...bots]) {
     if (p.hp <= 0) continue;
+    // Slip on puddles — boost velocity and freeze input briefly on entry
+    for (const pud of puddles) {
+      if (Math.hypot(p.x - pud.x, p.y - pud.y) < pud.r) {
+        if (p.slipT <= 0) {
+          p.slipT = 0.5;
+          p.vx *= 2; p.vy *= 2;
+          if (p === pug) popup(p.x, p.y - 26, 'SLIP!', '#4cc9f0');
+        }
+        break;
+      }
+    }
     p.x += p.vx * dt; p.y += p.vy * dt;
-    p.vx *= Math.pow(0.5, dt * 4); p.vy *= Math.pow(0.5, dt * 4);
+    // Friction (less when slipping — keeps the slide alive)
+    const fric = p.slipT > 0 ? 1.5 : 4;
+    p.vx *= Math.pow(0.5, dt * fric); p.vy *= Math.pow(0.5, dt * fric);
     p.x = Math.max(30, Math.min(W - 30, p.x));
     p.y = Math.max(30, Math.min(H - 30, p.y));
+    // Obstacle collision
+    resolveObstacles(p);
+    // Stove hazard — flames damage anyone within 26px of any burner
+    if (stove) {
+      for (const b of stove.burners) {
+        const bx = stove.x + b.dx, by = stove.y + b.dy;
+        if (Math.hypot(p.x - bx, p.y - by) < 26) {
+          const dmg = 8 * dt * buffMod(p, 'damage_in');
+          p.hp -= dmg;
+          if (p === pug) { lastHitT = Math.max(lastHitT, 0.15); }
+          // periodic popup so it doesn't spam
+          if (Math.random() < dt * 1.5) popup(p.x, p.y - 24, 'FIRE!', '#ff5a3a');
+          if (p.hp > 0 && Math.random() < dt * 8 && particles.length < 200) {
+            const ang = Math.random() * Math.PI * 2;
+            particles.push({ x: p.x, y: p.y, vx: Math.cos(ang) * 40, vy: Math.sin(ang) * 40 - 30, color: '#ff8e3c', life: 0.4, t: 0, size: 3 });
+          }
+          break;
+        }
+      }
+    }
+    p.slipT = Math.max(0, p.slipT - dt);
+  }
+  // Decay buffs
+  for (const [p, b] of activeBuffs) {
+    b.t -= dt;
+    if (b.t <= 0 || p.hp <= 0) activeBuffs.delete(p);
+  }
+  // Pedestal — refill timer, then ready; first pug to enter claims buff
+  if (pedestal) {
+    if (!pedestal.ready) {
+      pedestalCd -= dt;
+      if (pedestalCd <= 0) {
+        pedestal.ready = true; pedestal.t = 0;
+        pedestal.type = BUFF_TYPES[Math.floor(Math.random() * BUFF_TYPES.length)];
+        sfx.tone(740, 'triangle', 0.12, 0.20);
+        if (pug && pug.hp > 0) popup(pedestal.x, pedestal.y - 60, 'PEDESTAL READY', '#fff');
+      }
+    } else {
+      pedestal.t += dt;
+      for (const p of [pug, ...bots]) {
+        if (p.hp <= 0) continue;
+        if (Math.hypot(p.x - pedestal.x, p.y - pedestal.y) < 26) {
+          activeBuffs.set(p, { type: pedestal.type, t: 12 });
+          const tname = pedestal.type === 'shield' ? 'SHIELD' : pedestal.type === 'damage' ? 'DMG BOOST' : 'SPEED';
+          const tcol = pedestal.type === 'shield' ? '#4cc9f0' : pedestal.type === 'damage' ? '#ff5a3a' : '#ffd23f';
+          popup(p.x, p.y - 28, tname + '!', tcol);
+          sfx.tone(1100, 'triangle', 0.15, 0.25);
+          shake(3, 0.15);
+          pedestal.ready = false;
+          pedestalCd = 18;
+          break;
+        }
+      }
+    }
   }
   // Projectiles
   for (let i = projectiles.length - 1; i >= 0; i--) {
@@ -278,7 +469,10 @@ function tick(dt) {
       if (target === pr.owner || target.hp <= 0) continue;
       const d = Math.hypot(target.x - pr.x, target.y - pr.y);
       if (d < 22) {
-        target.hp -= pr.dmg;
+        const outMul = pr.owner ? buffMod(pr.owner, 'damage_out') : 1;
+        const inMul = buffMod(target, 'damage_in');
+        const finalDmg = pr.dmg * outMul * inMul;
+        target.hp -= finalDmg;
         target.hitFlashT = 0.18;
         spawnHit(pr.x, pr.y, pr.color);
         sfx.tone(220, 'square', 0.05, 0.18);
@@ -295,6 +489,7 @@ function tick(dt) {
           } else {
             shake(5, 0.18);
           }
+          crowdCheer();
           spawnDeath(target.x, target.y, target.color);
           sfx.sweep(440, 110, 'sawtooth', 0.25, 0.22);
         }
@@ -397,10 +592,190 @@ function render() {
   ctx.strokeStyle = 'rgba(255,210,63,0.15)'; ctx.lineWidth = 3;
   ctx.beginPath(); ctx.arc(W / 2, H / 2, Math.min(W, H) * 0.18, 0, Math.PI * 2); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(W / 2, H / 2 - 6); ctx.lineTo(W / 2, H / 2 + 6); ctx.moveTo(W / 2 - 6, H / 2); ctx.lineTo(W / 2 + 6, H / 2); ctx.stroke();
-  // Kitchen obstacles (sketch)
-  ctx.fillStyle = '#3a2a14';
-  ctx.fillRect(W * 0.2, H * 0.2, 60, 60); // table
-  ctx.fillRect(W * 0.7, H * 0.6, 80, 40);
+  // Water puddles (drawn under everything else so pugs slide on top)
+  for (const pud of puddles) {
+    pud.phase += 0.01;
+    ctx.save();
+    ctx.fillStyle = 'rgba(76,201,240,0.35)';
+    ctx.beginPath(); ctx.ellipse(pud.x, pud.y, pud.r, pud.r * 0.7, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(180,230,255,0.55)';
+    ctx.beginPath(); ctx.ellipse(pud.x - pud.r * 0.3, pud.y - pud.r * 0.2, pud.r * 0.3, pud.r * 0.15, 0, 0, Math.PI * 2); ctx.fill();
+    // ripple ring
+    const rk = (Math.sin(pud.phase * 3) + 1) * 0.5;
+    ctx.strokeStyle = `rgba(180,230,255,${0.4 - rk * 0.3})`; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.ellipse(pud.x, pud.y, pud.r * (0.5 + rk * 0.4), pud.r * (0.35 + rk * 0.3), 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+  }
+  // Goal posts at corners (red glowing arches)
+  for (const g of goalPosts) {
+    ctx.save();
+    const pulse = 0.65 + 0.35 * Math.sin(performance.now() * 0.004 + (g.x + g.y) * 0.01);
+    ctx.shadowColor = '#ff3a3a';
+    ctx.shadowBlur = 14 * pulse;
+    ctx.strokeStyle = '#ff3a3a'; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.arc(g.x, g.y, 22, Math.PI, 0); ctx.stroke();
+    ctx.shadowBlur = 0;
+    // posts
+    ctx.fillStyle = '#ff3a3a';
+    ctx.fillRect(g.x - 24, g.y, 4, 16);
+    ctx.fillRect(g.x + 20, g.y, 4, 16);
+    // net hint
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 1;
+    for (let i = -20; i <= 20; i += 6) {
+      ctx.beginPath(); ctx.moveTo(g.x + i, g.y); ctx.lineTo(g.x + i, g.y + 14); ctx.stroke();
+    }
+    ctx.restore();
+  }
+  // Kitchen obstacle props (block movement) — varied art per kind
+  for (const o of obstacles) {
+    ctx.save();
+    // shadow underneath
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.fillRect(o.x + 2, o.y + o.h - 2, o.w - 2, 4);
+    ctx.fillStyle = o.c1;
+    ctx.fillRect(o.x, o.y, o.w, o.h);
+    ctx.fillStyle = o.c2;
+    if (o.kind === 'fridge') {
+      ctx.fillRect(o.x, o.y, o.w, 4); // top trim
+      ctx.fillRect(o.x, o.y + o.h * 0.4, o.w, 3); // door split
+      ctx.fillStyle = '#1a0d05';
+      ctx.fillRect(o.x + o.w - 6, o.y + 8, 3, 8);
+      ctx.fillRect(o.x + o.w - 6, o.y + o.h * 0.5, 3, 8);
+    } else if (o.kind === 'microwave') {
+      ctx.fillRect(o.x + 4, o.y + 6, o.w - 18, o.h - 14); // window
+      ctx.fillStyle = '#ff3a3a';
+      ctx.fillRect(o.x + o.w - 10, o.y + 8, 4, 2); // power LED
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(o.x + o.w - 10, o.y + 14, 6, 2); ctx.fillRect(o.x + o.w - 10, o.y + 18, 6, 2);
+    } else if (o.kind === 'sink') {
+      ctx.fillRect(o.x + 4, o.y + 6, o.w - 8, o.h - 14); // basin (darker)
+      ctx.fillStyle = '#cacad6';
+      ctx.fillRect(o.x + o.w / 2 - 4, o.y - 4, 8, 6); // faucet
+      ctx.fillRect(o.x + o.w / 2 - 1, o.y - 6, 2, 4);
+    } else if (o.kind === 'trash') {
+      ctx.fillRect(o.x, o.y - 4, o.w, 4); // lid
+      ctx.fillStyle = '#1a0d05';
+      ctx.fillRect(o.x + 8, o.y + 8, 4, 4); // hole
+      ctx.fillStyle = '#5ef38c';
+      ctx.fillRect(o.x + 14, o.y + 10, 6, 6); // peeking apple
+    } else if (o.kind === 'table') {
+      ctx.fillRect(o.x, o.y, o.w, 6); // tabletop
+      ctx.fillRect(o.x + 4, o.y + 6, 4, o.h - 6); // legs
+      ctx.fillRect(o.x + o.w - 8, o.y + 6, 4, o.h - 6);
+    } else if (o.kind === 'icecream') {
+      ctx.fillRect(o.x + 4, o.y + 4, o.w - 8, 8); // sign
+      ctx.fillStyle = '#fff';
+      ctx.font = "6px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+      ctx.fillText('ICE', o.x + o.w / 2, o.y + 10);
+      ctx.fillStyle = '#ffd23f';
+      ctx.beginPath(); ctx.arc(o.x + o.w / 2, o.y + o.h - 8, 4, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  }
+  // CENTRAL STOVE — strong landmark with 4 flickering burners
+  if (stove) {
+    ctx.save();
+    // shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.fillRect(stove.x + 4, stove.y + stove.h - 4, stove.w - 4, 6);
+    // body
+    ctx.fillStyle = '#2a2a3a';
+    ctx.fillRect(stove.x, stove.y, stove.w, stove.h);
+    // chrome top trim
+    ctx.fillStyle = '#cacad6';
+    ctx.fillRect(stove.x, stove.y, stove.w, 5);
+    ctx.fillRect(stove.x, stove.y + stove.h - 5, stove.w, 5);
+    // control knobs (front)
+    ctx.fillStyle = '#1a0d05';
+    for (let i = 0; i < 4; i++) {
+      const kx = stove.x + 16 + i * ((stove.w - 32) / 3);
+      ctx.beginPath(); ctx.arc(kx, stove.y + stove.h - 10, 3, 0, Math.PI * 2); ctx.fill();
+    }
+    // 4 burners with flickering flame
+    const tNow = performance.now() * 0.001;
+    for (const b of stove.burners) {
+      const bx = stove.x + b.dx, by = stove.y + b.dy;
+      // burner pan
+      ctx.fillStyle = '#1a0d05';
+      ctx.beginPath(); ctx.arc(bx, by, 14, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#5a5a72'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(bx, by, 12, 0, Math.PI * 2); ctx.stroke();
+      // flame glow
+      const flick = 0.7 + 0.3 * Math.sin(tNow * 12 + b.phase);
+      const grad = ctx.createRadialGradient(bx, by, 2, bx, by, 28);
+      grad.addColorStop(0, `rgba(255,210,63,${0.9 * flick})`);
+      grad.addColorStop(0.5, `rgba(255,90,58,${0.5 * flick})`);
+      grad.addColorStop(1, 'rgba(255,90,58,0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath(); ctx.arc(bx, by, 28, 0, Math.PI * 2); ctx.fill();
+      // flame tongues
+      ctx.fillStyle = '#ffd23f';
+      ctx.beginPath();
+      ctx.moveTo(bx - 4, by);
+      ctx.lineTo(bx, by - 8 - flick * 6);
+      ctx.lineTo(bx + 4, by);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#ff5a3a';
+      ctx.beginPath();
+      ctx.moveTo(bx - 2, by);
+      ctx.lineTo(bx, by - 4 - flick * 3);
+      ctx.lineTo(bx + 2, by);
+      ctx.closePath(); ctx.fill();
+    }
+    // hazard ring
+    ctx.strokeStyle = 'rgba(255,90,58,0.25)'; ctx.lineWidth = 2;
+    ctx.setLineDash([4, 4]);
+    ctx.strokeRect(stove.x - 4, stove.y - 4, stove.w + 8, stove.h + 8);
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+  // PEDESTAL — beam of light + glowing dais when ready
+  if (pedestal) {
+    ctx.save();
+    const tNow = performance.now() * 0.001;
+    // dais base
+    ctx.fillStyle = '#2a2a3a';
+    ctx.beginPath(); ctx.ellipse(pedestal.x, pedestal.y + 6, 22, 8, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#3a3a4a';
+    ctx.beginPath(); ctx.ellipse(pedestal.x, pedestal.y + 2, 18, 6, 0, 0, Math.PI * 2); ctx.fill();
+    if (pedestal.ready) {
+      const col = pedestal.type === 'shield' ? '#4cc9f0' : pedestal.type === 'damage' ? '#ff5a3a' : '#ffd23f';
+      // rotating beam (own save/restore so we don't break outer translate)
+      ctx.save();
+      ctx.translate(pedestal.x, pedestal.y);
+      ctx.rotate(tNow * 1.8);
+      ctx.globalCompositeOperation = 'lighter';
+      for (let i = 0; i < 4; i++) {
+        ctx.rotate(Math.PI / 2);
+        const grad = ctx.createLinearGradient(0, 0, 0, -130);
+        grad.addColorStop(0, col + 'cc');
+        grad.addColorStop(1, col + '00');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.moveTo(-10, 0); ctx.lineTo(10, 0); ctx.lineTo(4, -130); ctx.lineTo(-4, -130); ctx.closePath();
+        ctx.fill();
+      }
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.restore();
+      // glowing orb on top
+      const pulse = 0.7 + 0.3 * Math.sin(tNow * 6);
+      ctx.shadowColor = col; ctx.shadowBlur = 18 * pulse;
+      ctx.fillStyle = col;
+      ctx.beginPath(); ctx.arc(pedestal.x, pedestal.y - 4, 6 + pulse * 2, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 0;
+      // label
+      ctx.fillStyle = '#fff'; ctx.font = "7px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+      const tname = pedestal.type === 'shield' ? 'SHIELD' : pedestal.type === 'damage' ? 'DAMAGE' : 'SPEED';
+      ctx.fillText(tname, pedestal.x, pedestal.y + 22);
+    } else {
+      // recharging indicator (faint ring + countdown spot)
+      ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(pedestal.x, pedestal.y, 14, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.25)';
+      ctx.fillRect(pedestal.x - 1, pedestal.y - 8, 2, 2);
+    }
+    ctx.restore();
+  }
   // Weapon pickups — glowing crate with floating weapon icon
   for (const wp of weaponPickups) {
     const bobY = wp.y + Math.sin(wp.bob) * 4;
@@ -430,14 +805,16 @@ function render() {
   ctx.fillStyle = 'rgba(255,255,255,0.08)';
   ctx.fillRect(0, 0, W, 2); ctx.fillRect(0, H - 8, W, 2);
 
-  // Crowd silhouettes — waving heads (above/below the walls)
+  // Crowd silhouettes — waving heads (above/below the walls). waveT scales on kill.
   if (crowd.length) {
     const tNow = performance.now() * 0.001;
     for (const c of crowd) {
       const sway = Math.sin(tNow * 1.8 + c.phase) * 2;
+      const scale = c.waveT > 0 ? 1.15 : 1;
+      if (c.waveT > 0) c.waveT -= 1 / 60;
       ctx.fillStyle = c.c;
       ctx.beginPath();
-      ctx.arc(c.x, c.base + sway, 5, 0, Math.PI * 2); ctx.fill();
+      ctx.arc(c.x, c.base + sway - (scale - 1) * 4, 5 * scale, 0, Math.PI * 2); ctx.fill();
     }
   }
 
@@ -446,19 +823,24 @@ function render() {
     if (p.hp <= 0) continue;
     // jetpack thruster particles (player only)
     if (p === pug && pug.jetT > 0) spawnJet(p.x, p.y);
-    // body
-    ctx.fillStyle = p.color;
-    ctx.beginPath(); ctx.arc(p.x, p.y, 18, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = p.mask;
-    ctx.beginPath(); ctx.ellipse(p.x, p.y + 3, 13, 9, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(p.x - 8, p.y - 4, 3, 3); ctx.fillRect(p.x + 4, p.y - 4, 3, 3);
-    // hit flash overlay
+    // buff aura
+    const buff = activeBuffs.get(p);
+    if (buff) {
+      const col = buff.type === 'shield' ? '#4cc9f0' : buff.type === 'damage' ? '#ff5a3a' : '#ffd23f';
+      const pulse = 0.7 + 0.3 * Math.sin(performance.now() * 0.008);
+      ctx.save();
+      ctx.shadowColor = col; ctx.shadowBlur = 14 * pulse;
+      ctx.strokeStyle = col + 'cc'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(p.x, p.y, 22, 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
+    }
+    // body — high-detail sprite (hit flash via canvas filter)
     if (p.hitFlashT > 0) {
-      ctx.globalAlpha = Math.min(1, p.hitFlashT * 5);
-      ctx.fillStyle = '#ffffff';
-      ctx.beginPath(); ctx.arc(p.x, p.y, 18, 0, Math.PI * 2); ctx.fill();
-      ctx.globalAlpha = 1;
+      ctx.save(); ctx.filter = `brightness(${1 + p.hitFlashT * 3})`;
+      drawPug(ctx, p.x, p.y, { size: 36, body: p.color, mask: p.mask });
+      ctx.filter = 'none'; ctx.restore();
+    } else {
+      drawPug(ctx, p.x, p.y, { size: 36, body: p.color, mask: p.mask });
     }
     // weapon (custom canvas icon, centered ~22px out along aim)
     if (p.weapon.drawIconFn) {

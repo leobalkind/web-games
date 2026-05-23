@@ -3,6 +3,7 @@ import { submitRun, loadBest } from '../../src/persistence/highScores.js';
 import { createSfx } from '../../src/shared/miniSfx.js';
 import { showTip } from '../../src/shared/tutorialTip.js';
 import { drawIcon } from '../../src/shared/icons.js';
+import { drawPug } from '../../src/shared/pugSprite.js';
 
 // --- Custom plush toy icon (library has no plushie) ---------------------------
 function drawPlushToy(ctx, x, y, size) {
@@ -66,11 +67,16 @@ const TILE_TYPES = {
 
 let cols, rows = 0;
 let grid = []; // [row][col] = type
+let wallDecor = []; // [row][col] decorative overlay per wall tile: 'pickaxe' | 'skull' | null
 let pug, money, depth, stam, maxStam, bag, maxBag, drillSpeed, drillCd;
 let upgrades, running;
 let particles = []; // dig dust + ambient
 let popups = [];
 let supports = []; // {row, col} placements of decorative support beams
+let cartTracks = []; // {row} horizontal rail rows
+let crystalPockets = []; // {row, col, n}
+let beams = []; // {row, col} player-placed beams that block cave-ins above
+let supervisor = null; // surface pug walking back and forth
 let shakeT = 0, shakeAmp = 0;
 let surfaceCelebT = 0;     // rays/light burst on surface arrival with loot
 let lastPickup = 0;        // dollar haul to flash since last surface
@@ -78,6 +84,11 @@ let biomeBannerT = 0;      // banner fades over biomeBannerLife seconds
 let biomeBannerText = '';
 let biomeBannerColor = '#ffd23f';
 let cheeseBiomeEntered = false; // once-per-run flag
+// Beam construction + cave-in
+const MAX_BEAMS = 5;
+let beamsLeft = MAX_BEAMS;
+let caveInT = 0;           // timer until next cave-in event
+let caveInBlocks = [];     // {x, y, vy, life, hit} animated falling block
 function shake(amp, dur) { shakeAmp = Math.max(shakeAmp, amp); shakeT = Math.max(shakeT, dur); }
 function popup(x, y, text, color) {
   if (popups.length > 24) popups.shift();
@@ -171,19 +182,73 @@ function reset() {
   particles = []; popups = []; supports = [];
   shakeT = 0; shakeAmp = 0; surfaceCelebT = 0; lastPickup = 0;
   biomeBannerT = 0; biomeBannerText = ''; cheeseBiomeEntered = false;
+  beams = []; beamsLeft = MAX_BEAMS;
+  caveInT = 30; caveInBlocks = [];
   // Pre-place decorative support beams every ~5 rows along the side walls
   for (let r = 5; r < rows; r += 5) {
     supports.push({ row: r, col: 0 });
     supports.push({ row: r, col: cols - 1 });
   }
+  // Mining cart tracks (decorative) — every ~8 rows in dirt sections (rows 6..48)
+  cartTracks = [];
+  for (let r = 10; r < CHEESE_DEPTH_ROW; r += 8) cartTracks.push({ row: r });
+  // Crystal pockets in cheese caverns — sprinkle 6 clusters
+  crystalPockets = [];
+  for (let i = 0; i < 6; i++) {
+    const r = CHEESE_DEPTH_ROW + 4 + Math.floor(Math.random() * (rows - CHEESE_DEPTH_ROW - 8));
+    const c = Math.floor(Math.random() * cols);
+    crystalPockets.push({ row: r, col: c, n: 3 + Math.floor(Math.random() * 3), seed: Math.random() });
+  }
+  // Wall decor — broken pickaxes (1/80) + skull remains in deep rows (>30, sparse)
+  wallDecor = Array.from({ length: rows }, () => Array(cols).fill(null));
+  for (let r = 2; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const t = grid[r][c];
+      if (t === 'dirt' || t === 'stone') {
+        if (Math.random() < 1 / 80) wallDecor[r][c] = 'pickaxe';
+        else if (r > 30 && Math.random() < 1 / 120) wallDecor[r][c] = 'skull';
+      }
+    }
+  }
+  // Surface supervisor pug (walks back and forth on row 0)
+  supervisor = { x: cols * TILE * 0.3, dir: 1, t: 0 };
   renderUpgrades();
+  updateBeamsHud();
   document.getElementById('upgrades').style.display = 'none';
 }
 function syncXY() { pug.x = pug.col * TILE + TILE / 2; pug.y = pug.row * TILE + TILE / 2; }
 
 const keys = new Set();
-window.addEventListener('keydown', (e) => keys.add(e.key.toLowerCase()));
+window.addEventListener('keydown', (e) => {
+  keys.add(e.key.toLowerCase());
+  if (e.key === 'b' || e.key === 'B') placeBeam();
+});
 window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
+function placeBeam() {
+  if (!running) return;
+  if (beamsLeft <= 0) { popup(pug.x, pug.y - 24, 'NO BEAMS', '#ff3a3a'); sfx.tone(220, 'sawtooth', 0.08, 0.18); return; }
+  if (stam < 1 || money < 5) { popup(pug.x, pug.y - 24, 'NEED $5+1 STAM', '#ff3a3a'); sfx.tone(220, 'sawtooth', 0.08, 0.18); return; }
+  // Can't place at surface row
+  if (pug.row <= 1) { popup(pug.x, pug.y - 24, 'NOT HERE', '#ff3a3a'); return; }
+  // Don't double-place at same row
+  if (beams.some((b) => b.row === pug.row)) { popup(pug.x, pug.y - 24, 'EXISTS', '#ff3a3a'); return; }
+  beams.push({ row: pug.row, col: pug.col });
+  beamsLeft--; stam -= 1; money -= 5;
+  spawnDust(pug.x, pug.y, '#8a5a2c', 6);
+  sfx.tone(440, 'square', 0.08, 0.20);
+  popup(pug.x, pug.y - 24, 'BEAM!', '#ffd23f');
+  updateBeamsHud();
+  updateHud();
+}
+function updateBeamsHud() {
+  const el = document.getElementById('hud-beams');
+  if (el) el.textContent = `${beamsLeft}/${MAX_BEAMS}`;
+}
+const beamBtnEl = document.getElementById('beam-btn');
+if (beamBtnEl) {
+  beamBtnEl.addEventListener('click', placeBeam);
+  if ('ontouchstart' in window) beamBtnEl.style.display = 'block';
+}
 let touchAt = null;
 canvas.addEventListener('touchstart', (e) => { touchAt = e.touches[0]; e.preventDefault(); }, { passive: false });
 canvas.addEventListener('touchmove', (e) => { touchAt = e.touches[0]; e.preventDefault(); }, { passive: false });
@@ -313,6 +378,70 @@ function tick(dt) {
   biomeBannerT = Math.max(0, biomeBannerT - dt);
   // ambient dust falling near the player
   spawnAmbient(pug.y - H / 2);
+  // Supervisor pug pacing on surface
+  if (supervisor) {
+    supervisor.t += dt;
+    supervisor.x += supervisor.dir * 28 * dt;
+    if (supervisor.x < 30 || supervisor.x > cols * TILE - 30) supervisor.dir *= -1;
+  }
+  // CAVE-IN events — only when player is underground
+  if (pug.row > 2) {
+    caveInT -= dt;
+    if (caveInT <= 0) {
+      caveInT = 28 + Math.random() * 6;
+      // Find an air cell 2-4 rows above the player
+      const offset = 2 + Math.floor(Math.random() * 3);
+      const targetR = pug.row - offset;
+      if (targetR >= 2 && targetR < rows) {
+        // Pick a column near the player
+        const candidateCols = [];
+        for (let c = Math.max(0, pug.col - 2); c <= Math.min(cols - 1, pug.col + 2); c++) {
+          if (grid[targetR][c] === 'air') candidateCols.push(c);
+        }
+        if (candidateCols.length > 0) {
+          const c = candidateCols[Math.floor(Math.random() * candidateCols.length)];
+          // Check if any beam exists between targetR (exclusive) and player row (exclusive)
+          const blocked = beams.some((b) => b.row > targetR && b.row < pug.row && Math.abs(b.col - c) <= Math.floor(cols / 2));
+          caveInBlocks.push({
+            col: c, fromR: targetR, toR: pug.row,
+            x: c * TILE + TILE / 2, y: targetR * TILE + TILE / 2,
+            vy: 280, blocked, hit: false,
+          });
+          shake(3, 0.3);
+          sfx.tone(140, 'square', 0.18, 0.16);
+          spawnDust(c * TILE + TILE / 2, targetR * TILE + TILE / 2, '#6a4a28', 8);
+          popup(c * TILE + TILE / 2, targetR * TILE - 14, 'CAVE-IN!', '#ff5a3a');
+        }
+      }
+    }
+  }
+  // Update cave-in falling blocks
+  for (let i = caveInBlocks.length - 1; i >= 0; i--) {
+    const b = caveInBlocks[i];
+    b.y += b.vy * dt;
+    b.vy += 320 * dt;
+    // Stop when hits a beam row OR player row OR floor of caveIn target
+    const stopRow = b.blocked ? beams.find((bm) => bm.row > b.fromR && bm.row < b.toR)?.row || b.toR : b.toR;
+    const stopY = stopRow * TILE + TILE / 2 - 6;
+    if (b.y >= stopY) {
+      // Landed
+      spawnDust(b.x, stopY, '#6a4a28', 12);
+      shake(4, 0.2);
+      if (!b.blocked && !b.hit && Math.abs(b.x - pug.x) < TILE * 0.6 && Math.abs(stopY - pug.y) < TILE) {
+        // Hit the player
+        const dmg = maxStam * 0.25;
+        stam = Math.max(0, stam - dmg);
+        b.hit = true;
+        popup(pug.x, pug.y - 26, 'CRUSH! -25%', '#ff3a3a');
+        shake(7, 0.35);
+        sfx.tone(110, 'sawtooth', 0.2, 0.22);
+        if (stam <= 0) { setTimeout(end, 50); }
+      } else if (b.blocked) {
+        popup(b.x, stopY - 14, 'BLOCKED!', '#5ef38c');
+      }
+      caveInBlocks.splice(i, 1);
+    }
+  }
   if (drillCd > 0) return;
   let dc = 0, dr = 0;
   if (keys.has('w') || keys.has('arrowup')) dr -= 1;
@@ -425,8 +554,101 @@ function render() {
           ctx.fillRect(x + 8, y + 12, 2, 2);
           ctx.fillRect(x + 24, y + 22, 2, 2);
         }
+        // wall decor overlay (broken pickaxe / skeleton remains)
+        const deco = wallDecor[r] && wallDecor[r][c];
+        if (deco === 'pickaxe') {
+          // angled wooden handle + grey blade
+          ctx.save();
+          ctx.translate(x + TILE / 2, y + TILE / 2);
+          ctx.rotate(Math.PI / 4);
+          ctx.fillStyle = '#5a3a1c';
+          ctx.fillRect(-1, -10, 2, 16); // handle
+          ctx.fillStyle = '#cacad6';
+          ctx.fillRect(-6, -12, 12, 4); // blade
+          ctx.fillStyle = 'rgba(255,255,255,0.15)';
+          ctx.fillRect(-6, -12, 12, 1);
+          ctx.restore();
+        } else if (deco === 'skull') {
+          ctx.fillStyle = 'rgba(240,240,240,0.85)';
+          ctx.fillRect(x + 12, y + 14, 12, 10);
+          ctx.fillRect(x + 14, y + 22, 8, 4);
+          ctx.fillStyle = '#1a0d05';
+          ctx.fillRect(x + 14, y + 17, 2, 2);
+          ctx.fillRect(x + 20, y + 17, 2, 2);
+          ctx.fillRect(x + 17, y + 22, 2, 2);
+        }
       }
     }
+  }
+  // Crystal pockets (cheese caverns) — drawn over their tile clusters
+  for (const cp of crystalPockets) {
+    const baseX = cp.col * TILE, baseY = cp.row * TILE;
+    if (baseY + TILE < camY || baseY > camY + H) continue;
+    const cols2 = ['#4cc9f0', '#c062ff', '#5ef38c', '#ff3aa1'];
+    const c = cols2[Math.floor(cp.seed * cols2.length)];
+    const tNow = performance.now() * 0.001;
+    for (let i = 0; i < cp.n; i++) {
+      const gx = baseX + 6 + (i * 8) % (TILE - 12);
+      const gy = baseY + 8 + (i * 11) % (TILE - 16);
+      const pulse = 0.6 + 0.4 * Math.sin(tNow * 3 + i + cp.seed * 6);
+      ctx.shadowColor = c; ctx.shadowBlur = 6 * pulse;
+      ctx.fillStyle = c;
+      ctx.beginPath();
+      ctx.moveTo(gx + 3, gy);
+      ctx.lineTo(gx + 6, gy + 3);
+      ctx.lineTo(gx + 3, gy + 8);
+      ctx.lineTo(gx, gy + 3);
+      ctx.closePath(); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      ctx.fillRect(gx + 2, gy + 1, 1, 1);
+    }
+  }
+  // Decorative mining cart tracks (only in dirt section)
+  for (const tr of cartTracks) {
+    const y = tr.row * TILE;
+    if (y + TILE < camY || y > camY + H) continue;
+    // rails
+    ctx.fillStyle = '#7a4a28';
+    ctx.fillRect(0, y + 12, cols * TILE, 2);
+    ctx.fillRect(0, y + 22, cols * TILE, 2);
+    // cross-ties
+    ctx.fillStyle = '#5a3a1c';
+    for (let cx = 0; cx < cols * TILE; cx += 22) {
+      ctx.fillRect(cx, y + 10, 6, 16);
+    }
+    // rust highlight
+    ctx.fillStyle = 'rgba(180,90,40,0.4)';
+    ctx.fillRect(0, y + 12, cols * TILE, 1);
+    ctx.fillRect(0, y + 22, cols * TILE, 1);
+  }
+  // Player-placed wooden beams (block cave-ins above)
+  for (const bm of beams) {
+    const y = bm.row * TILE;
+    if (y + TILE < camY || y > camY + H) continue;
+    ctx.fillStyle = '#8a5a2c';
+    ctx.fillRect(0, y - 2, cols * TILE, 7);
+    ctx.fillStyle = '#6a3a1c';
+    ctx.fillRect(0, y + 5, cols * TILE, 2);
+    // wood grain streaks
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    for (let cx = 6; cx < cols * TILE; cx += 18) ctx.fillRect(cx, y + 1, 1, 4);
+    // nails (yellow)
+    ctx.fillStyle = '#ffd23f';
+    ctx.fillRect(4, y + 1, 2, 2);
+    ctx.fillRect(cols * TILE - 6, y + 1, 2, 2);
+  }
+  // Falling cave-in blocks (animated dirt cube)
+  for (const b of caveInBlocks) {
+    ctx.fillStyle = '#6a3a1c';
+    ctx.fillRect(b.x - 14, b.y - 14, 28, 28);
+    ctx.fillStyle = '#4a2a0c';
+    ctx.fillRect(b.x - 14, b.y - 14, 28, 4);
+    ctx.fillRect(b.x - 14, b.y + 10, 28, 4);
+    // trailing dust
+    ctx.fillStyle = 'rgba(120,80,40,0.4)';
+    ctx.fillRect(b.x - 18, b.y - 22, 4, 6);
+    ctx.fillRect(b.x + 14, b.y - 22, 4, 6);
   }
 
   // Support beams on the side walls (decorative)
@@ -452,6 +674,16 @@ function render() {
   // grass tufts
   ctx.fillStyle = '#5ef38c';
   for (let gx = 8; gx < W; gx += 14) ctx.fillRect(gx, TILE - 2, 2, 4);
+  // Supervisor pug (walks back and forth on the surface) — high-detail
+  if (supervisor) {
+    const sy = TILE - 6;
+    const bob = Math.sin(supervisor.t * 6) * 1;
+    drawPug(ctx, supervisor.x, sy - 12 + bob, { size: 24, hat: true, hatColor: '#ffd23f' });
+    // clipboard
+    ctx.fillStyle = '#fff'; ctx.fillRect(supervisor.x - 2, sy - 2 + bob, 5, 6);
+    ctx.fillStyle = '#1a0d05'; ctx.fillRect(supervisor.x - 1, sy + bob, 3, 1);
+    ctx.fillRect(supervisor.x - 1, sy + 2 + bob, 3, 1);
+  }
 
   // Ambient + dig particles (in world space)
   for (const p of particles) {
@@ -509,11 +741,8 @@ function render() {
     ctx.globalAlpha = 1;
   }
 
-  // Pug
-  ctx.fillStyle = '#c8854a';
-  ctx.beginPath(); ctx.arc(pug.x, pug.y, 12, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#ffd23f'; // helmet
-  ctx.fillRect(pug.x - 12, pug.y - 14, 24, 4);
+  // Pug — high-detail digger with yellow hard hat
+  drawPug(ctx, pug.x, pug.y, { size: 30, hat: true, hatColor: '#ffd23f' });
   // helmet headlamp glow when underground
   if (pug.row > 2) {
     const lg = ctx.createRadialGradient(pug.x, pug.y - 8, 4, pug.x, pug.y - 8, 60);
@@ -522,8 +751,6 @@ function render() {
     ctx.fillStyle = lg;
     ctx.beginPath(); ctx.arc(pug.x, pug.y - 8, 60, 0, Math.PI * 2); ctx.fill();
   }
-  ctx.fillStyle = '#1a0d05';
-  ctx.fillRect(pug.x - 4, pug.y - 3, 2, 2); ctx.fillRect(pug.x + 2, pug.y - 3, 2, 2);
   ctx.restore();
 
   // CHEESE CAVERNS biome screen tint when player is deep
@@ -619,7 +846,7 @@ const _startOv = document.getElementById('overlay');
 if (_startOv) {
   const _showOnHide = () => {
     if (_startOv.classList.contains('is-hidden') || _startOv.hidden) {
-      showTip('WASD dig through dirt/stone · return to surface (top) to spend $', 6000);
+      showTip('WASD dig · B = place wooden beam (blocks cave-ins) · return to surface to spend $', 6500);
     }
   };
   new MutationObserver(_showOnHide).observe(_startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });
