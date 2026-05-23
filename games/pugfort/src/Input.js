@@ -18,13 +18,16 @@ export class Input {
     this._fiveJustPressed = false;
     this._sixJustPressed = false;
     this._sevenJustPressed = false;
+    this._eightJustPressed = false;
+    this._nineJustPressed = false;
+    this._zeroJustPressed = false;
     this._qJustPressed = false;
     this._eJustPressed = false;
     this._rJustPressed = false;
     this._escJustPressed = false;
 
     const onDown = (e) => {
-      if (['KeyW','KeyA','KeyS','KeyD','Space','KeyB','Digit1','Digit2','Digit3','Digit4','Digit5','Digit6','Digit7',
+      if (['KeyW','KeyA','KeyS','KeyD','Space','KeyB','Digit1','Digit2','Digit3','Digit4','Digit5','Digit6','Digit7','Digit8','Digit9','Digit0',
            'KeyR','KeyQ','KeyE','ShiftLeft','ShiftRight','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Escape'].includes(e.code)) {
         e.preventDefault();
       }
@@ -36,6 +39,9 @@ export class Input {
       if (e.code === 'Digit5' && !this.codes.has('Digit5')) this._fiveJustPressed = true;
       if (e.code === 'Digit6' && !this.codes.has('Digit6')) this._sixJustPressed = true;
       if (e.code === 'Digit7' && !this.codes.has('Digit7')) this._sevenJustPressed = true;
+      if (e.code === 'Digit8' && !this.codes.has('Digit8')) this._eightJustPressed = true;
+      if (e.code === 'Digit9' && !this.codes.has('Digit9')) this._nineJustPressed = true;
+      if (e.code === 'Digit0' && !this.codes.has('Digit0')) this._zeroJustPressed = true;
       if (e.code === 'KeyQ' && !this.codes.has('KeyQ')) this._qJustPressed = true;
       if (e.code === 'KeyE' && !this.codes.has('KeyE')) this._eJustPressed = true;
       if (e.code === 'KeyR' && !this.codes.has('KeyR')) this._rJustPressed = true;
@@ -111,6 +117,9 @@ export class Input {
   takeFivePress() { const v = this._fiveJustPressed; this._fiveJustPressed = false; return v; }
   takeSixPress() { const v = this._sixJustPressed; this._sixJustPressed = false; return v; }
   takeSevenPress() { const v = this._sevenJustPressed; this._sevenJustPressed = false; return v; }
+  takeEightPress() { const v = this._eightJustPressed; this._eightJustPressed = false; return v; }
+  takeNinePress()  { const v = this._nineJustPressed;  this._nineJustPressed  = false; return v; }
+  takeZeroPress()  { const v = this._zeroJustPressed;  this._zeroJustPressed  = false; return v; }
   takeQPress() { const v = this._qJustPressed; this._qJustPressed = false; return v; }
   takeEPress() { const v = this._eJustPressed; this._eJustPressed = false; return v; }
   takeRPress() { const v = this._rJustPressed; this._rJustPressed = false; return v; }
@@ -126,6 +135,9 @@ export class Input {
     this._fiveJustPressed = false;
     this._sixJustPressed = false;
     this._sevenJustPressed = false;
+    this._eightJustPressed = false;
+    this._nineJustPressed = false;
+    this._zeroJustPressed = false;
     this._qJustPressed = false;
     this._eJustPressed = false;
     this._rJustPressed = false;

@@ -90,7 +90,7 @@ export class Hud {
   }
 
   setBuildActive(active, id = null) {
-    const ids = ['wall','sandbag','spike','mine','turret','sniperTurret','repair'];
+    const ids = ['wall','sandbag','spike','mine','turret','sniperTurret','repair','acidTurret','genShield','flamethrower'];
     for (const sid of ids) {
       const el = document.getElementById(`slot-${sid}`);
       if (el) el.classList.remove('hud-slot--armed');
@@ -99,6 +99,21 @@ export class Hud {
     if (!active || !id) return;
     const armed = document.getElementById(`slot-${id}`);
     if (armed) armed.classList.add('hud-slot--armed');
+  }
+
+  // Toggle a locked-state class on a hotbar slot. Locked slots are dimmed and
+  // show a small padlock badge via CSS.
+  setSlotLocked(id, locked, reason = '') {
+    const el = document.getElementById(`slot-${id}`);
+    if (!el) return;
+    el.classList.toggle('hud-slot--locked', !!locked);
+    if (locked) {
+      el.title = reason || 'Locked';
+      el.dataset.lockReason = reason || 'Locked';
+    } else {
+      delete el.dataset.lockReason;
+      el.title = '';
+    }
   }
 
   toastMessage(text, kind = 'info') {

@@ -4,6 +4,12 @@ import { createSfx } from '../../src/shared/miniSfx.js';
 import { showTip } from '../../src/shared/tutorialTip.js';
 import { iconSvg } from '../../src/shared/icons.js';
 import { drawPug } from '../../src/shared/pugSprite.js';
+import { createMobileControls } from '../../src/shared/mobileControls.js';
+import { createSpeedToggle } from '../../src/shared/speedToggle.js';
+import { createKillFeed } from '../../src/shared/killFeed.js';
+
+// Cafe is click-only — shared module just adds a BACK chip + mute toggle.
+createMobileControls({ layout: 'single-tap', buttons: [] });
 
 // Helper: prefer pixel-art SVG icon when ingredient has an iconName; fall back to emoji string
 function _ingIcon(ing) {
@@ -240,6 +246,13 @@ const VISUAL_CSS = `
   50% { box-shadow: 0 0 28px rgba(255,58,58,0.7); } }
 .station .placemat { position: absolute; inset: auto 0 -6px 0; height: 4px;
   background: linear-gradient(90deg, transparent, var(--neon-cyan), transparent); opacity: 0.5; }
+/* Burnt-food order — once freshness > 5s, the order border pulses red. */
+.order.is-burnt { border-color: #ff3a3a !important;
+  animation: cafe-burnt-pulse 0.7s ease-in-out infinite; }
+@keyframes cafe-burnt-pulse {
+  0%, 100% { box-shadow: 0 0 0 rgba(255,58,58,0); }
+  50%      { box-shadow: 0 0 14px rgba(255,58,58,0.7); }
+}
 `;
 const _s = document.createElement('style'); _s.textContent = VISUAL_CSS; document.head.appendChild(_s);
 
@@ -451,14 +464,46 @@ function reset() {
   renderShopChips();
 }
 
+// Diner Dash table-color chain bonus: each new order is tagged with a color.
+// Two CONSECUTIVE orders (in spawn order) sharing the same color = "adjacent
+// same-colour customers" → +20% tip multiplier on the second (and on each
+// further chained-same-color order, scaling).
+const ORDER_COLORS = [
+  { id: 'fawn',     hex: '#c8854a', name: 'fawn' },
+  { id: 'silver',   hex: '#a89888', name: 'silver' },
+  { id: 'black',    hex: '#5a5a5a', name: 'black' },
+  { id: 'cream',    hex: '#eac888', name: 'cream' },
+  { id: 'white',    hex: '#fafaff', name: 'white' },
+  { id: 'choc',     hex: '#8a5a2a', name: 'choc' },
+];
 function spawnOrder() {
   const r = RECIPES[Math.floor(Math.random() * RECIPES.length)];
   const maxT = upgrades.patient ? 33 : 22;
+  // Pick a color. ~30% chance to match the *previous* order's color so chains
+  // form often enough to feel rewarding without trivialising the bonus.
+  let col;
+  if (orders.length > 0 && Math.random() < 0.3) {
+    col = orders[orders.length - 1].color;
+  } else {
+    col = ORDER_COLORS[Math.floor(Math.random() * ORDER_COLORS.length)];
+  }
+  // Chain length = how many in-a-row prior orders share this color.
+  let chainLen = 1;
+  for (let i = orders.length - 1; i >= 0; i--) {
+    if (orders[i].color && orders[i].color.id === col.id) chainLen++;
+    else break;
+  }
   orders.push({
     recipe: r,
     items: r.items.map((i) => ({ id: i, done: false })),
     time: maxT,
     maxTime: maxT,
+    color: col,
+    chainLen, // 1 = solo, 2 = +20% tip, 3 = +40%, etc.
+    // Burnt-food freshness — null until all ingredients arrive on the bench
+    // (i.e., the order is "plated"). Then ticks up: 0..5 perfect, 5..10
+    // burnt, >10 must-discard.
+    freshnessT: null,
   });
   renderOrders();
   updateChalkboard();
@@ -492,16 +537,46 @@ function renderOrders() {
     const k = o.time / o.maxTime;
     if (k < 0.3) cls += ' crit';
     else if (k < 0.6) cls += ' warn';
+    // Freshness state classes — burnt (5..10s) gets red border; the >10s
+    // discard transition is handled by tick() and never reaches the UI.
+    let burntPct = 0;
+    let stateLabel = '';
+    if (o.freshnessT != null) {
+      if (o.freshnessT > 5) {
+        cls += ' is-burnt';
+        burntPct = Math.min(1, (o.freshnessT - 5) / 5);
+        stateLabel = '🔥 BURNT';
+      } else {
+        stateLabel = '✨ FRESH';
+      }
+    }
     div.className = cls;
+    const chainBadge = o.chainLen > 1
+      ? `<span style="background:${o.color.hex};color:#0a0716;padding:1px 5px;border-radius:3px;font-size:0.32rem;letter-spacing:0.05em;margin-left:4px;text-shadow:none;">CHAIN ×${o.chainLen}</span>`
+      : '';
+    const colorDot = o.color
+      ? `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${o.color.hex};border:1px solid rgba(0,0,0,0.6);margin-right:4px;vertical-align:middle;"></span>`
+      : '';
+    // Pay preview includes chain bonus + burnt penalty so the player can see
+    // exactly what serving NOW would award.
+    let payShown = o.recipe.pay;
+    if (o.chainLen > 1) payShown = Math.round(payShown * (1 + (o.chainLen - 1) * 0.2));
+    if (o.freshnessT != null && o.freshnessT > 5) payShown = Math.round(payShown * (1 - burntPct * 0.5));
     div.innerHTML = `
-      <h4>${o.recipe.name}</h4>
+      <h4>${colorDot}${o.recipe.name}${chainBadge}</h4>
       <ul>${o.items.map((it) => {
         const ing = INGREDIENTS.find((g) => g.id === it.id);
         const iconHtml = ing.iconName && iconSvg[ing.iconName] ? iconSvg[ing.iconName](14) : ing.icon;
         return `<li class="${it.done ? 'done' : ''}"><span style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;">${iconHtml}</span><span>${ing.name}</span></li>`;
       }).join('')}</ul>
       <div class="order__timer"><div class="order__timer-fill" style="width:${k * 100}%;background:${k < 0.3 ? '#ff3a3a' : (k < 0.6 ? '#ffd23f' : '#5ef38c')}"></div></div>
-      <button class="serve-btn" data-idx="${i}" style="margin-top:6px;width:100%;">SERVE $${o.recipe.pay}</button>
+      ${o.freshnessT != null ? `
+        <div style="margin-top:3px;height:5px;background:rgba(0,0,0,0.6);border-radius:2px;overflow:hidden;">
+          <div style="height:100%;width:${Math.min(100, (o.freshnessT / 10) * 100)}%;background:${o.freshnessT > 5 ? '#ff3a3a' : '#ffd23f'};transition:width 0.1s linear;"></div>
+        </div>
+        <div style="font-size:0.34rem;color:${o.freshnessT > 5 ? '#ff8a8a' : '#ffd23f'};letter-spacing:0.05em;margin-top:1px;text-align:right;">${stateLabel}</div>
+      ` : ''}
+      <button class="serve-btn" data-idx="${i}" style="margin-top:6px;width:100%;">SERVE $${payShown}</button>
     `;
     el.appendChild(div);
   }
@@ -573,15 +648,40 @@ function serve(idx) {
   if (comboT > 0) comboCount++; else comboCount = 1;
   comboT = 5;
   const comboBonus = comboCount > 1 ? (comboCount - 1) * 5 : 0;
-  const pay = o.recipe.pay + comboBonus;
+  // Diner Dash CHAIN multiplier — +20% per chained same-color order beyond
+  // the first (so chainLen 2 = +20%, chainLen 3 = +40%, etc.)
+  const chainMult = o.chainLen && o.chainLen > 1 ? 1 + (o.chainLen - 1) * 0.2 : 1;
+  // BURNT penalty — once freshness > 5s, payout scales linearly down by up
+  // to 50% by the 10s mark. Below 5s = full price (and a quick "FRESH" tag).
+  let freshnessMult = 1;
+  let freshnessLabel = '';
+  if (o.freshnessT != null) {
+    if (o.freshnessT > 5) {
+      const burntK = Math.min(1, (o.freshnessT - 5) / 5);
+      freshnessMult = 1 - burntK * 0.5;
+      freshnessLabel = '🔥 BURNT';
+    } else {
+      // Tiny bonus for serving FAST after plating — keeps the timer meaningful.
+      freshnessLabel = '✨ FRESH';
+      freshnessMult = 1.05;
+    }
+  }
+  const pay = Math.round((o.recipe.pay + comboBonus) * chainMult * freshnessMult);
   money += pay;
   served++;
   orders.splice(idx, 1);
+  try {
+    const tag = comboCount > 1 ? ` x${comboCount}` : '';
+    const ch  = o.chainLen > 1 ? ` CHAIN×${o.chainLen}` : '';
+    const fr  = freshnessLabel ? ` ${freshnessLabel}` : '';
+    __cafeFeed && __cafeFeed.push(`SERVED · +$${pay}${tag}${ch}${fr}`, comboCount > 1 || o.chainLen > 1 ? '#ff3aa1' : '#5ef38c');
+  } catch (e) { /* */ }
   sfx.arp([523, 659, 784], 'triangle', 0.07, 0.22, 0.2);
   // Popup near the served order's button (approx center of orders bar)
   const ordersEl = document.getElementById('orders');
   const rect = ordersEl ? ordersEl.getBoundingClientRect() : { left: window.innerWidth / 2, top: 100, width: 0, height: 0 };
-  popup(rect.left + rect.width / 2, rect.top + rect.height / 2, `+$${pay}${comboCount > 1 ? ` x${comboCount}` : ''}`, comboCount > 1 ? '#ff3aa1' : '#5ef38c');
+  const popTag = (comboCount > 1 ? ` x${comboCount}` : '') + (o.chainLen > 1 ? ` CHAIN×${o.chainLen}` : '');
+  popup(rect.left + rect.width / 2, rect.top + rect.height / 2, `+$${pay}${popTag}`, o.chainLen > 1 ? '#ffd23f' : (comboCount > 1 ? '#ff3aa1' : '#5ef38c'));
   // Flash all kitchen chips when comboing
   if (comboCount > 1) {
     document.querySelectorAll('#kitchen .station').forEach((el, i) => setTimeout(() => flashChip(el), i * 20));
@@ -606,6 +706,45 @@ function tick(dt) {
   for (let i = orders.length - 1; i >= 0; i--) {
     const o = orders[i];
     o.time -= dt;
+    // ===== BURNT FOOD TIMER =====
+    // Once the bench has every ingredient the order needs (i.e., it's
+    // "plated/ready"), start the freshness clock. Player-served before 5s =
+    // bonus; 5..10s = burnt (smaller pay); past 10s = auto-discard + smoke
+    // alarm chime + lost life.
+    if (o.freshnessT == null) {
+      // Check whether bench supplies the recipe (multi-count safe).
+      const benchCopy = bench.slice();
+      let ok = true;
+      for (const n of o.recipe.items) {
+        const idx = benchCopy.indexOf(n);
+        if (idx === -1) { ok = false; break; }
+        benchCopy.splice(idx, 1);
+      }
+      if (ok) {
+        o.freshnessT = 0;
+        // Quick "plated" cue — small jingle so the player knows the freshness
+        // window has started.
+        sfx.tone(1320, 'triangle', 0.05, 0.16);
+        popup(window.innerWidth / 2, window.innerHeight / 2 - 80, '✨ PLATED', '#ffd23f');
+      }
+    } else {
+      o.freshnessT += dt;
+      if (o.freshnessT >= 10) {
+        // Smoke alarm + auto-discard + lost life
+        orders.splice(i, 1);
+        lives--;
+        // Quick "smoke alarm" — two-note alternating beep that reads as a real alarm.
+        sfx.tone(1760, 'square', 0.18, 0.28);
+        setTimeout(() => sfx.tone(1320, 'square', 0.18, 0.28), 180);
+        screenShake();
+        popup(window.innerWidth / 2, window.innerHeight / 3, '🔥 BURNT!', '#ff3a3a');
+        try { __cafeFeed && __cafeFeed.push(`★ BURNT — discarded`, '#ff3a3a'); } catch (e) { /* */ }
+        if (lives <= 0) return end();
+        updateHud();
+        updateChalkboard();
+        continue;
+      }
+    }
     if (o.time <= 0) {
       orders.splice(i, 1);
       lives--;
@@ -777,9 +916,17 @@ function start() {
   sfx.resume();
 }
 
+// Floating 1x/2x/3x speed toggle (top-right) + served-customer kill-feed.
+// Declared BEFORE the rAF loop so `__cafeFeed` is defined when serve() runs.
+let __cafeSpeed = 1;
+createSpeedToggle({ onChange: (m) => { __cafeSpeed = m; } });
+const __cafeFeed = createKillFeed({ maxLines: 5, lifespan: 4500 });
+
 let lastT = performance.now();
 (function loop(now) {
-  const dt = Math.min((now - lastT) / 1000, 0.05);
+  // Multiplying dt scales spawn rate, order patience drain, event timer AND
+  // combo-decay — i.e. the whole game's pace, not just patience.
+  const dt = Math.min((now - lastT) / 1000, 0.05) * __cafeSpeed;
   lastT = now; tick(dt);
   requestAnimationFrame(loop);
 })(performance.now());

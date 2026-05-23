@@ -21,6 +21,7 @@
   <div class="overlay__tag">HORROR · STEALTH</div>
   <h1 class="overlay__title">THE BACKROOMS OF PUG</h1>
   <p class="overlay__sub">You noclipped out of reality into a labyrinth of damp yellow rooms. The fluorescent hum never stops. Find 5 cans, reach the EXIT, and survive each new layer.</p>
+  <p id="start-notes" class="overlay__sub" style="color:var(--neon-yellow);font-size:0.55rem;opacity:0.85;">Notes recovered: <b>0/30</b></p>
   <ul class="overlay__controls">
     <li><b>WASD</b> walk · <b>SHIFT</b> sneak · <b>B</b> toggle flashlight · <b>F</b> smoke</li>
     <li>Stay <b>lit</b> to keep your sanity · stand on furniture to <b>HIDE</b></li>
@@ -37,6 +38,7 @@
   <div class="hud-row hud-row--small"><b>SMOKE</b> <span id="hud-smoke">× 0</span></div>
   <div class="hud-row hud-row--small"><b>DEPTH</b> <span id="hud-depth">Level 1</span></div>
   <div class="hud-row hud-row--small"><b>BEST</b> <span id="hud-best">0</span></div>
+  <div class="hud-row hud-row--small"><b>NOTES</b> <span id="hud-notes">0/30</span></div>
   <div class="arch-tag" id="hud-arch">THE LOBBY</div>
 </div></div>
 <div id="end-overlay" class="overlay is-hidden" hidden><div class="overlay__panel">
@@ -45,6 +47,8 @@
   <ul class="end-stats">
     <li>Level reached: <b id="end-level">1</b></li>
     <li>Cans collected: <b id="end-cans">0</b></li>
+    <li>Noclips chained: <b id="end-chains">0</b></li>
+    <li>Notes found: <b id="end-notes">0/30</b></li>
     <li id="end-best">Best: <b>—</b></li>
   </ul>
   <button id="end-restart" class="overlay__btn">REENTER</button>

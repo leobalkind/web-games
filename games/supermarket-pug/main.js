@@ -6,6 +6,8 @@ import { createSfx } from '../../src/shared/miniSfx.js';
 import { showTip } from '../../src/shared/tutorialTip.js';
 import { drawIcon } from '../../src/shared/icons.js';
 import { drawPug } from '../../src/shared/pugSprite.js';
+import { createMobileControls } from '../../src/shared/mobileControls.js';
+import { showGradeCard } from '../../src/shared/gradeCard.js';
 
 // --- Custom item icons for ones not in the shared library ---------------------
 // Chicken drumstick — beige leg + brown bone tip
@@ -86,6 +88,25 @@ const ITEMS = [
 
 let pug, inCart, shelves, items, guards, exitZ, haul, bag, maxBag, heat, shelvesKnocked, running;
 let popups, aisles, lights, cameras, decorCarts, pallets, sceneRows, sceneCols, sceneGx, sceneGy;
+// Goose-Game-style per-run checklist: 3 picked from pool, tick off live. Each
+// objective is { id, label, check(state) } where check returns true once met.
+const OBJECTIVE_POOL = [
+  { id: 'chicken', label: 'Steal a chicken',   check: (s) => s.namesTaken.has('chicken') },
+  { id: 'steak',   label: 'Steal a steak',     check: (s) => s.namesTaken.has('steak') },
+  { id: 'bone',    label: 'Steal the bone',    check: (s) => s.namesTaken.has('bone') },
+  { id: 'donut',   label: 'Snatch a donut',    check: (s) => s.namesTaken.has('donut') },
+  { id: 'pizza',   label: 'Slice a pizza',     check: (s) => s.namesTaken.has('pizza') },
+  { id: 'knock3',  label: 'Knock over 3 shelves', check: (s) => s.shelvesKnocked >= 3 },
+  { id: 'knock5',  label: 'Knock over 5 shelves', check: (s) => s.shelvesKnocked >= 5 },
+  { id: 'cash50',  label: 'Escape with $50+',  check: (s) => s.escaped && s.haul >= 50, finalOnly: true },
+  { id: 'cash150', label: 'Escape with $150+', check: (s) => s.escaped && s.haul >= 150, finalOnly: true },
+  { id: 'bagFull', label: 'Fill your bag (8)', check: (s) => s.bag >= s.maxBag },
+  { id: 'undetected', label: 'Escape never spotted', check: (s) => s.escaped && !s.everSpotted, finalOnly: true },
+];
+let objectives = [];     // [{id,label,check,done}] — 3 per run
+let everSpotted = false; // tracked for stealth objective
+// Guard reactive barks — speech bubble above guard when player is freshly spotted
+const BARK_LINES = ['HEY!', 'STOP!', 'THIEF!', 'GET BACK HERE!'];
 // BLACK MARKET MID-RUN BRIBES — one-time-per-run buys spent from haul.
 const BRIBE_DEFS = [
   { id: 'guardBreak',  cost: 80,  name: 'GUARD BREAK',  icon: '💤', desc: 'Both guards freeze for 10 seconds' },
@@ -199,7 +220,44 @@ function reset() {
   guardFreezeT = 0;
   cameraBlinkT = 0;
   highlightedItem = null;
+  // Roll 3 random objectives (no duplicates) from the pool for this run.
+  objectives = [];
+  const pool = OBJECTIVE_POOL.slice();
+  for (let i = 0; i < 3 && pool.length; i++) {
+    const k = Math.floor(Math.random() * pool.length);
+    objectives.push({ ...pool.splice(k, 1)[0], done: false });
+  }
+  everSpotted = false;
+  renderObjectivesPanel();
   renderBribeChips();
+}
+
+// Build a snapshot of the player state for objective checking
+function _objectiveState(opts) {
+  const namesTaken = new Set();
+  for (const it of items) if (it.taken) namesTaken.add(it.item.name);
+  return {
+    namesTaken, shelvesKnocked,
+    haul, bag, maxBag,
+    escaped: !!(opts && opts.escaped),
+    everSpotted,
+  };
+}
+// Re-evaluate objectives; tick newly-met ones with a popup + sfx.
+function checkObjectives(opts) {
+  if (!objectives || !objectives.length) return;
+  const state = _objectiveState(opts);
+  let changed = false;
+  for (const o of objectives) {
+    if (o.done) continue;
+    if (o.finalOnly && !state.escaped) continue;
+    if (o.check(state)) {
+      o.done = true; changed = true;
+      sfx.arp([523, 784, 1047], 'triangle', 0.05, 0.18, 0.12);
+      popup(pug.x, pug.y - 30, '✓ ' + o.label.toUpperCase(), '#ffd23f');
+    }
+  }
+  if (changed) renderObjectivesPanel();
 }
 
 const keys = new Set();
@@ -212,6 +270,17 @@ window.addEventListener('keydown', (e) => {
 window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 document.getElementById('cart-btn').addEventListener('click', toggleCart);
 if ('ontouchstart' in window) document.getElementById('cart-btn').style.display = 'block';
+// Universal mobile controls — joystick + GRAB/RAM/CART buttons
+createMobileControls({
+  layout: 'wasd-only',
+  keys,
+  buttons: [
+    { id: 'grab', label: 'GRAB', key: 'E' },
+    { id: 'ram',  label: 'RAM',  key: 'Space' },
+    { id: 'cart', label: 'CART', key: 'C' },
+  ],
+  getCanvas: () => canvas,
+});
 let touchAt = null;
 canvas.addEventListener('touchstart', (e) => { touchAt = e.touches[0]; grabNear(); e.preventDefault(); }, { passive: false });
 canvas.addEventListener('touchmove', (e) => { touchAt = e.touches[0]; e.preventDefault(); }, { passive: false });
@@ -229,6 +298,7 @@ function grabNear() {
         haul += it.item.val;
         popup(it.x, it.y - 10, '+$' + it.item.val);
         sfx.tone(880, 'triangle', 0.07, 0.18);
+        checkObjectives();
         return;
       } else {
         popup(pug.x, pug.y - 24, 'BAG FULL', '#ff3a3a');
@@ -259,6 +329,7 @@ function ram() {
         shelves = shelves.filter((x) => x !== s);
         sfx.tone(110, 'square', 0.2, 0.24);
         shake(6, 0.22);
+        checkObjectives();
       } else {
         shake(2, 0.1);
       }
@@ -363,7 +434,17 @@ function tick(dt) {
     }
     const sees = d < 200 && Math.abs(diff) < 0.5;
     // CAMERA BLINK suppresses sight-based heat gain too
-    if (sees) { g.alertT = 3; if (cameraBlinkT <= 0) heat = Math.min(1, heat + 0.4 * dt); }
+    if (sees) {
+      // Rising-edge: guard newly spots player → bark + speech bubble (1.2s).
+      if ((g.alertT || 0) <= 0 && cameraBlinkT <= 0) {
+        const line = BARK_LINES[Math.floor(Math.random() * BARK_LINES.length)];
+        g.bark = { text: line, t: 0, life: 1.2 };
+        sfx.tone(660, 'square', 0.06, 0.14);
+        everSpotted = true;
+      }
+      g.alertT = 3;
+      if (cameraBlinkT <= 0) heat = Math.min(1, heat + 0.4 * dt);
+    }
     if (heat > 0.7) g.alertT = Math.max(g.alertT, 1.5);
     if (alarm.on) g.alertT = 5; // always know
     if (g.alertT > 0) {
@@ -644,6 +725,46 @@ function render() {
       ctx.fillStyle = '#ff3a3a'; ctx.font = "16px sans-serif"; ctx.textAlign = 'center';
       ctx.fillText('!', g.x, g.y - 28);
     }
+    // Speech bubble bark — white rounded rect with red text above the guard
+    if (g.bark) {
+      g.bark.t += (1 / 60); // approx — render runs ~60Hz; bark fades on its own life
+      if (g.bark.t >= g.bark.life) { g.bark = null; }
+      else {
+        const txt = g.bark.text;
+        ctx.font = "bold 9px 'Press Start 2P', monospace";
+        ctx.textAlign = 'center';
+        const tw = ctx.measureText(txt).width;
+        const bx = g.x - tw / 2 - 6, by = g.y - 50, bw = tw + 12, bh = 16;
+        const alpha = g.bark.t < 0.15
+          ? g.bark.t / 0.15
+          : (g.bark.t > g.bark.life - 0.25 ? Math.max(0, (g.bark.life - g.bark.t) / 0.25) : 1);
+        ctx.globalAlpha = alpha;
+        // rounded rect
+        ctx.fillStyle = '#fff';
+        const rr = 4;
+        ctx.beginPath();
+        ctx.moveTo(bx + rr, by);
+        ctx.lineTo(bx + bw - rr, by);
+        ctx.quadraticCurveTo(bx + bw, by, bx + bw, by + rr);
+        ctx.lineTo(bx + bw, by + bh - rr);
+        ctx.quadraticCurveTo(bx + bw, by + bh, bx + bw - rr, by + bh);
+        ctx.lineTo(bx + rr, by + bh);
+        ctx.quadraticCurveTo(bx, by + bh, bx, by + bh - rr);
+        ctx.lineTo(bx, by + rr);
+        ctx.quadraticCurveTo(bx, by, bx + rr, by);
+        ctx.closePath(); ctx.fill();
+        // tail
+        ctx.beginPath();
+        ctx.moveTo(g.x - 4, by + bh);
+        ctx.lineTo(g.x + 4, by + bh);
+        ctx.lineTo(g.x, by + bh + 6);
+        ctx.closePath(); ctx.fill();
+        // text
+        ctx.fillStyle = '#c81e1e';
+        ctx.fillText(txt, g.x, by + 11);
+        ctx.globalAlpha = 1;
+      }
+    }
   }
   // Pug (and cart if active) — use the same cart art for consistency
   if (inCart) drawCart(pug.x, pug.y + 4, 0);
@@ -801,6 +922,8 @@ function updateHud() {
 
 function caught() { shake(8, 0.3); end(false); }
 function end(escaped) {
+  // Final-only objectives (cash thresholds, no-spot escape) get one last evaluation.
+  checkObjectives({ escaped });
   running = false;
   sfx.sweep(escaped ? 880 : 220, escaped ? 1320 : 80, escaped ? 'triangle' : 'sawtooth', 0.5, 0.25);
   document.getElementById('end-title').textContent = escaped ? (alarm.escaped ? 'CLOSE CALL!' : 'CLEAN GETAWAY') : 'CAUGHT';
@@ -819,6 +942,28 @@ function end(escaped) {
   document.getElementById('hud').hidden = true;
   document.getElementById('end-overlay').hidden = false;
   document.getElementById('end-overlay').classList.remove('is-hidden');
+  // S/A/B/C/D grade card — layered ABOVE the existing end-overlay buttons.
+  // Weighted: haul (50%) + escape (30%) + low-heat (20%).
+  try {
+    const haulPct  = Math.max(0, Math.min(100, (haul / 600) * 100));
+    const escapePct = escaped ? 100 : 0;
+    const heatPct  = Math.max(0, Math.min(100, (1 - heat) * 100));
+    showGradeCard({
+      title: escaped ? (alarm.escaped ? 'CLOSE CALL!' : 'CLEAN GETAWAY') : 'CAUGHT',
+      subtitle: escaped ? `Final haul: $${haul}` : 'Security took everything.',
+      stats: [
+        { label: 'Haul',    value: haulPct,   weight: 0.5 },
+        { label: 'Escape',  value: escapePct, weight: 0.3 },
+        { label: 'Low Heat', value: heatPct,  weight: 0.2 },
+      ],
+      breakdown: [
+        { label: 'Cash haul ($)',    value: haul,            max: 600 },
+        { label: 'Shelves knocked',  value: shelvesKnocked,  max: 12 },
+        { label: 'Heat',             value: Math.round((1 - heat) * 100), max: 100 },
+      ],
+      onRestart: () => start(),
+    });
+  } catch (e) { /* */ }
 }
 
 document.getElementById('start-btn').addEventListener('click', start);
@@ -1015,6 +1160,49 @@ window.addEventListener('keydown', (e) => {
     if (bribeOpen) closeBribe(); else if (running) openBribe();
   }
 });
+
+// ===== OBJECTIVES PANEL (Goose-Game checklist, top-left) =====
+const _objCss = `
+.mart-objectives { position: fixed; top: 70px; left: 12px; z-index: 60;
+  background: rgba(10,7,22,0.78); border: 2px solid rgba(94,243,140,0.45);
+  border-radius: 6px; padding: 8px 10px 8px 10px; min-width: 180px; max-width: 240px;
+  font-family: var(--font-display); font-size: 0.42rem; letter-spacing: 0.04em;
+  box-shadow: 0 4px 0 rgba(0,0,0,0.4); pointer-events: none; }
+.mart-objectives__title { color: var(--neon-yellow); font-size: 0.5rem;
+  text-shadow: 0 0 6px var(--neon-yellow); margin-bottom: 6px; }
+.mart-objectives__row { display: flex; gap: 6px; align-items: center;
+  padding: 2px 0; color: var(--text); }
+.mart-objectives__row.done { color: var(--neon-green); text-decoration: line-through;
+  text-shadow: 0 0 4px var(--neon-green); }
+.mart-objectives__box { width: 10px; height: 10px; border: 1px solid currentColor;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 9px; line-height: 9px; flex-shrink: 0; }
+`;
+const _objStyle = document.createElement('style'); _objStyle.textContent = _objCss;
+document.head.appendChild(_objStyle);
+const _objPanel = document.createElement('div');
+_objPanel.className = 'mart-objectives';
+_objPanel.id = 'mart-objectives';
+_objPanel.style.display = 'none';
+document.body.appendChild(_objPanel);
+function renderObjectivesPanel() {
+  if (!_objPanel) return;
+  if (!objectives || objectives.length === 0) { _objPanel.style.display = 'none'; return; }
+  _objPanel.style.display = 'block';
+  let html = '<div class="mart-objectives__title">TODAY\'S MISSION</div>';
+  for (const o of objectives) {
+    html += `<div class="mart-objectives__row${o.done ? ' done' : ''}">`
+      + `<span class="mart-objectives__box">${o.done ? '✓' : ''}</span>`
+      + `<span>${o.label}</span></div>`;
+  }
+  _objPanel.innerHTML = html;
+}
+// Hide objectives panel when run ends (visible only while in-game)
+const _objVisLoop = () => {
+  if (_objPanel) _objPanel.style.display = (running && objectives && objectives.length) ? 'block' : 'none';
+  requestAnimationFrame(_objVisLoop);
+};
+_objVisLoop();
 
 // Tutorial tip — shows briefly when the game starts (every match)
 const _startOv = document.getElementById('overlay');

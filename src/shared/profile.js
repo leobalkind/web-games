@@ -195,3 +195,37 @@ export function activeLabel() {
   const p = getActive();
   return p ? p.name : 'GUEST';
 }
+
+// Derive a stable accent color for a profile id (HSL hue). Used by the chip
+// avatar dot, login tiles, and any UI that wants a per-profile tint.
+export function profileColor(id) {
+  if (!id) return '#8a90b1';
+  let h = 0;
+  for (let i = 0; i < id.length; i++) {
+    h = ((h << 5) - h) + id.charCodeAt(i);
+    h |= 0;
+  }
+  const hue = Math.abs(h) % 360;
+  return `hsl(${hue}, 78%, 62%)`;
+}
+
+// Initials (1–2 chars) for avatar fallback.
+export function profileInitials(name) {
+  if (!name) return '?';
+  const parts = String(name).trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[1][0]).toUpperCase();
+}
+
+// Count games played (anything stored under wg:p:<id>:hs:*) for a profile.
+// Returns 0 for guest mode (no id).
+export function profileGamesPlayed(id) {
+  if (!id) return 0;
+  const prefix = 'wg:p:' + id + ':hs:';
+  let n = 0;
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.startsWith(prefix)) n++;
+  }
+  return n;
+}

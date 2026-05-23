@@ -4,6 +4,8 @@ import { createSfx } from '../../src/shared/miniSfx.js';
 import { showTip } from '../../src/shared/tutorialTip.js';
 import { drawIcon } from '../../src/shared/icons.js';
 import { drawPug } from '../../src/shared/pugSprite.js';
+import { createMobileControls } from '../../src/shared/mobileControls.js';
+import { showGradeCard } from '../../src/shared/gradeCard.js';
 
 // --- Custom plush toy icon (library has no plushie) ---------------------------
 function drawPlushToy(ctx, x, y, size) {
@@ -89,6 +91,40 @@ const MAX_BEAMS = 5;
 let beamsLeft = MAX_BEAMS;
 let caveInT = 0;           // timer until next cave-in event
 let caveInBlocks = [];     // {x, y, vy, life, hit} animated falling block
+// Spelunky-style cracked walls (5% of solid tiles) — digging through reveals a
+// bonus chamber with an extra loot or a stam-restoring "heart" tile.
+const CRACK_CHANCE = 0.05;
+let crackedSet = null; // Set<"r,c"> for fast lookup; null when uninitialized
+function isCracked(r, c) { return crackedSet && crackedSet.has(r + ',' + c); }
+function unmarkCracked(r, c) { if (crackedSet) crackedSet.delete(r + ',' + c); }
+// Downwell-style dig combo meter — increments per consecutive dig within 1.5s
+// of the previous; resets on damage or idle. Milestones at x5/x10/x20 drop
+// bonus loot at the player's tile.
+const COMBO_WINDOW = 1.5;
+let combo = 0;
+let comboTimer = 0;     // seconds since last dig; resets combo when > COMBO_WINDOW
+let comboBannerT = 0;   // big banner pop on milestone
+let comboBannerText = '';
+const COMBO_MILESTONES = new Set([5, 10, 20]);
+function resetCombo() { combo = 0; comboTimer = 0; }
+function bumpCombo(worldX, worldY) {
+  // If too long since last dig, restart at 1; else increment
+  if (comboTimer > COMBO_WINDOW) combo = 1;
+  else combo += 1;
+  comboTimer = 0;
+  if (COMBO_MILESTONES.has(combo)) {
+    // Bonus loot: scale value with milestone (5→25, 10→60, 20→150)
+    const valByCombo = { 5: 25, 10: 60, 20: 150 };
+    const v = valByCombo[combo] || 0;
+    money += v; lastPickup += v;
+    popup(worldX, worldY - 18, '×' + combo + ' BONUS +$' + v, '#ffd23f');
+    comboBannerText = 'COMBO ×' + combo + '!';
+    comboBannerT = 1.4;
+    sfx.tone(880, 'triangle', 0.12, 0.22);
+    sfx.tone(1320, 'triangle', 0.1, 0.18);
+    shake(4, 0.18);
+  }
+}
 function shake(amp, dur) { shakeAmp = Math.max(shakeAmp, amp); shakeT = Math.max(shakeT, dur); }
 function popup(x, y, text, color) {
   if (popups.length > 24) popups.shift();
@@ -184,6 +220,18 @@ function reset() {
   biomeBannerT = 0; biomeBannerText = ''; cheeseBiomeEntered = false;
   beams = []; beamsLeft = MAX_BEAMS;
   caveInT = 30; caveInBlocks = [];
+  // Roll cracked walls: 5% of all dirt/stone tiles. Excludes loot tiles + air
+  // so crack overlays only ever render on solid wall tiles.
+  crackedSet = new Set();
+  for (let r = 2; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const t = grid[r][c];
+      if ((t === 'dirt' || t === 'stone') && Math.random() < CRACK_CHANCE) {
+        crackedSet.add(r + ',' + c);
+      }
+    }
+  }
+  resetCombo(); comboBannerT = 0; comboBannerText = '';
   // Pre-place decorative support beams every ~5 rows along the side walls
   for (let r = 5; r < rows; r += 5) {
     supports.push({ row: r, col: 0 });
@@ -249,6 +297,15 @@ if (beamBtnEl) {
   beamBtnEl.addEventListener('click', placeBeam);
   if ('ontouchstart' in window) beamBtnEl.style.display = 'block';
 }
+// Universal mobile controls — D-pad to move grid + BEAM action button. Tile
+// movement reads `keys` which is mutated by synth keydown/keyup events.
+createMobileControls({
+  layout: 'dpad-buttons',
+  keys,
+  buttons: [
+    { id: 'beam', label: 'BEAM', key: 'B' },
+  ],
+});
 let touchAt = null;
 canvas.addEventListener('touchstart', (e) => { touchAt = e.touches[0]; e.preventDefault(); }, { passive: false });
 canvas.addEventListener('touchmove', (e) => { touchAt = e.touches[0]; e.preventDefault(); }, { passive: false });
@@ -295,12 +352,44 @@ function tryMove(dc, dr) {
     if (stam < cost) return;
     stam -= cost;
     grid[nr][nc] = 'air';
+    // CRACKED wall reveal — opens a 3-wide x 2-tall bonus chamber around the
+    // broken tile and seeds 1 guaranteed loot tile inside (gem or biscuit).
+    if (isCracked(nr, nc)) {
+      unmarkCracked(nr, nc);
+      const lootChoices = ['gem', 'gem', 'biscuit', 'gold'];
+      const seeded = lootChoices[Math.floor(Math.random() * lootChoices.length)];
+      let placedLoot = false;
+      for (let rr = nr - 1; rr <= nr + 1; rr++) {
+        for (let cc = nc - 1; cc <= nc + 1; cc++) {
+          if (rr < 2 || rr >= rows || cc < 0 || cc >= cols) continue;
+          if (rr === nr && cc === nc) continue;
+          const cur = grid[rr][cc];
+          if (cur === 'air') continue;
+          // First slot becomes the loot; rest become air (the chamber)
+          if (!placedLoot && cur !== 'cheese') {
+            grid[rr][cc] = seeded;
+            placedLoot = true;
+          } else {
+            grid[rr][cc] = 'air';
+          }
+          // Strip any crack on cells we opened/changed
+          unmarkCracked(rr, cc);
+        }
+      }
+      popup(tileX, tileY - 20, '☆ BONUS ROOM ☆', '#ffd23f');
+      shake(5, 0.25);
+      sfx.arp([523, 659, 784, 1047], 'triangle', 0.06, 0.2, 0.12);
+      spawnDust(tileX, tileY, '#ffd23f', 14);
+    }
     pug.col = nc; pug.row = nr;
     syncXY();
     drillCd = MOVE_COOLDOWN / drillSpeed;
     // shake more for deep / stone / cheese
     const deep = nr / rows;
     if (t === 'stone' || t === 'cheese' || deep > 0.5) shake(2 + deep * 4, 0.18);
+    // Downwell combo: any successful dig (loot picked OR wall broken) counts.
+    // Walking through pre-existing air does NOT.
+    bumpCombo(pug.x, pug.y);
   }
   if (pug.row > depth) depth = pug.row;
   // First entry into Cheese Caverns — banner + celebration shake
@@ -360,6 +449,12 @@ function tick(dt) {
   if (!running) return;
   drillCd = Math.max(0, drillCd - dt);
   moveT += dt;
+  // Combo idle decay — when no dig within COMBO_WINDOW seconds, reset.
+  if (combo > 0) {
+    comboTimer += dt;
+    if (comboTimer > COMBO_WINDOW) resetCombo();
+  }
+  if (comboBannerT > 0) comboBannerT = Math.max(0, comboBannerT - dt);
   // particles
   for (let i = particles.length - 1; i >= 0; i--) {
     const p = particles[i];
@@ -435,6 +530,8 @@ function tick(dt) {
         popup(pug.x, pug.y - 26, 'CRUSH! -25%', '#ff3a3a');
         shake(7, 0.35);
         sfx.tone(110, 'sawtooth', 0.2, 0.22);
+        // Combo break on damage (Downwell rule)
+        resetCombo();
         if (stam <= 0) { setTimeout(end, 50); }
       } else if (b.blocked) {
         popup(b.x, stopY - 14, 'BLOCKED!', '#5ef38c');
@@ -553,6 +650,29 @@ function render() {
           ctx.fillStyle = 'rgba(0,0,0,0.18)';
           ctx.fillRect(x + 8, y + 12, 2, 2);
           ctx.fillRect(x + 24, y + 22, 2, 2);
+        }
+        // CRACKED wall overlay — bright lightning-bolt crack with a faint
+        // pulse glow. Tells the player "dig me for a bonus room!".
+        if (isCracked(r, c)) {
+          const pulse = 0.6 + 0.4 * Math.sin(performance.now() * 0.004 + r + c);
+          ctx.save();
+          ctx.strokeStyle = `rgba(255,210,63,${0.55 + pulse * 0.35})`;
+          ctx.lineWidth = 2;
+          ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 4 + pulse * 4;
+          ctx.beginPath();
+          ctx.moveTo(x + 6,  y + 4);
+          ctx.lineTo(x + 14, y + 14);
+          ctx.lineTo(x + 10, y + 18);
+          ctx.lineTo(x + 22, y + 28);
+          ctx.lineTo(x + 30, y + 22);
+          ctx.stroke();
+          // small forked branch
+          ctx.beginPath();
+          ctx.moveTo(x + 14, y + 14);
+          ctx.lineTo(x + 24, y + 12);
+          ctx.stroke();
+          ctx.shadowBlur = 0;
+          ctx.restore();
         }
         // wall decor overlay (broken pickaxe / skeleton remains)
         const deco = wallDecor[r] && wallDecor[r][c];
@@ -776,6 +896,51 @@ function render() {
     ctx.globalAlpha = 1;
   }
 
+  // DIG COMBO meter (top-center) — Downwell-style. Shows current chain and
+  // the next milestone, with a fade-in timer bar that shrinks until reset.
+  if (combo > 0) {
+    const tBar = Math.max(0, 1 - (comboTimer / COMBO_WINDOW));
+    const cx = W / 2;
+    const cy = 56;
+    const mileStones = [5, 10, 20];
+    const next = mileStones.find((m) => m > combo) || null;
+    const txt = 'DIG COMBO ×' + combo;
+    ctx.save();
+    ctx.font = "bold 14px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    const tw = Math.max(160, ctx.measureText(txt).width + 36);
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(cx - tw / 2, cy - 18, tw, 32);
+    // milestone bar
+    ctx.fillStyle = 'rgba(94,243,140,0.18)';
+    ctx.fillRect(cx - tw / 2 + 4, cy + 6, tw - 8, 6);
+    ctx.fillStyle = '#5ef38c';
+    ctx.fillRect(cx - tw / 2 + 4, cy + 6, (tw - 8) * tBar, 6);
+    // big combo label
+    ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 8;
+    ctx.fillStyle = '#ffd23f';
+    ctx.fillText(txt, cx, cy);
+    ctx.shadowBlur = 0;
+    if (next) {
+      ctx.font = "7px 'Press Start 2P', monospace";
+      ctx.fillStyle = '#fff';
+      ctx.fillText('NEXT MILESTONE ×' + next, cx, cy + 22);
+    }
+    ctx.restore();
+  }
+  // COMBO MILESTONE banner — flashes briefly on x5/x10/x20.
+  if (comboBannerT > 0) {
+    const a = Math.min(1, comboBannerT / 0.4);
+    ctx.save();
+    ctx.globalAlpha = a;
+    ctx.font = "bold 26px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.lineWidth = 5; ctx.strokeStyle = '#1a0d05';
+    ctx.strokeText(comboBannerText, W / 2, H * 0.42);
+    ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 16;
+    ctx.fillStyle = '#ffd23f';
+    ctx.fillText(comboBannerText, W / 2, H * 0.42);
+    ctx.shadowBlur = 0;
+    ctx.restore();
+  }
   // Depth indicator (right side) — pulses on low stam
   const lowStam = stam / maxStam < 0.25;
   const stamPulse = lowStam ? (0.6 + 0.4 * Math.sin(performance.now() * 0.014)) : 1;
@@ -822,6 +987,24 @@ function end() {
   document.getElementById('upgrades').style.display = 'none';
   document.getElementById('end-overlay').hidden = false;
   document.getElementById('end-overlay').classList.remove('is-hidden');
+  // S/A/B/C/D grade card — supplements existing end-overlay.
+  try {
+    const depthPct = Math.max(0, Math.min(100, (depth / (rows || 80)) * 100));
+    const moneyPct = Math.max(0, Math.min(100, (money / 1000) * 100));
+    showGradeCard({
+      title: 'EXPEDITION END',
+      subtitle: `Dug to depth ${depth} · $${money} earned`,
+      stats: [
+        { label: 'Depth', value: depthPct, weight: 0.5 },
+        { label: 'Loot',  value: moneyPct, weight: 0.5 },
+      ],
+      breakdown: [
+        { label: 'Depth reached', value: depth,         max: rows || 80 },
+        { label: 'Cash ($)',      value: money,         max: 1000 },
+      ],
+      onRestart: () => start(),
+    });
+  } catch (e) { /* */ }
 }
 
 document.getElementById('start-btn').addEventListener('click', start);

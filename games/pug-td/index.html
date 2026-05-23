@@ -15,6 +15,22 @@
 .tw-pick__cost { color: var(--neon-yellow); font-size: 0.42rem; }
 #td-wave-btn { background: linear-gradient(180deg, var(--neon-green), #3aa860); color: #0a1018; border: 3px solid #9ef0b0; padding: 8px 14px; font-family: var(--font-display); font-size: 0.55rem; cursor: pointer; border-radius: 6px; box-shadow: 0 4px 0 #1a5a30; align-self: center; }
 #td-wave-btn:hover { transform: translateY(-2px); }
+/* Kingdom-Rush-style "Call next wave early" floating button. Lives above the
+ * bottom bar and is only visible during the calm between waves. Bonus text
+ * updates in the main loop. */
+#td-call-wave { position: fixed; left: 50%; bottom: calc(140px + env(safe-area-inset-bottom, 0)); transform: translateX(-50%); background: linear-gradient(180deg, #ffd23f, #c19314); color: #2a1d00; border: 3px solid #ffe88a; padding: 8px 16px; font-family: var(--font-display); font-size: 0.6rem; letter-spacing: 0.05em; cursor: pointer; border-radius: 8px; box-shadow: 0 4px 0 #5a4200, 0 0 18px rgba(255,210,63,0.55); z-index: 65; animation: tdCallPulse 1.4s ease-in-out infinite; -webkit-tap-highlight-color: transparent; }
+#td-call-wave[hidden] { display: none; }
+#td-call-wave:hover { transform: translateX(-50%) translateY(-2px); }
+#td-call-wave .td-call-bonus { color: #5a3400; font-weight: bold; }
+@keyframes tdCallPulse { 0%, 100% { box-shadow: 0 4px 0 #5a4200, 0 0 18px rgba(255,210,63,0.55); } 50% { box-shadow: 0 4px 0 #5a4200, 0 0 26px rgba(255,210,63,0.9); } }
+/* Upgrade-preview deltas inside the existing tower-popup: each preview row
+ * shows current → next value in a smaller, dimmer style. */
+#tower-popup .row.row--preview { color: var(--neon-cyan); font-size: 0.45rem; }
+#tower-popup .row.row--preview b { color: var(--neon-cyan); }
+#tower-popup .row.row--preview .delta { color: var(--neon-green); margin-left: 4px; }
+#tower-popup .upgrade-preview { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--border); }
+#tower-popup .upgrade-preview .row { font-size: 0.45rem; padding: 1px 0; }
+#tower-popup .upgrade-preview .row .delta { color: var(--neon-green); }
 #tower-popup { position: fixed; top: 80px; left: 50%; transform: translateX(-50%); background: rgba(10,7,22,0.95); border: 2px solid var(--neon-yellow); border-radius: 8px; padding: 10px 12px; z-index: 70; display: none; min-width: 200px; }
 #tower-popup .row { display: flex; gap: 8px; justify-content: space-between; font-size: 0.5rem; color: var(--text-soft); padding: 2px 0; }
 #tower-popup .row b { color: var(--neon-yellow); }
@@ -50,6 +66,7 @@
   <div class="hud-row hud-row--small"><b>BEST</b> <span id="hud-best">0</span></div>
 </div></div>
 <div id="td-bar" hidden></div>
+<button id="td-call-wave" type="button" hidden>▶ NEXT WAVE NOW <span class="td-call-bonus">(+$0)</span></button>
 <div id="tower-popup"></div>
 <div id="end-overlay" class="overlay is-hidden" hidden><div class="overlay__panel">
   <h2 class="overlay__title" id="end-title">VAULT EMPTY</h2>

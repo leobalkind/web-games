@@ -8,7 +8,7 @@ import { Pug } from './Pug.js';
 import { Bot } from './Bot.js';
 import { Input } from './input.js';
 import { Hud } from './Hud.js';
-import { FORMS, XP_TO_EVOLVE, TIER_POOLS } from './pugForms.js';
+import { FORMS, XP_TO_EVOLVE, TIER_POOLS, makePugVisual } from './pugForms.js';
 import { WEAPONS, SKINS, defaultWeapon, defaultSkin } from './weapons.js';
 import { DIFFICULTIES, defaultDifficulty } from './difficulty.js';
 import { PowerupManager, buffMult, hasShield } from './Powerups.js';
@@ -61,6 +61,7 @@ export class Game {
     this.shakeMag = 0;
     this.respawnQueue = []; // { botName, formId, t }
     this.activeEffects = { speedBoost: 0 };
+    this._speedMult = 1; // shared 1x/2x/3x speed toggle
   }
 
   async init(rootEl) {
@@ -183,6 +184,15 @@ export class Game {
     }
     this.pugs = [];
     if (this._decoys) this._decoys = []; // containers are children of pugsLayer (destroyed with world)
+    // Clear killcam state so a fresh match doesn't inherit a frozen flag.
+    this._killcamPending = false;
+    if (this._killcamOverlay) {
+      try {
+        this.app.stage.removeChild(this._killcamOverlay);
+        this._killcamOverlay.destroy({ children: true });
+      } catch (e) {}
+      this._killcamOverlay = null;
+    }
   }
 
   _safeSpawnPos() {
@@ -245,7 +255,9 @@ export class Game {
     if (!this.running || this.evolving) {
       return;
     }
-    const rawDt = Math.min(0.05, ticker.deltaMS / 1000);
+    // Speed toggle scales the raw frame dt — applied BEFORE hitstop/slowmo so
+    // their fixed durations stay readable (otherwise 3x would skip them).
+    const rawDt = Math.min(0.05, ticker.deltaMS / 1000) * (this._speedMult || 1);
     let dt = rawDt;
     // Hitstop — fully freeze the world for a few frames after a hit
     if (this._hitstopT > 0) {
@@ -444,9 +456,11 @@ export class Game {
     this.hud.updateLeaderboard(this.pugs, this.player.id);
     this.hud.updateMinimap(this.world, this.pugs, this.player);
 
-    // End of match
+    // End of match. If player died, the killcam (started in _handleKill) is
+    // already running and will call _endMatch when it finishes; skip the
+    // immediate end here so the freeze-frame replay can play out.
     if (!this.player.alive) {
-      this._endMatch(false);
+      if (!this._killcamPending) this._endMatch(false);
     } else if (this.matchTime > 240) {
       // Hard cap — 4 minutes (safety net if bots get stuck somewhere)
       this._endMatch(true);
@@ -1867,6 +1881,9 @@ export class Game {
       if (this.player.energyForLevel >= ENERGY_PER_LEVEL && !this.evolving) {
         this.player.energyForLevel -= ENERGY_PER_LEVEL;
         this.player.level += 1;
+        if (typeof this.onLevelUp === 'function') {
+          try { this.onLevelUp(this.player.level); } catch (e) { /* */ }
+        }
         this._openLevelUpMenu();
       }
       const need = XP_TO_EVOLVE[this.player.form.tier];
@@ -1900,6 +1917,26 @@ export class Game {
       this.hud.toastMessage(text, 'death');
     } else if (Math.random() < 0.5) {
       this.hud.toastMessage(text, 'info');
+    }
+    // External kill-feed hook (set by main.js).
+    // Pass weapon (from killer's currently-equipped gun) so the feed can show
+    // Surviv.io-style "Loaf borked Snoot · PISTOL" labels.
+    const _wpn = (killer && killer.weapon) ? killer.weapon : null;
+    const _weaponName = byZone ? 'ZONE' : (_wpn?.name || 'BORK');
+    const _weaponIcon = byZone ? '☣' : (_wpn?.icon || '🐾');
+    if (typeof this.onKillFeed === 'function') {
+      try {
+        this.onKillFeed({
+          killer, victim, byZone, text,
+          weaponName: _weaponName, weaponIcon: _weaponIcon,
+        });
+      } catch (e) { /* */ }
+    }
+    // Surviv.io-style killcam: when player dies, freeze for 3s and zoom-in on
+    // the bot that bonked them. _endMatch fires after the cam closes.
+    if (victim === this.player && !this._killcamPending) {
+      this._killcamPending = true;
+      this._startKillCam(killer, byZone, _weaponName, _weaponIcon);
     }
     // Remove visual after short delay; but for simplicity destroy now
     setTimeout(() => {
@@ -2222,5 +2259,154 @@ export class Game {
     overlay.classList.remove('is-hidden');
     this.hud.hide();
     if (won) Sfx.win(); else Sfx.lose();
+  }
+
+  // Surviv.io-style killcam: freeze the world, zoom in on the killer for 3s,
+  // then transition to the existing end-overlay. Uses a Pixi overlay layer
+  // attached to app.stage so it sits above the world but respects ticker
+  // (which we stop, then resume briefly only to drive a small countdown).
+  _startKillCam(killer, byZone, weaponName, weaponIcon) {
+    const DURATION = 3.0;
+    // Freeze the underlying simulation by stopping the ticker. We render the
+    // killcam manually via a short setTimeout cascade.
+    try { this.app.ticker.stop(); } catch (e) {}
+
+    // Build overlay
+    const overlay = new Container();
+    overlay.label = 'killcam';
+    overlay.zIndex = 9999;
+
+    const w = this.app.screen.width;
+    const h = this.app.screen.height;
+
+    // Full-screen dim
+    const dim = new Graphics();
+    dim.rect(0, 0, w, h).fill({ color: 0x000000, alpha: 0.78 });
+    overlay.addChild(dim);
+
+    // Title strip — "YOU WERE BORKED"
+    const title = new Text({
+      text: byZone ? 'YOU WERE ZONED' : 'YOU WERE BORKED',
+      style: {
+        fill: 0xff3a3a, fontFamily: 'monospace', fontSize: 22, fontWeight: 'bold',
+        stroke: { color: 0x000000, width: 4 },
+        letterSpacing: 2,
+      },
+    });
+    title.anchor.set(0.5, 0);
+    title.x = w / 2;
+    title.y = Math.max(24, h * 0.10);
+    overlay.addChild(title);
+
+    // Killer panel — black box with sprite, name, weapon
+    const panelW = Math.min(360, w - 60);
+    const panelH = 220;
+    const px = (w - panelW) / 2;
+    const py = (h - panelH) / 2 + 10;
+    const panel = new Graphics();
+    panel.roundRect(px, py, panelW, panelH, 12)
+      .fill({ color: 0x0a0716, alpha: 0.94 })
+      .stroke({ color: 0xff3a3a, width: 3, alpha: 0.85 });
+    overlay.addChild(panel);
+
+    // Zoomed sprite of the killer (or skull marker if zone-killed)
+    const spriteHolder = new Container();
+    spriteHolder.x = w / 2;
+    spriteHolder.y = py + 90;
+    spriteHolder.scale.set(2.6);
+    overlay.addChild(spriteHolder);
+    if (killer && killer.formId) {
+      try {
+        const ghost = makePugVisual(killer.formId);
+        spriteHolder.addChild(ghost);
+      } catch (e) {
+        // fallback dot
+        const dot = new Graphics();
+        dot.circle(0, 0, 14).fill(0xff3a3a);
+        spriteHolder.addChild(dot);
+      }
+    } else {
+      // Zone death — skull-ish marker
+      const sk = new Graphics();
+      sk.circle(0, 0, 18).fill(0x222238).stroke({ color: 0xff3aa1, width: 3 });
+      spriteHolder.addChild(sk);
+    }
+
+    // Killer name
+    const nameLabel = new Text({
+      text: killer ? killer.name : 'THE ZONE',
+      style: {
+        fill: 0xffd23f, fontFamily: 'monospace', fontSize: 18, fontWeight: 'bold',
+        stroke: { color: 0x000000, width: 3 },
+        letterSpacing: 1,
+      },
+    });
+    nameLabel.anchor.set(0.5, 0);
+    nameLabel.x = w / 2;
+    nameLabel.y = py + 140;
+    overlay.addChild(nameLabel);
+
+    // Weapon line — "WEAPON: PISTOL" + icon
+    const weaponLabel = new Text({
+      text: `${weaponIcon || '🐾'}  ${(weaponName || 'BORK').toUpperCase()}`,
+      style: {
+        fill: 0xc8c0e8, fontFamily: 'monospace', fontSize: 13,
+        stroke: { color: 0x000000, width: 2 },
+        letterSpacing: 1,
+      },
+    });
+    weaponLabel.anchor.set(0.5, 0);
+    weaponLabel.x = w / 2;
+    weaponLabel.y = py + 168;
+    overlay.addChild(weaponLabel);
+
+    // Countdown text
+    const cdLabel = new Text({
+      text: `Continuing in ${DURATION.toFixed(1)}s...`,
+      style: {
+        fill: 0x8a82b0, fontFamily: 'monospace', fontSize: 10,
+        letterSpacing: 1,
+      },
+    });
+    cdLabel.anchor.set(0.5, 0);
+    cdLabel.x = w / 2;
+    cdLabel.y = py + panelH + 14;
+    overlay.addChild(cdLabel);
+
+    this.app.stage.addChild(overlay);
+    this._killcamOverlay = overlay;
+
+    // Use wall-clock so the killcam runs even while the Pixi ticker is paused.
+    const startedAt = performance.now();
+    const tickCd = () => {
+      if (!this._killcamOverlay) return;
+      const elapsed = (performance.now() - startedAt) / 1000;
+      const left = Math.max(0, DURATION - elapsed);
+      cdLabel.text = `Continuing in ${left.toFixed(1)}s...`;
+      // Subtle pulse on title
+      const pulse = 1 + Math.sin(elapsed * 6) * 0.04;
+      title.scale.set(pulse);
+      if (elapsed < DURATION) {
+        requestAnimationFrame(tickCd);
+      } else {
+        this._endKillCam();
+      }
+    };
+    requestAnimationFrame(tickCd);
+  }
+
+  _endKillCam() {
+    if (this._killcamOverlay) {
+      try {
+        this.app.stage.removeChild(this._killcamOverlay);
+        this._killcamOverlay.destroy({ children: true });
+      } catch (e) {}
+      this._killcamOverlay = null;
+    }
+    this._killcamPending = false;
+    // Now finalize the run (HUD hide / end overlay show / score submit).
+    this._endMatch(false);
+    // Leave the ticker stopped — end overlay is DOM now; restart only when
+    // the user clicks rematch/back (game.start re-starts the ticker).
   }
 }

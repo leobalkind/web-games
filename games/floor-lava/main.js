@@ -6,6 +6,7 @@ import { createSfx } from '../../src/shared/miniSfx.js';
 import { showTip } from '../../src/shared/tutorialTip.js';
 import { drawIcon } from '../../src/shared/icons.js';
 import { drawPug } from '../../src/shared/pugSprite.js';
+import { createMobileControls } from '../../src/shared/mobileControls.js';
 
 const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
@@ -38,11 +39,70 @@ let caveOffset = 0;   // background parallax y scroll
 // Map decor — stalactites/stalagmites + strata bands stored as world-y arrays
 let caveSpikes = [];  // {x, y, side: 'top'|'bot'|'left'|'right', h}
 let strataBands = []; // {y, color}
+// === Doodle Jump-style enemy variety (scales with height) ===
+let bats = [];        // {x, y, vx, baseY, ampT, alive} — fly horizontally crossing the play area, can be jumped on
+let fireballs = [];   // {x, y, vx, vy, life, max} — spawn from screen edges, traverse the play area
+let batSpawnT = 4;    // seconds until next bat spawn
+let fireSpawnT = 6;   // seconds until next fireball spawn
+// === Icy Tower combo-jumps ===
+let lastPlat = null;  // platform reference last landed on (so re-landing same plat doesn't count)
+let comboJumps = 0;   // consecutive distinct-platform landings without resting
+let comboRestT = 0;   // seconds spent stationary on the SAME platform (resets combo after 0.7s)
+// === Geometry Dash biome-shift checkpoints (every 500m) ===
+// Three palettes: cave-grey (default), magma-orange, hellscape-red.
+const BIOMES = [
+  { name: 'CAVE',      sky0: '#0a0716', sky1: '#3a1a14', stratoR: 40, stratoG: 20, stratoB: 20, glow: '180,30,20', rockA: 'rgba(60,18,18,0.55)',  rockB: 'rgba(90,30,20,0.6)',  lava0: '#ff8e3c', lava1: '#ff3a3a', lava2: '#7a0a0a' },
+  { name: 'MAGMA',     sky0: '#1a0510', sky1: '#5a2010', stratoR: 80, stratoG: 30, stratoB: 12, glow: '230,90,30',  rockA: 'rgba(90,30,12,0.6)',   rockB: 'rgba(130,50,20,0.62)', lava0: '#ffb04a', lava1: '#ff5a3a', lava2: '#8a1a08' },
+  { name: 'HELLSCAPE', sky0: '#1a0008', sky1: '#6a0810', stratoR: 130, stratoG: 18, stratoB: 22, glow: '255,40,40', rockA: 'rgba(120,16,18,0.62)', rockB: 'rgba(160,30,20,0.65)', lava0: '#ffd66a', lava1: '#ff2020', lava2: '#400000' },
+];
+let biomeIdx = 0;            // currently fully-applied biome index
+let nextBiomeAtHeight = 500; // height in m at which the next shift starts
+let biomeShiftT = 0;         // seconds remaining in active 2s shift transition
+let biomeShiftTarget = 0;    // target biome index during a shift
+// Returns the live (possibly mid-transition) biome palette used by render().
+function getBiomePalette() {
+  const from = BIOMES[biomeIdx];
+  if (biomeShiftT <= 0) return from;
+  const to = BIOMES[biomeShiftTarget];
+  // 2s transition; biomeShiftT counts down from 2 to 0.
+  const k = Math.max(0, Math.min(1, 1 - biomeShiftT / 2));
+  // Linear blend HEX/RGB-channel colors; we keep things simple by returning
+  // strings so render() can use them as fillStyle / gradient stops directly.
+  const blendHex = (a, b) => {
+    const pa = parseInt(a.slice(1), 16), pb = parseInt(b.slice(1), 16);
+    const r = Math.round(((pa >> 16) & 0xff) * (1 - k) + ((pb >> 16) & 0xff) * k);
+    const g = Math.round(((pa >> 8) & 0xff) * (1 - k) + ((pb >> 8) & 0xff) * k);
+    const bl = Math.round((pa & 0xff) * (1 - k) + (pb & 0xff) * k);
+    return `#${((r << 16) | (g << 8) | bl).toString(16).padStart(6, '0')}`;
+  };
+  const blendRgbStr = (a, b) => {
+    const pa = a.split(',').map(Number), pb = b.split(',').map(Number);
+    return `${Math.round(pa[0] * (1 - k) + pb[0] * k)},${Math.round(pa[1] * (1 - k) + pb[1] * k)},${Math.round(pa[2] * (1 - k) + pb[2] * k)}`;
+  };
+  return {
+    name: to.name,
+    sky0: blendHex(from.sky0, to.sky0),
+    sky1: blendHex(from.sky1, to.sky1),
+    stratoR: Math.round(from.stratoR * (1 - k) + to.stratoR * k),
+    stratoG: Math.round(from.stratoG * (1 - k) + to.stratoG * k),
+    stratoB: Math.round(from.stratoB * (1 - k) + to.stratoB * k),
+    glow: blendRgbStr(from.glow, to.glow),
+    rockA: from.rockA, // hold these constant during transition — color is in sky+lava
+    rockB: from.rockB,
+    lava0: blendHex(from.lava0, to.lava0),
+    lava1: blendHex(from.lava1, to.lava1),
+    lava2: blendHex(from.lava2, to.lava2),
+  };
+}
 function reset() {
   pug = { x: W / 2, y: H - 200, vx: 0, vy: 0, onGround: false, jumpsLeft: 2, w: 22, h: 22 };
   plats = []; treats = []; powerups = []; blobs = [];
   embers = []; lavaBubbles = []; popups = []; banner = null;
   caveSpikes = []; strataBands = [];
+  bats = []; fireballs = [];
+  batSpawnT = 4; fireSpawnT = 6;
+  lastPlat = null; comboJumps = 0; comboRestT = 0;
+  biomeIdx = 0; nextBiomeAtHeight = 500; biomeShiftT = 0; biomeShiftTarget = 0;
   nextMilestone = 5;
   hitFlashT = 0; shakeT = 0; shakeMag = 0; caveOffset = 0;
   lastPlatY = H - 100;
@@ -125,6 +185,10 @@ canvas.addEventListener('touchmove', (e) => { touchX = e.touches[0].clientX; e.p
 canvas.addEventListener('touchend', () => touchX = null);
 document.getElementById('jump-btn').addEventListener('click', jump);
 if ('ontouchstart' in window) document.getElementById('jump-btn').style.display = 'block';
+// Universal mobile controls — platformer layout (L/R buttons + JUMP). Synth
+// keys feed the keys Set and also trigger the keydown listener above which
+// auto-calls jump() on space, so JUMP works without extra wiring.
+createMobileControls({ layout: 'platformer', keys });
 
 function jump() {
   if (!running || pug.jumpsLeft <= 0) return;
@@ -134,6 +198,20 @@ function jump() {
   sfx.tone(wingsT > 0 ? 990 : (pug.jumpsLeft === 1 ? 660 : 880), 'triangle', 0.08, 0.18);
 }
 function refillJumps() { pug.jumpsLeft = wingsT > 0 ? 3 : 2; }
+// Icy Tower-style combo thresholds — popup + score bonus at 5/10/20/30/...
+function checkComboThreshold() {
+  // Trigger at 5, 10, 20, then every 10 above
+  const hit =
+    comboJumps === 5 || comboJumps === 10 || comboJumps === 20 ||
+    (comboJumps > 20 && comboJumps % 10 === 0);
+  if (!hit) return;
+  const bonus = comboJumps * 10;
+  score += bonus;
+  banner = { text: `COMBO ×${comboJumps}!`, life: 0, max: 1.4 };
+  pop(pug.x, pug.y - 30, `+${bonus}`, '#ff3aa1');
+  sfx.arp([659, 880, 1320], 'triangle', 0.06, 0.2, 0.22);
+  shake(4, 0.22);
+}
 
 function tick(dt) {
   if (!running) return;
@@ -187,11 +265,23 @@ function tick(dt) {
             refillJumps();
             sfx.tone(990, 'triangle', 0.08, 0.2);
             shake(2, 0.12);
+            // Icy Tower combo: bouncy launch counts as a chained landing.
+            if (p !== lastPlat) {
+              comboJumps++; lastPlat = p; comboRestT = 0;
+              checkComboThreshold();
+            }
           } else {
             pug.y = p.y - pug.h / 2;
             pug.vy = 0;
             pug.onGround = true;
             refillJumps();
+            // Icy Tower combo: only NEW platform landings count.
+            if (p !== lastPlat) {
+              comboJumps++;
+              lastPlat = p;
+              comboRestT = 0;
+              checkComboThreshold();
+            }
             if (p.kind === 'crumble') {
               if (!p.crumbleStartT) p.crumbleStartT = performance.now();
               const elapsed = performance.now() - p.crumbleStartT;
@@ -235,10 +325,111 @@ function tick(dt) {
     if (b.life <= 0 || b.y < -200) { blobs.splice(i, 1); continue; }
     if (Math.abs(b.x - pug.x) < 18 && Math.abs(b.y - pug.y) < 18) return die();
   }
+  // ===== Doodle Jump-style flying enemies (height-gated spawns) =====
+  // Above 500m: bats cross horizontally; can be jumped on (vy>0 stomp = kill
+  // + bounce) or touched at any other angle = death. Above 1000m: fireballs
+  // launch from the edges and traverse, instant-death on touch.
+  if (height >= 500) {
+    batSpawnT -= dt;
+    if (batSpawnT <= 0) {
+      // Spawn around 1.0..2.4s apart, scaling tighter with height.
+      batSpawnT = Math.max(1.0, 3.5 - (height - 500) * 0.0015);
+      const fromLeft = Math.random() < 0.5;
+      const speed = 80 + Math.random() * 60 + Math.min(60, height * 0.04);
+      bats.push({
+        x: fromLeft ? -20 : W + 20,
+        baseY: 40 + Math.random() * (H * 0.55),
+        y: 0, // overwritten next tick
+        vx: fromLeft ? speed : -speed,
+        ampT: Math.random() * Math.PI * 2, alive: true,
+      });
+    }
+  }
+  if (height >= 1000) {
+    fireSpawnT -= dt;
+    if (fireSpawnT <= 0) {
+      fireSpawnT = Math.max(0.8, 4.0 - (height - 1000) * 0.001);
+      const fromLeft = Math.random() < 0.5;
+      const spd = 220 + Math.random() * 100 + Math.min(120, (height - 1000) * 0.06);
+      // Fireballs arc slightly toward pug — small vertical drift only so they
+      // remain readable as horizontal threats.
+      const vy = (Math.random() - 0.5) * 40;
+      fireballs.push({
+        x: fromLeft ? -16 : W + 16,
+        y: 40 + Math.random() * (H * 0.45),
+        vx: fromLeft ? spd : -spd, vy,
+        life: 0, max: 8, r: 9 + Math.random() * 3,
+      });
+    }
+  }
+  // Bat movement + stomp/kill resolution
+  for (let i = bats.length - 1; i >= 0; i--) {
+    const b = bats[i];
+    if (!b.alive) {
+      // Dying bats fall — keep them around briefly for a satisfying squash.
+      b.y += 240 * dt;
+      b.ampT += dt * 6;
+      if (b.y > H + 30) bats.splice(i, 1);
+      continue;
+    }
+    b.x += b.vx * dt;
+    b.ampT += dt * 3;
+    b.y = b.baseY + Math.sin(b.ampT) * 14;
+    if (b.x < -40 || b.x > W + 40) { bats.splice(i, 1); continue; }
+    if (Math.abs(b.x - pug.x) < 22 && Math.abs(b.y - pug.y) < 22) {
+      // Stomp = pug falling onto bat from above (vy>0 and pug center above bat center)
+      if (pug.vy > 50 && pug.y < b.y - 4) {
+        b.alive = false;
+        pug.vy = JUMP_V * 0.85;
+        refillJumps();
+        comboJumps++; // stomp counts as a combo jump
+        comboRestT = 0;
+        score += 75;
+        pop(b.x, b.y - 10, '+75 STOMP', '#ff8e3c');
+        shake(3, 0.18);
+        sfx.tone(880, 'triangle', 0.08, 0.2);
+      } else {
+        return die();
+      }
+    }
+  }
+  // Fireballs traverse + check collisions
+  for (let i = fireballs.length - 1; i >= 0; i--) {
+    const f = fireballs[i];
+    f.x += f.vx * dt; f.y += f.vy * dt;
+    f.life += dt;
+    if (f.life >= f.max || f.x < -30 || f.x > W + 30) { fireballs.splice(i, 1); continue; }
+    if (Math.abs(f.x - pug.x) < 18 && Math.abs(f.y - pug.y) < 18) return die();
+  }
 
   // Lava rises — accelerating (paused if freeze powerup active)
   height = Math.max(height, Math.floor((H - 200 - pug.y) / 10));
   maxHeight = Math.max(maxHeight, height);
+  // Combo decay: standing on the same platform >0.7s resets the chain.
+  if (pug.onGround) {
+    comboRestT += dt;
+    if (comboRestT > 0.7 && comboJumps > 0) {
+      comboJumps = 0; lastPlat = null; comboRestT = 0;
+    }
+  } else {
+    comboRestT = 0;
+  }
+  // Geometry Dash biome-shift checkpoints (every 500m, 2s transition)
+  if (height >= nextBiomeAtHeight && biomeShiftT <= 0 && biomeIdx < BIOMES.length - 1) {
+    biomeShiftTarget = biomeIdx + 1;
+    biomeShiftT = 2;
+    banner = { text: `★ ${BIOMES[biomeShiftTarget].name} ★`, life: 0, max: 1.8 };
+    sfx.arp([220, 330, 440, 660], 'sawtooth', 0.08, 0.25, 0.18);
+    shake(5, 0.4);
+  }
+  if (biomeShiftT > 0) {
+    biomeShiftT -= dt;
+    if (biomeShiftT <= 0) {
+      biomeIdx = biomeShiftTarget;
+      biomeShiftT = 0;
+      nextBiomeAtHeight += 500;
+    }
+  }
   const lavaSpeed = (freezeT > 0 ? 0 : 50 + height * 0.4);
   lavaY -= lavaSpeed * dt;
   // Camera: when pug is above middle, scroll world down
@@ -354,14 +545,15 @@ function render() {
   }
   ctx.save();
   ctx.translate(sx, sy);
-  // Sky gradient
+  const biome = getBiomePalette();
+  // Sky gradient (biome-tinted)
   const grd = ctx.createLinearGradient(0, 0, 0, H);
-  grd.addColorStop(0, '#0a0716'); grd.addColorStop(1, '#3a1a14');
+  grd.addColorStop(0, biome.sky0); grd.addColorStop(1, biome.sky1);
   ctx.fillStyle = grd; ctx.fillRect(-8, -8, W + 16, H + 16);
-  // Distant pulsing red glow (core of the mountain) — behind cave walls
+  // Distant pulsing red glow — palette-driven so it shifts with the biome.
   const glowPulse = 0.55 + 0.25 * Math.sin(performance.now() * 0.0008);
   const coreGrad = ctx.createRadialGradient(W / 2, H * 0.55, 40, W / 2, H * 0.55, Math.max(W, H) * 0.7);
-  coreGrad.addColorStop(0, `rgba(180,30,20,${0.25 * glowPulse})`);
+  coreGrad.addColorStop(0, `rgba(${biome.glow},${0.25 * glowPulse})`);
   coreGrad.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = coreGrad; ctx.fillRect(0, 0, W, H);
   // Strata bands — decorative horizontal bands
@@ -373,7 +565,7 @@ function render() {
   // 20m level markers — when world altitude crosses a "20m line" draw small chip
   // Background parallax: distant cave walls (slow scroll, repeating)
   const parY = (caveOffset * 0.4) % 200;
-  ctx.fillStyle = 'rgba(60,18,18,0.55)';
+  ctx.fillStyle = biome.rockA;
   for (let yy = -200; yy < H + 200; yy += 200) {
     for (let i = 0; i < 6; i++) {
       const cx = (i / 5) * W;
@@ -436,7 +628,7 @@ function render() {
   }
   // Mid parallax: closer rocks (faster)
   const parY2 = (caveOffset * 0.85) % 160;
-  ctx.fillStyle = 'rgba(90,30,20,0.6)';
+  ctx.fillStyle = biome.rockB;
   for (let yy = -160; yy < H + 160; yy += 160) {
     for (let i = 0; i < 4; i++) {
       const cx = (i / 3) * W + 40;
@@ -559,6 +751,53 @@ function render() {
     ctx.fillStyle = '#ffd23f'; ctx.fillRect(b.x - 3, b.y - 3, 2, 2);
     ctx.fillRect(b.x + 1, b.y - 3, 2, 2);
   }
+  // Bats — pixel-art shape (body + flapping wings). Dying bats roll over.
+  for (const b of bats) {
+    const flap = Math.sin(b.ampT * 4) * 6;
+    ctx.save();
+    ctx.translate(b.x, b.y);
+    if (!b.alive) ctx.rotate(Math.PI); // upside-down on death
+    // Wings
+    ctx.fillStyle = '#3a1a4a';
+    ctx.beginPath();
+    ctx.moveTo(-3, 0); ctx.lineTo(-14, -2 - flap); ctx.lineTo(-12, 4); ctx.closePath(); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(3, 0); ctx.lineTo(14, -2 - flap); ctx.lineTo(12, 4); ctx.closePath(); ctx.fill();
+    // Body
+    ctx.fillStyle = b.alive ? '#2a0a3a' : '#5a3a5a';
+    ctx.beginPath(); ctx.arc(0, 0, 6, 0, Math.PI * 2); ctx.fill();
+    // Glowing eyes
+    if (b.alive) {
+      ctx.fillStyle = '#ff3a3a';
+      ctx.fillRect(-3, -1, 2, 2); ctx.fillRect(1, -1, 2, 2);
+    } else {
+      ctx.fillStyle = '#fff';
+      ctx.fillText('x', -2, 1); ctx.fillText('x', 2, 1);
+    }
+    // Tiny pointy ears
+    ctx.fillStyle = b.alive ? '#2a0a3a' : '#5a3a5a';
+    ctx.fillRect(-4, -7, 2, 3); ctx.fillRect(2, -7, 2, 3);
+    ctx.restore();
+  }
+  // Fireballs — pulsing red/orange ball with trail
+  for (const f of fireballs) {
+    const t = performance.now() * 0.01;
+    // Tail behind
+    ctx.fillStyle = 'rgba(255,180,60,0.45)';
+    for (let i = 1; i <= 4; i++) {
+      const tx = f.x - (f.vx / 220) * i * 5;
+      const ty = f.y - (f.vy / 220) * i * 5;
+      ctx.beginPath(); ctx.arc(tx, ty, f.r - i * 1.5, 0, Math.PI * 2); ctx.fill();
+    }
+    // Core
+    ctx.fillStyle = '#ff3a3a';
+    ctx.beginPath(); ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ffd23f';
+    ctx.beginPath(); ctx.arc(f.x - 1, f.y - 1, f.r * 0.55, 0, Math.PI * 2); ctx.fill();
+    // Flicker highlight
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(f.x - 2, f.y - 3, 2, 2);
+  }
   // Treats
   for (const t of treats) {
     ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 12;
@@ -566,9 +805,9 @@ function render() {
     ctx.fillRect(t.x - 6, t.y - 6, 12, 12);
     ctx.shadowBlur = 0;
   }
-  // Lava: gradient body
+  // Lava: gradient body (biome-tinted)
   const lgrd = ctx.createLinearGradient(0, lavaY, 0, H);
-  lgrd.addColorStop(0, '#ff8e3c'); lgrd.addColorStop(0.3, '#ff3a3a'); lgrd.addColorStop(1, '#7a0a0a');
+  lgrd.addColorStop(0, biome.lava0); lgrd.addColorStop(0.3, biome.lava1); lgrd.addColorStop(1, biome.lava2);
   ctx.fillStyle = lgrd; ctx.fillRect(-8, lavaY, W + 16, H + 16 - lavaY);
   // Lava swirl streaks
   ctx.fillStyle = 'rgba(255,210,63,0.35)';
@@ -588,7 +827,7 @@ function render() {
     ctx.fillStyle = 'rgba(255,255,255,0.5)';
     ctx.fillRect(bb.x - r * 0.4, bb.y - r * 0.6, r * 0.4, r * 0.3);
   }
-  ctx.fillStyle = '#ff8e3c';
+  ctx.fillStyle = biome.lava0;
   ctx.fillRect(-8, lavaY, W + 16, 4);
   // Surface wave bumps
   ctx.fillStyle = '#ffd23f';
@@ -643,6 +882,27 @@ function render() {
     ctx.beginPath(); ctx.moveTo(cx - 1, cy); ctx.quadraticCurveTo(cx - 6, cy - 4, cx - 6, cy + 2); ctx.quadraticCurveTo(cx - 3, cy + 1, cx - 1, cy + 1); ctx.closePath(); ctx.fill();
     ctx.beginPath(); ctx.moveTo(cx + 1, cy); ctx.quadraticCurveTo(cx + 6, cy - 4, cx + 6, cy + 2); ctx.quadraticCurveTo(cx + 3, cy + 1, cx + 1, cy + 1); ctx.closePath(); ctx.fill();
   });
+  // Combo HUD (top-center). Always visible once chain hits 2+, even before
+  // crossing a threshold so the player understands a chain is building.
+  if (comboJumps >= 2) {
+    const cw = 150, ch = 26;
+    const cx = W / 2 - cw / 2, cy = 36;
+    ctx.fillStyle = 'rgba(0,0,0,0.75)';
+    ctx.fillRect(cx, cy, cw, ch);
+    ctx.fillStyle = comboJumps >= 10 ? '#ff3aa1' : (comboJumps >= 5 ? '#ffd23f' : '#5ef38c');
+    ctx.fillRect(cx, cy, cw, 3);
+    ctx.fillStyle = '#fff';
+    ctx.font = "10px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText(`COMBO ×${comboJumps}`, W / 2, cy + 18);
+  }
+  // Biome tag (top-right small chip)
+  {
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(W - 108, 36, 96, 18);
+    ctx.fillStyle = biomeShiftT > 0 ? '#ff3a3a' : '#c8c8d8';
+    ctx.font = "9px 'Press Start 2P', monospace"; ctx.textAlign = 'right';
+    ctx.fillText(biome.name, W - 14, 49);
+  }
   // Score popups
   ctx.textAlign = 'center';
   ctx.font = "12px 'Press Start 2P', monospace";

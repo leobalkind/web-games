@@ -1,10 +1,19 @@
 // PUG MUTATION LAB — combine 3 ingredients to discover pug species.
 // Recipes are deterministic by ingredient set (sorted). Some are pre-named
 // legendaries, others are procedurally generated cursed pugs.
+//
+// Each combination is *one-shot per profile*: repeating the same 3 ingredients
+// triggers an "ALREADY DISCOVERED" feedback (toast + shake + ingredient
+// refund) instead of producing the same result again.
 import { createSfx } from '../../src/shared/miniSfx.js';
 import { showTip } from '../../src/shared/tutorialTip.js';
-import { iconSvg } from '../../src/shared/icons.js';
 import { drawPug } from '../../src/shared/pugSprite.js';
+import { makeIngredientCanvas } from '../../src/shared/ingredientIcons.js';
+import { profileKey } from '../../src/shared/profile.js';
+import { createMobileControls } from '../../src/shared/mobileControls.js';
+
+// Mutation lab is drag-only; the shared module just adds a BACK chip + mute.
+createMobileControls({ layout: 'single-tap', buttons: [] });
 
 // Procedurally derive body/mask/ear from a discovery key — any string with the
 // same content always yields the same colors, but two different keys diverge.
@@ -41,9 +50,9 @@ function _makeLabPugCanvas(w, h, opts) {
   return cv;
 }
 
-// Helper: prefer pixel-art SVG icon for ingredients that map to the library
-function _labIcon(ing, size) {
-  return ing.iconName && iconSvg[ing.iconName] ? iconSvg[ing.iconName](size || 24) : ing.icon;
+// Helper: small wrapper around makeIngredientCanvas with sensible defaults.
+function _ingredientEl(ing, size) {
+  return makeIngredientCanvas(ing.id, size || 32);
 }
 
 const sfx = createSfx({ storageKey: 'mutlab:muted' });
@@ -264,11 +273,105 @@ const LAB_CSS = `
   50% { transform: translate(6px, -4px); } 75% { transform: translate(-4px, -3px); } }
 .lab-result { transition: transform 0.2s, box-shadow 0.2s; }
 .lab-result.legendary { animation: lab-leg-pulse 1.4s ease-in-out infinite; }
+
+/* Per-ingredient combo-count badge (bottom-right of each ingredient cell) */
+.lab-item { position: relative; }
+.lab-item__combos { position: absolute; top: 2px; right: 2px; min-width: 14px; height: 14px;
+  padding: 0 3px; box-sizing: border-box; line-height: 12px; text-align: center;
+  font-family: var(--font-display); font-size: 0.3rem; letter-spacing: 0;
+  color: #0a0716; background: var(--neon-yellow); border: 1px solid #4a3a08;
+  border-radius: 8px; box-shadow: 0 0 4px rgba(255,210,63,0.6); pointer-events: none; }
+.lab-item__combos--zero { background: #2a2540; color: #8a90b1; border-color: #1a1430;
+  box-shadow: none; }
+.lab-codex-cell__icon { display: flex; align-items: center; justify-content: center; }
+
+/* "Already discovered" toast (centred top, distinct from showTip yellow border) */
+.lab-already-toast { position: fixed; top: calc(60px + env(safe-area-inset-top, 0));
+  left: 50%; transform: translateX(-50%) translateY(-12px);
+  z-index: 220; pointer-events: none;
+  font-family: var(--font-display); font-size: 0.55rem; letter-spacing: 0.08em;
+  color: #ffffff; background: rgba(110, 20, 30, 0.96);
+  border: 2px solid var(--crimson); border-radius: 6px;
+  padding: 10px 16px; max-width: 86vw; text-align: center; line-height: 1.5;
+  box-shadow: 0 0 24px rgba(255,58,58,0.55);
+  opacity: 0; transition: opacity 0.25s ease, transform 0.25s ease; }
+.lab-already-toast.is-show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* Refund flash on ingredient cell (brief red ring) */
+.lab-refund-flash { animation: lab-refund 0.6s ease-out; }
+@keyframes lab-refund {
+  0%   { box-shadow: 0 0 0 0 rgba(255,58,58,0.0); border-color: var(--border); }
+  30%  { box-shadow: 0 0 24px 4px rgba(255,58,58,0.85); border-color: var(--crimson); }
+  100% { box-shadow: 0 0 0 0 rgba(255,58,58,0.0); border-color: var(--border); }
+}
+
+/* Codex cell "ping" — used when same combo highlights existing creature */
+.lab-codex-cell.is-ping { animation: lab-codex-ping 0.9s ease-out; }
+@keyframes lab-codex-ping {
+  0%   { box-shadow: 0 0 0 0 rgba(255,210,63,0.0); }
+  35%  { box-shadow: 0 0 28px 6px rgba(255,210,63,0.75); }
+  100% { box-shadow: 0 0 0 0 rgba(255,210,63,0.0); }
+}
+
 @keyframes lab-leg-pulse { 0%,100% { box-shadow: 0 0 40px var(--neon-yellow); }
   50% { box-shadow: 0 0 80px var(--neon-yellow), 0 0 120px rgba(255,210,63,0.5); } }
 .hud-card.is-legendary { animation: lab-hud-leg 0.8s ease-out; }
 @keyframes lab-hud-leg { 0% { box-shadow: 0 0 0 var(--neon-yellow); }
   50% { box-shadow: 0 0 40px var(--neon-yellow); } 100% { box-shadow: 0 0 0 var(--neon-yellow); } }
+
+/* "🔍 FILTER" toggle — dim ingredients that already participate in many combos
+   (default threshold 8) so the player visually focuses on under-explored ones. */
+.lab-item--filtered { opacity: 0.28; filter: grayscale(0.7); pointer-events: auto; }
+.lab-item--filtered:hover { opacity: 0.5; }
+.lab-filter-btn { /* shares lab-codex-btn rules, just slid left in JS */ }
+
+/* TIER-COMPLETE banner — drops down on first time the player completes a tier. */
+.lab-tier-banner { position: fixed; top: 18%; left: 50%;
+  transform: translate(-50%, -200%); z-index: 250;
+  font-family: var(--font-display); font-size: 0.9rem; letter-spacing: 0.1em;
+  padding: 14px 24px; border-radius: 8px; text-align: center;
+  background: rgba(10, 7, 22, 0.97);
+  border: 3px solid currentColor; color: var(--neon-yellow);
+  box-shadow: 0 0 32px currentColor, 0 0 64px rgba(255, 210, 63, 0.5);
+  transition: transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+  pointer-events: none; max-width: 86vw;
+}
+.lab-tier-banner.is-show { transform: translate(-50%, 0); }
+.lab-tier-banner__sub { font-size: 0.5rem; letter-spacing: 0.06em;
+  color: var(--text-soft); margin-top: 6px; }
+.lab-tier-banner.COMMON    { color: #c8c8d8; box-shadow: 0 0 32px #c8c8d8, 0 0 64px rgba(200,200,216,0.45); }
+.lab-tier-banner.RARE      { color: #4cc9f0; box-shadow: 0 0 32px #4cc9f0, 0 0 64px rgba(76,201,240,0.45); }
+.lab-tier-banner.EPIC      { color: #b055ff; box-shadow: 0 0 32px #b055ff, 0 0 64px rgba(176,85,255,0.45); }
+.lab-tier-banner.LEGENDARY { color: #ffd23f; box-shadow: 0 0 32px #ffd23f, 0 0 64px rgba(255,210,63,0.45); }
+.lab-tier-banner.CURSED    { color: #ff3a3a; box-shadow: 0 0 32px #ff3a3a, 0 0 64px rgba(255,58,58,0.45); }
+
+/* Confetti pieces — single absolute-positioned bits that fly out + fall. */
+.lab-confetti { position: fixed; width: 8px; height: 12px; pointer-events: none;
+  z-index: 245; opacity: 0; will-change: transform, opacity;
+  animation: lab-confetti-fall 1.6s ease-out forwards; }
+@keyframes lab-confetti-fall {
+  0%   { transform: translate(0, 0) rotate(0deg); opacity: 1; }
+  100% { transform: translate(var(--tx, 0), 70vh) rotate(var(--rot, 540deg)); opacity: 0; }
+}
+
+/* Tier-aura particle on future fusion result — appears around the discovered
+   creature card whenever its tier has been fully unlocked. */
+.lab-result.has-tier-aura { position: relative; }
+.lab-result.has-tier-aura::before {
+  content: ''; position: absolute; inset: -10px; border-radius: 16px;
+  background: radial-gradient(circle, currentColor 0%, transparent 70%);
+  opacity: 0.18; pointer-events: none;
+  animation: lab-aura-pulse 2.2s ease-in-out infinite;
+}
+@keyframes lab-aura-pulse {
+  0%, 100% { transform: scale(1.0); opacity: 0.18; }
+  50%      { transform: scale(1.08); opacity: 0.35; }
+}
+.lab-result.has-tier-aura.COMMON { color: #c8c8d8; }
+.lab-result.has-tier-aura.RARE { color: #4cc9f0; }
+.lab-result.has-tier-aura.EPIC { color: #b055ff; }
+.lab-result.has-tier-aura.LEGENDARY { color: #ffd23f; }
+.lab-result.has-tier-aura.CURSED { color: #ff3a3a; }
 `;
 const _lstyle = document.createElement('style'); _lstyle.textContent = LAB_CSS; document.head.appendChild(_lstyle);
 const _lbg = document.createElement('div');
@@ -410,27 +513,30 @@ function shakeEl(el) {
   setTimeout(() => el.classList.remove('lab-shake'), 420);
 }
 
+// 20 ingredients. Every id has a matching pixel-art drawer in
+// src/shared/ingredientIcons.js — emoji is kept only as an accessibility
+// fallback/title hint and is never rendered in the UI directly anymore.
 const INGREDIENTS = [
-  { id: 'lava', icon: '🌋', name: 'Lava' },                                       // no match
-  { id: 'donut', icon: '🍩', name: 'Donut' },                                     // no match (biscuit is reserved for cafe)
-  { id: 'wizard', icon: '🧙', name: 'Wizard Hat' },                                // no match
-  { id: 'taco', icon: '🌮', name: 'Taco' },                                        // no match
-  { id: 'lightning', icon: '⚡', iconName: 'lightning', name: 'Lightning' },
-  { id: 'bone', icon: '🦴', iconName: 'bone',           name: 'Cursed Bone' },
-  { id: 'ghost', icon: '👻', iconName: 'ghost',         name: 'Ghost Wisp' },
-  { id: 'crystal', icon: '💎', iconName: 'gem',          name: 'Crystal' },
-  { id: 'cheese', icon: '🧀', iconName: 'cheese',       name: 'Forbidden Cheese' },
-  { id: 'gear', icon: '⚙', name: 'Mech Gear' },                                   // no match
-  { id: 'rainbow', icon: '🌈', name: 'Rainbow Juice' },                            // no match
-  { id: 'eyeball', icon: '👁', iconName: 'monsterEye',  name: 'Spare Eyeball' },
-  { id: 'tongue', icon: '👅', name: 'Extra Tongue' },                              // no match
-  { id: 'fire', icon: '🔥', iconName: 'flame',          name: 'Fire Spark' },
-  { id: 'ice', icon: '🧊', name: 'Ice Cube' },                                    // no match
-  { id: 'snake', icon: '🐍', name: 'Snake DNA' },                                  // no match
-  { id: 'cake', icon: '🍰', iconName: 'cake',            name: 'Birthday Cake' },
-  { id: 'bat', icon: '🦇', name: 'Bat Wing' },                                     // no match
-  { id: 'tentacle', icon: '🐙', name: 'Tentacle' },                                // no match
-  { id: 'leaf', icon: '🌿', name: 'Strange Leaf' },                                // no match
+  { id: 'lava',      emoji: '🌋', name: 'Lava' },
+  { id: 'donut',     emoji: '🍩', name: 'Donut' },
+  { id: 'wizard',    emoji: '🧙', name: 'Wizard Hat' },
+  { id: 'taco',      emoji: '🌮', name: 'Taco' },
+  { id: 'lightning', emoji: '⚡', name: 'Lightning' },
+  { id: 'bone',      emoji: '🦴', name: 'Cursed Bone' },
+  { id: 'ghost',     emoji: '👻', name: 'Ghost Wisp' },
+  { id: 'crystal',   emoji: '💎', name: 'Crystal' },
+  { id: 'cheese',    emoji: '🧀', name: 'Forbidden Cheese' },
+  { id: 'gear',      emoji: '⚙',  name: 'Mech Gear' },
+  { id: 'rainbow',   emoji: '🌈', name: 'Rainbow Juice' },
+  { id: 'eyeball',   emoji: '👁', name: 'Spare Eyeball' },
+  { id: 'tongue',    emoji: '👅', name: 'Extra Tongue' },
+  { id: 'fire',      emoji: '🔥', name: 'Fire Spark' },
+  { id: 'ice',       emoji: '🧊', name: 'Ice Cube' },
+  { id: 'snake',     emoji: '🐍', name: 'Snake DNA' },
+  { id: 'cake',      emoji: '🍰', name: 'Birthday Cake' },
+  { id: 'bat',       emoji: '🦇', name: 'Bat Wing' },
+  { id: 'tentacle',  emoji: '🐙', name: 'Tentacle' },
+  { id: 'leaf',      emoji: '🌿', name: 'Strange Leaf' },
 ];
 
 // Legendary named recipes (sorted ingredient ids → result)
@@ -472,20 +578,60 @@ function decideTier(ids) {
 }
 
 let beaker = [null, null, null];
-let discoveries = {}; // id -> {name, icon, tier, desc}
+let discoveries = {}; // key -> {name, icon, tier, desc}  (key = sorted ids joined by ',')
 let experiments = 0;
+// Each 3-ingredient combination is one-shot: once a sorted key lands here,
+// re-fusing the same 3 ingredients triggers an "already discovered" toast.
+let discoveredCombos = new Set();
+// Total possible 3-ingredient combinations from 20 ingredients: C(20,3) = 1140.
+const TOTAL_COMBOS = (function () {
+  const n = 20, k = 3;
+  let r = 1;
+  for (let i = 1; i <= k; i++) r = r * (n - i + 1) / i;
+  return Math.round(r);
+})();
 
 const collEl = document.getElementById('collection');
 const ingEl = document.getElementById('ingredients');
 const resEl = document.getElementById('result');
 const fuseBtn = document.getElementById('lab-fuse');
 
+// Count how many *discovered* combos include this ingredient id.
+function combosForIngredient(id) {
+  let n = 0;
+  for (const key of discoveredCombos) {
+    if (key.split(',').includes(id)) n++;
+  }
+  return n;
+}
+
 function renderIngredients() {
   ingEl.innerHTML = '';
   for (const ing of INGREDIENTS) {
     const el = document.createElement('div');
     el.className = 'lab-item';
-    el.innerHTML = `<div class="lab-item__icon">${_labIcon(ing, 24)}</div><div class="lab-item__name">${ing.name}</div>`;
+    el.dataset.ingId = ing.id;
+    el.title = `${ing.name} ${ing.emoji || ''}`.trim();
+    // Custom pixel-art icon (no emoji)
+    const iconWrap = document.createElement('div');
+    iconWrap.className = 'lab-item__icon';
+    iconWrap.style.display = 'flex';
+    iconWrap.style.alignItems = 'center';
+    iconWrap.style.justifyContent = 'center';
+    iconWrap.appendChild(_ingredientEl(ing, 32));
+    el.appendChild(iconWrap);
+    // Name label
+    const nameEl = document.createElement('div');
+    nameEl.className = 'lab-item__name';
+    nameEl.textContent = ing.name;
+    el.appendChild(nameEl);
+    // Combo-count badge ("4" = 4 discovered combos using this ingredient)
+    const n = combosForIngredient(ing.id);
+    const badge = document.createElement('div');
+    badge.className = 'lab-item__combos' + (n === 0 ? ' lab-item__combos--zero' : '');
+    badge.textContent = String(n);
+    badge.title = `${n} discovered combo${n === 1 ? '' : 's'} use ${ing.name}`;
+    el.appendChild(badge);
     el.addEventListener('click', () => addToBeaker(ing));
     ingEl.appendChild(el);
   }
@@ -501,17 +647,16 @@ function addToBeaker(ing) {
 
 function syncBeaker() {
   document.querySelectorAll('.lab-slot').forEach((el, i) => {
+    el.innerHTML = '';
     if (beaker[i]) {
-      // Use SVG icon when available so beaker matches the shelf
-      if (beaker[i].iconName && iconSvg[beaker[i].iconName]) {
-        el.innerHTML = iconSvg[beaker[i].iconName](32);
-      } else {
-        el.textContent = beaker[i].icon;
-      }
+      // Custom pixel-art icon — matches the shelf
+      el.appendChild(_ingredientEl(beaker[i], 44));
       el.classList.add('filled');
+      el.title = beaker[i].name;
     } else {
       el.textContent = '+';
       el.classList.remove('filled');
+      el.title = '';
     }
   });
   const allFilled = beaker.every((s) => s != null);
@@ -552,9 +697,72 @@ document.querySelectorAll('.lab-slot').forEach((el, i) => {
 
 fuseBtn.addEventListener('click', fuse);
 
+// ----- "Already discovered" feedback ---------------------------------------
+let _alreadyToast = null;
+let _alreadyHideTimer = null;
+function showAlreadyToast(text) {
+  if (!_alreadyToast) {
+    _alreadyToast = document.createElement('div');
+    _alreadyToast.className = 'lab-already-toast';
+    document.body.appendChild(_alreadyToast);
+  }
+  _alreadyToast.textContent = text;
+  // restart animation
+  _alreadyToast.classList.remove('is-show');
+  void _alreadyToast.offsetWidth;
+  _alreadyToast.classList.add('is-show');
+  clearTimeout(_alreadyHideTimer);
+  _alreadyHideTimer = setTimeout(() => {
+    if (_alreadyToast) _alreadyToast.classList.remove('is-show');
+  }, 2200);
+}
+
+// Repeat-fuse handler — refunds the beaker visually, shakes everything, and
+// (if open) pings the previously discovered creature in the codex.
+function handleAlreadyDiscovered(key) {
+  // Find the existing creature for context in the toast / sfx
+  const existing = discoveries[key];
+  const niceName = existing ? existing.name : 'this combo';
+  showAlreadyToast(`ALREADY DISCOVERED — ${niceName}. Try a different mix!`);
+  // Shake the beaker
+  const beakerEl = document.querySelector('.lab-beaker');
+  shakeEl(beakerEl);
+  // Refund flash on each ingredient cell currently in the beaker
+  const ids = beaker.map((b) => b && b.id).filter(Boolean);
+  for (const id of ids) {
+    const cell = ingEl && ingEl.querySelector(`.lab-item[data-ing-id="${id}"]`);
+    if (cell) {
+      cell.classList.remove('lab-refund-flash');
+      void cell.offsetWidth;
+      cell.classList.add('lab-refund-flash');
+      setTimeout(() => cell && cell.classList.remove('lab-refund-flash'), 700);
+    }
+  }
+  // Sad-trombone-ish sfx
+  sfx.sweep(440, 180, 'sawtooth', 0.35, 0.18);
+  // Brief red sparkles centred on the beaker
+  if (beakerEl) {
+    const r = beakerEl.getBoundingClientRect();
+    sparkleBurst(r.left + r.width / 2, r.top + r.height / 2, 14, '#ff3a3a');
+  }
+  // Empty the beaker (refund) so the player can start a fresh combo
+  beaker = [null, null, null];
+  syncBeaker();
+  // If codex is open, ping the existing creature cell
+  if (_codexModal && _codexModal.classList.contains('is-open')) {
+    // Re-open to get a fresh render with the ping highlight
+    setTimeout(() => pingCodexCell(key), 50);
+  }
+}
+
 function fuse() {
   const ids = beaker.map((b) => b.id).sort();
   const key = ids.join(',');
+  // -- Unique recipe rule: same 3 ingredients = one-shot per profile --------
+  if (discoveredCombos.has(key)) {
+    handleAlreadyDiscovered(key);
+    return;
+  }
   experiments++;
   let result;
   if (LEGENDARY[key]) {
@@ -575,6 +783,32 @@ function fuse() {
   }
   const isNew = !discoveries[key];
   if (isNew) discoveries[key] = result;
+  // Mark this combo as discovered no matter what (procedural results may map
+  // to a creature name that's already in the codex — but the combo itself is
+  // novel and counts as a discovery).
+  discoveredCombos.add(key);
+  // ===== Per-tier completion check =====
+  // After the new discovery is recorded, recount how many discoveries the
+  // result's tier now has. If we just hit TIER_TARGETS for that tier AND we
+  // haven't already unlocked it, fire the celebration + persist the unlock.
+  if (isNew) {
+    const tier = result.tier || (result.legendary ? 'LEGENDARY' : (result.cursed ? 'CURSED' : 'COMMON'));
+    const target = TIER_TARGETS[tier];
+    if (target && !tierUnlocks[tier]) {
+      // Count this tier's discoveries (after just adding the new one).
+      let n = 0;
+      for (const d of Object.values(discoveries)) {
+        const t = d.tier || (d.legendary ? 'LEGENDARY' : (d.cursed ? 'CURSED' : 'COMMON'));
+        if (t === tier) n++;
+      }
+      if (n >= target) {
+        tierUnlocks[tier] = true;
+        saveTierUnlocks();
+        // Delay the banner slightly so the fusion popup is visible first.
+        setTimeout(() => showTierComplete(tier), 700);
+      }
+    }
+  }
   showResult(result, isNew);
   // Big lightning flash on every fuse
   flashArc();
@@ -582,6 +816,8 @@ function fuse() {
   syncBeaker();
   save();
   renderCollection();
+  renderIngredients(); // refresh combo-count badges
+  applyIngredientFilter(); // re-apply filter after re-render
   refreshShelfBg();
   updateHud();
   // Celebration FX
@@ -616,7 +852,11 @@ function fuse() {
 function showResult(r, isNew) {
   resEl.innerHTML = '';
   const div = document.createElement('div');
-  div.className = 'lab-result' + (r.legendary ? ' legendary' : (r.cursed ? ' cursed' : ''));
+  // Cosmetic tier-aura: applied to every future fusion result whose tier the
+  // player has previously fully unlocked. CSS adds a soft pulsing halo.
+  const _tier = r.tier || (r.legendary ? 'LEGENDARY' : (r.cursed ? 'CURSED' : 'COMMON'));
+  const _auraCls = tierUnlocks[_tier] ? ` has-tier-aura ${_tier}` : '';
+  div.className = 'lab-result' + (r.legendary ? ' legendary' : (r.cursed ? ' cursed' : '')) + _auraCls;
   const cols = _pugColorsFor(r.key || r.name || r.icon);
   const pugSlot = document.createElement('div'); pugSlot.className = 'lab-result__pug';
   pugSlot.style.display = 'flex'; pugSlot.style.alignItems = 'center'; pugSlot.style.justifyContent = 'center';
@@ -665,32 +905,175 @@ function renderCollection() {
 }
 
 function updateHud() {
+  // "DISCOVERED" now means unique creatures in the codex; "COMBOS TRIED" is
+  // the size of discoveredCombos (real progression metric out of 1140).
   const total = Object.keys(discoveries).length;
+  const combos = discoveredCombos.size;
   const legCount = Object.values(discoveries).filter((d) => d.legendary).length;
-  document.getElementById('hud-discovered').textContent = `${total}/60`;
-  document.getElementById('hud-legendary').textContent = `${legCount}/${Object.keys(LEGENDARY).length}`;
-  document.getElementById('hud-exp').textContent = experiments;
+  const dEl = document.getElementById('hud-discovered');
+  // 60 is the curated target across all tiers (sum of TIER_TARGETS).
+  if (dEl) dEl.textContent = `${total}/60`;
+  const lEl = document.getElementById('hud-legendary');
+  if (lEl) lEl.textContent = `${legCount}/${Object.keys(LEGENDARY).length}`;
+  const eEl = document.getElementById('hud-exp');
+  if (eEl) eEl.textContent = `${experiments} (${combos}/${TOTAL_COMBOS})`;
+}
+
+// localStorage keys are profile-scoped via profileKey() — so two players on
+// the same browser don't share combos.
+const COMBOS_KEY = () => profileKey('mutation-lab:discoveredCombos');
+const STATE_KEY  = () => profileKey('mutation-lab:state');
+// Per-tier completion unlocks — once a tier hits its TIER_TARGETS count, the
+// player permanently unlocks a tier-coloured "aura" effect that appears on
+// future fusion results of that tier. Stored as { COMMON: true, RARE: true }.
+const TIER_UNLOCK_KEY = () => profileKey('mutation-lab:tierUnlocks');
+let tierUnlocks = {};
+function loadTierUnlocks() {
+  try {
+    const raw = localStorage.getItem(TIER_UNLOCK_KEY());
+    tierUnlocks = raw ? (JSON.parse(raw) || {}) : {};
+  } catch { tierUnlocks = {}; }
+}
+function saveTierUnlocks() {
+  try { localStorage.setItem(TIER_UNLOCK_KEY(), JSON.stringify(tierUnlocks)); } catch {}
+}
+
+// Confetti burst — N pieces flying outward from a screen point. Uses the
+// CSS `lab-confetti-fall` animation (declared above) for the actual motion.
+function confettiBurst(x, y, count, palette) {
+  for (let i = 0; i < count; i++) {
+    const el = document.createElement('div');
+    el.className = 'lab-confetti';
+    el.style.left = (x - 4) + 'px';
+    el.style.top  = (y - 6) + 'px';
+    el.style.background = palette[i % palette.length];
+    const a = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 1.4; // mostly upward
+    const r = 220 + Math.random() * 220;
+    el.style.setProperty('--tx',  `${Math.cos(a) * r}px`);
+    el.style.setProperty('--rot', `${(Math.random() - 0.5) * 1080}deg`);
+    el.style.animationDuration = (1.4 + Math.random() * 0.6) + 's';
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 2200);
+  }
+}
+
+// Tier-complete celebration: big drop-in banner + confetti burst across the
+// screen + arpeggio. Only ever fires once per profile per tier (we re-check
+// `tierUnlocks` before triggering in fuse()).
+function showTierComplete(tier) {
+  const banner = document.createElement('div');
+  banner.className = `lab-tier-banner ${tier}`;
+  banner.innerHTML = `
+    ★ TIER COMPLETE: ${tier} ★
+    <div class="lab-tier-banner__sub">Cosmetic aura unlocked for future ${tier.toLowerCase()} fusions!</div>
+  `;
+  document.body.appendChild(banner);
+  // Drop in
+  requestAnimationFrame(() => banner.classList.add('is-show'));
+  // Three confetti bursts staggered
+  const tierPalettes = {
+    COMMON:    ['#c8c8d8', '#fafaff', '#888898', '#5ef38c'],
+    RARE:      ['#4cc9f0', '#b0e8ff', '#ffd23f'],
+    EPIC:      ['#b055ff', '#d090ff', '#ff3aa1', '#ffd23f'],
+    LEGENDARY: ['#ffd23f', '#fff0a0', '#ff8e3c', '#ff3aa1'],
+    CURSED:    ['#ff3a3a', '#8a0808', '#ffd23f'],
+  };
+  const palette = tierPalettes[tier] || tierPalettes.COMMON;
+  confettiBurst(window.innerWidth * 0.5, window.innerHeight * 0.35, 36, palette);
+  setTimeout(() => confettiBurst(window.innerWidth * 0.3, window.innerHeight * 0.4, 24, palette), 200);
+  setTimeout(() => confettiBurst(window.innerWidth * 0.7, window.innerHeight * 0.4, 24, palette), 350);
+  // Big celebratory arp
+  sfx.arp([523, 659, 784, 1047, 1319, 1568], 'triangle', 0.09, 0.28, 0.32);
+  // Banner auto-dismiss
+  setTimeout(() => {
+    banner.classList.remove('is-show');
+    setTimeout(() => banner.remove(), 600);
+  }, 3800);
 }
 
 function save() {
   try {
+    // Per-profile combo + state
+    localStorage.setItem(STATE_KEY(), JSON.stringify({ discoveries, experiments }));
+    localStorage.setItem(COMBOS_KEY(), JSON.stringify([...discoveredCombos]));
+    // Legacy unscoped keys for backward compatibility (and the namespaced ones
+    // used by the hub's highscore/codex readers).
     localStorage.setItem('mutlab:state', JSON.stringify({ discoveries, experiments }));
-    // Also write to namespaced highscore + codex keys per spec
-    localStorage.setItem('wg:hs:mutation-lab', JSON.stringify({ score: Object.keys(discoveries).length, discovered: Object.keys(discoveries).length, experiments, ts: Date.now() }));
-    localStorage.setItem('wg:codex:mutation-lab', JSON.stringify(discoveries));
+    localStorage.setItem(profileKey('hs:mutation-lab'), JSON.stringify({
+      score: Object.keys(discoveries).length,
+      discovered: Object.keys(discoveries).length,
+      combos: discoveredCombos.size,
+      experiments, ts: Date.now(),
+    }));
+    localStorage.setItem(profileKey('codex:mutation-lab'), JSON.stringify(discoveries));
   } catch {}
 }
 function load() {
   try {
-    // Prefer the codex key if present
-    const codexRaw = localStorage.getItem('wg:codex:mutation-lab');
+    // Prefer per-profile keys; fall back to legacy unscoped storage.
+    const codexRaw = localStorage.getItem(profileKey('codex:mutation-lab'))
+                  || localStorage.getItem('wg:codex:mutation-lab');
     if (codexRaw) {
       discoveries = JSON.parse(codexRaw) || {};
     }
-    const s = JSON.parse(localStorage.getItem('mutlab:state') || '{}');
+    const stateRaw = localStorage.getItem(STATE_KEY()) || localStorage.getItem('mutlab:state');
+    const s = JSON.parse(stateRaw || '{}');
     if (s.discoveries && Object.keys(discoveries).length === 0) discoveries = s.discoveries;
     if (s.experiments) experiments = s.experiments;
-  } catch {}
+    // Combos: prefer the dedicated key; otherwise seed from existing
+    // discoveries so a returning player doesn't lose their progress.
+    const combosRaw = localStorage.getItem(COMBOS_KEY());
+    if (combosRaw) {
+      const arr = JSON.parse(combosRaw);
+      discoveredCombos = new Set(Array.isArray(arr) ? arr : []);
+    } else {
+      discoveredCombos = new Set(Object.keys(discoveries));
+    }
+  } catch {
+    discoveredCombos = new Set();
+  }
+}
+
+// ===== FILTER (Little Alchemy "show me what I haven't tried" toggle) =====
+// When ON, ingredients that have been used in 8+ discovered combos are dimmed
+// so the player sees at-a-glance which ones are under-explored. Pure UX win;
+// no balance change. The state lives in JS (not persisted) — toggling resets
+// per session, which is fine for a quick exploration aid.
+let _filterMode = false;
+const _filterBtn = document.createElement('button');
+_filterBtn.className = 'lab-codex-btn lab-filter-btn';
+// Position adjustment so it sits to the LEFT of the CODEX button. CSS below
+// adds the offset; codex button already lives at right:60px.
+_filterBtn.textContent = '🔍 FILTER';
+_filterBtn.style.right = 'calc(60px + 130px)'; // CODEX btn ~120px wide + small gap
+_filterBtn.style.background = 'linear-gradient(180deg, #4cc9f0, #1a6080)';
+_filterBtn.style.borderColor = '#a0e0ff';
+_filterBtn.style.boxShadow = '0 4px 0 #0a3050';
+_filterBtn.title = 'Dim ingredients used in 8+ discovered combos so you can find under-explored ones';
+document.body.appendChild(_filterBtn);
+_filterBtn.addEventListener('click', () => {
+  _filterMode = !_filterMode;
+  _filterBtn.textContent = _filterMode ? '✓ FILTER ON' : '🔍 FILTER';
+  _filterBtn.style.background = _filterMode
+    ? 'linear-gradient(180deg, #5ef38c, #1a6030)'
+    : 'linear-gradient(180deg, #4cc9f0, #1a6080)';
+  applyIngredientFilter();
+});
+
+// Apply / remove the dimmed look on ingredient cells based on combo count.
+function applyIngredientFilter() {
+  if (!ingEl) return;
+  const FILTER_THRESHOLD = 8;
+  ingEl.querySelectorAll('.lab-item').forEach((cell) => {
+    const id = cell.dataset.ingId;
+    if (!id) return;
+    const n = combosForIngredient(id);
+    if (_filterMode && n >= FILTER_THRESHOLD) {
+      cell.classList.add('lab-item--filtered');
+    } else {
+      cell.classList.remove('lab-item--filtered');
+    }
+  });
 }
 
 // ===== CODEX =====
@@ -716,7 +1099,7 @@ _codexModal.addEventListener('click', (e) => { if (e.target === _codexModal) _co
 function openCodex() {
   const sub = document.getElementById('codex-sub');
   const total = Object.keys(discoveries).length;
-  if (sub) sub.textContent = `DISCOVERED ${total}/60`;
+  if (sub) sub.textContent = `DISCOVERED ${total}/60 · COMBOS ${discoveredCombos.size}/${TOTAL_COMBOS}`;
   const body = document.getElementById('codex-body');
   body.innerHTML = '';
   // Group by tier; legendary key set is known. For other tiers we synthesize
@@ -741,6 +1124,7 @@ function openCodex() {
       const cell = document.createElement('div');
       cell.className = `lab-codex-cell ${tier} discovered`;
       cell.title = d.desc || d.name;
+      if (d.key) cell.dataset.comboKey = d.key;
       const iconWrap = document.createElement('div'); iconWrap.className = 'lab-codex-cell__icon';
       iconWrap.style.display = 'flex'; iconWrap.style.alignItems = 'center'; iconWrap.style.justifyContent = 'center';
       const cols = _pugColorsFor(d.key || d.name || d.icon);
@@ -763,13 +1147,29 @@ function openCodex() {
   _codexModal.classList.add('is-open');
 }
 
+// Briefly highlight a discovered creature cell in the codex (used when the
+// player tries to re-fuse a combo they've already done).
+function pingCodexCell(key) {
+  if (!_codexModal || !_codexModal.classList.contains('is-open')) return;
+  const cell = _codexModal.querySelector(`.lab-codex-cell[data-combo-key="${CSS.escape(key)}"]`);
+  if (!cell) return;
+  cell.classList.remove('is-ping');
+  void cell.offsetWidth;
+  cell.classList.add('is-ping');
+  // Scroll into view so the player can actually see it
+  cell.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  setTimeout(() => cell && cell.classList.remove('is-ping'), 1000);
+}
+
 document.getElementById('start-btn').addEventListener('click', () => {
   document.getElementById('overlay').hidden = true;
   document.getElementById('overlay').classList.add('is-hidden');
   document.getElementById('hud').hidden = false;
   document.getElementById('lab').hidden = false;
   load();
+  loadTierUnlocks();
   renderIngredients();
+  applyIngredientFilter(); // honour current filter state on re-render
   renderCollection();
   refreshShelfBg();
   updateHud();
@@ -782,7 +1182,7 @@ const _startOv = document.getElementById('overlay');
 if (_startOv) {
   const _showOnHide = () => {
     if (_startOv.classList.contains('is-hidden') || _startOv.hidden) {
-      showTip('Tap 3 ingredients → ⚗ FUSE. Tap 📖 CODEX to track all 60 species. Yellow lever = sparks!', 7000);
+      showTip('Tap 3 ingredients → ⚗ FUSE. Each unique combo only works ONCE — get creative! 1140 combos exist. 📖 CODEX tracks all species.', 7500);
     }
   };
   new MutationObserver(_showOnHide).observe(_startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });

@@ -5,7 +5,7 @@ import { Pug } from './Pug.js';
 import { Zombie, ZOMBIE_TYPES, pickZombieType, waveLineup } from './Zombie.js';
 import { ProjectileManager } from './Projectile.js';
 import { WoodManager } from './Wood.js';
-import { Build, BUILDABLES, MATERIALS, canAfford, spend, costString } from './Build.js';
+import { Build, BUILDABLES, MATERIALS, canAfford, spend, costString, isLocked, recordSurvival } from './Build.js';
 import { Hud } from './Hud.js';
 import { Input } from './Input.js';
 import { Sfx } from './Sfx.js';
@@ -13,9 +13,16 @@ import { Generator } from './Generator.js';
 import { Boss } from './Boss.js';
 
 const DAY_DURATION = 30;
+const DAY_DURATION_FIRST = 45; // first day = longer prep (Night 1 ramp-fix)
 const NIGHT_DURATION = 50;
 const TRANSITION_DURATION = 3;
 const TOTAL_NIGHTS = 3;
+
+// Helper — longer prep on Night 1 only.
+function _dayDurationFor(nightsCompleted) {
+  // nightsCompleted = 0 -> Day 1 -> first night ahead
+  return nightsCompleted === 0 ? DAY_DURATION_FIRST : DAY_DURATION;
+}
 
 const PISTOL_DAMAGE = 20;
 const PISTOL_SPEED = 620;
@@ -37,7 +44,7 @@ export class Game {
     this.matchTime = 0;
     this.phase = 'day';
     this.phaseT = 0;
-    this.phaseTotal = DAY_DURATION;
+    this.phaseTotal = _dayDurationFor(0);
     this.nightIdx = 0;
     this.nightsSurvived = 0;
     this.nightSpawnTimer = 0;
@@ -51,7 +58,12 @@ export class Game {
     this.shakeT = 0;
     this.shakeMag = 0;
     this._lastPlayerHp = 100;
+    this._speedMult = 1; // toggled via the shared speedToggle button
     this._lastGenHp = null;
+    // Pity-drop tracker: every Nth kill globally guarantees the player's lowest
+    // material drops at the kill site. Counter persists across all kills.
+    this._killStreak = 0;
+    this._pityInterval = 8;
   }
 
   _screenShake(mag, dur) {
@@ -102,15 +114,17 @@ export class Game {
     this.matchTime = 0;
     this.phase = 'day';
     this.phaseT = 0;
-    this.phaseTotal = DAY_DURATION;
+    this.phaseTotal = _dayDurationFor(0); // first day = longer prep
     this.nightIdx = 0;
     this.nightsSurvived = 0;
-    // Starting stash: enough wood to build a few walls; small scrap so player can try a spike
-    this.resources = { wood: 12, scrap: 2, explosives: 0, electronics: 0 };
+    // Starting stash: enough wood + scrap for a baseline starter wall before first night.
+    // (Was 12 wood / 2 scrap — too thin; players couldn't build even one full row.)
+    this.resources = { wood: 30, scrap: 15, explosives: 0, electronics: 0 };
     this.playerKills = 0;
     this.wallsBuilt = 0;
     this.turretsBuilt = 0;
     this.fireCooldown = 0;
+    this._killStreak = 0;
     this.running = true;
 
     this.hud.show();
@@ -141,7 +155,10 @@ export class Game {
   _update(ticker) {
     if (!this.running) return;
     if (this.gamepad) this.gamepad.pump();
-    const dt = Math.min(ticker.deltaMS / 1000, 1 / 30);
+    // Only the night phase honours the 1x/2x/3x speed toggle. Day/sunset/dawn
+    // stay at 1x so prep-time pacing doesn't get squashed.
+    const speed = (this.phase === 'night') ? (this._speedMult || 1) : 1;
+    const dt = Math.min(ticker.deltaMS / 1000, 1 / 30) * speed;
     this.matchTime += dt;
     this.phaseT += dt;
 
@@ -177,12 +194,18 @@ export class Game {
       this.phaseT = 0;
       this.nightIdx += 1;
       this.nightTotalSpawned = 0;
-      this.nightSpawnTarget = waveLineup(this.nightIdx);
+      const _diff = localStorage.getItem('pugfort:difficulty') || 'normal';
+      this.nightSpawnTarget = waveLineup(this.nightIdx, _diff);
       this.nightSpawnTimer = 0;
       this._announceWave();
       this.hud.showWaveBanner(`NIGHT ${this.nightIdx}`);
       this._screenShake(5, 0.35);
       Sfx.phaseNight();
+      // Bottom-center "incoming" wave preview — fired AFTER state set so callers
+      // see correct night index. Non-critical, wrap in try/catch.
+      if (typeof this.onWaveStart === 'function') {
+        try { this.onWaveStart(this.nightIdx, this.nightSpawnTarget); } catch (e) { /* */ }
+      }
     } else if (this.phase === 'night') {
       this.nightsSurvived += 1;
       for (const z of this.zombies) z.alive = false;
@@ -192,7 +215,8 @@ export class Game {
       this.hud.toastMessage(`🌅 Survived night ${this.nightIdx} / ${TOTAL_NIGHTS}`, 'good');
     } else if (this.phase === 'dawn') {
       this.phase = 'day';
-      this.phaseTotal = DAY_DURATION;
+      // nightsSurvived has incremented at end of night; helper uses that count
+      this.phaseTotal = _dayDurationFor(this.nightsSurvived);
       this.phaseT = 0;
       this.wood.scatter(18, this.world.width, this.world.height);
       this.hud.toastMessage(`☀️ DAY ${this.nightIdx + 1} — fortify!`, 'good');
@@ -371,6 +395,8 @@ export class Game {
         this._spawnDeathPoof(z.x, z.y, z.def.color);
         // ----- material drops by zombie type -----
         const drops = this._dropsForZombie(z);
+        // Pity safeguard: every Nth kill, boost the player's lowest stockpile
+        this._maybePityDrop(z, drops);
         // Wood drops as collectible logs (the player walks over them)
         if (drops.wood > 0) this.wood.spawnAt(z.x, z.y, drops.wood);
         // Other materials go directly into player inventory + show toast
@@ -382,6 +408,11 @@ export class Game {
           }
         }
         if (directGains.length) this.hud.toastMessage(directGains.join(' '), 'good');
+        if (this._pityToastQueued) {
+          const { key, amount } = this._pityToastQueued;
+          this.hud.toastMessage(`★ LUCKY +${amount} ${MATERIALS[key].icon}`, 'good');
+          this._pityToastQueued = null;
+        }
         z.destroy();
         this.zombies.splice(i, 1);
         this.playerKills += 1;
@@ -455,19 +486,36 @@ export class Game {
   }
 
   // Per-zombie-type drop table. Wood drops as a log; rest go to inventory.
+  // Boosted non-wood rates so walker-heavy Night 1 actually drops scrap.
   _dropsForZombie(z) {
     const t = z.type;
     const r = Math.random;
     const drops = { wood: 0, scrap: 0, explosives: 0, electronics: 0 };
-    if (t === 'walker')        { drops.wood = 1 + Math.floor(r() * 2); }
-    else if (t === 'runner')   { drops.wood = 1; if (r() < 0.5) drops.scrap = 1; }
-    else if (t === 'tank')     { drops.wood = 3; drops.scrap = 2; if (r() < 0.3) drops.electronics = 1; }
-    else if (t === 'spitter')  { drops.wood = 1; drops.scrap = 1; if (r() < 0.65) drops.electronics = 1; }
-    else if (t === 'exploder') { drops.wood = 1; drops.explosives = 2 + Math.floor(r() * 2); }
-    else if (t === 'screamer') { drops.wood = 2; drops.scrap = 1; if (r() < 0.35) drops.explosives = 1; }
-    else if (t === 'digger')   { drops.wood = 2; drops.scrap = 1 + Math.floor(r() * 2); }
-    else if (t === 'cloaker')  { drops.wood = 1; if (r() < 0.6) drops.electronics = 1; }
+    if (t === 'walker')        { drops.wood = 1 + Math.floor(r() * 2); if (r() < 0.25) drops.scrap = 1 + Math.floor(r() * 2); }
+    else if (t === 'runner')   { drops.wood = 1; if (r() < 0.65) drops.scrap = 1 + Math.floor(r() * 2); }
+    else if (t === 'tank')     { drops.wood = 2 + Math.floor(r() * 2); drops.scrap = 2; if (r() < 0.50) drops.electronics = 1; }
+    else if (t === 'spitter')  { drops.wood = 1; drops.scrap = 1 + Math.floor(r() * 2); if (r() < 0.85) drops.electronics = 1; }
+    else if (t === 'exploder') { drops.wood = 1; drops.explosives = 2 + Math.floor(r() * 2); if (r() < 0.30) drops.scrap = 1; }
+    else if (t === 'screamer') { drops.wood = 2; drops.scrap = 1 + Math.floor(r() * 2); if (r() < 0.55) drops.explosives = 1; }
+    else if (t === 'digger')   { drops.wood = 2; drops.scrap = 1 + Math.floor(r() * 2); if (r() < 0.30) drops.electronics = 1; }
+    else if (t === 'cloaker')  { drops.wood = 1; if (r() < 0.80) drops.electronics = 1; if (r() < 0.30) drops.scrap = 1; }
     return drops;
+  }
+
+  // Pity-drop helper — every Nth kill, the player's lowest-stockpile resource
+  // is bumped at the kill site so a run never starves on one material.
+  _maybePityDrop(z, drops) {
+    this._killStreak += 1;
+    if (this._killStreak % this._pityInterval !== 0) return;
+    // Find lowest of the 4 tracked resources
+    const keys = ['wood', 'scrap', 'explosives', 'electronics'];
+    let lo = keys[0];
+    for (const k of keys) {
+      if ((this.resources[k] || 0) < (this.resources[lo] || 0)) lo = k;
+    }
+    const bonus = lo === 'wood' ? (2 + Math.floor(Math.random() * 2)) : (1 + Math.floor(Math.random() * 2));
+    drops[lo] = (drops[lo] || 0) + bonus;
+    this._pityToastQueued = { key: lo, amount: bonus };
   }
 
   _spawnBoss() {
@@ -728,7 +776,9 @@ export class Game {
   // ---------- Turret AI ----------
   _updateTurrets(dt) {
     for (const t of this.build.placed) {
-      if (t.id !== 'turret') continue;
+      // turret/sniper handled below — also acidTurret and flamethrower share
+      // the auto-rotating-target-and-fire shape.
+      if (t.id !== 'turret' && t.id !== 'sniperTurret' && t.id !== 'acidTurret' && t.id !== 'flamethrower') continue;
       // find nearest alive zombie in range
       let nearest = null, nearestD2 = (t.def.range || 280) ** 2;
       for (const z of this.zombies) {
@@ -750,13 +800,28 @@ export class Game {
           t.fireCd = t.def.fireCooldown;
           const muzzleX = t.cx + Math.cos(t.rotation) * 22;
           const muzzleY = t.cy + Math.sin(t.rotation) * 22;
-          this.projectiles.spawn({
-            x: muzzleX, y: muzzleY,
-            vx: Math.cos(t.rotation) * t.def.projectileSpeed,
-            vy: Math.sin(t.rotation) * t.def.projectileSpeed,
-            damage: t.def.damage,
-            color: COLORS.neonCyan,
-          });
+          // ACID TURRET — lob an acid blob that creates a lingering pool on impact.
+          if (t.def.isAcid) {
+            this._spawnAcidShot(muzzleX, muzzleY, t.rotation, t.def);
+          } else if (t.def.isFlame) {
+            // FLAMETHROWER — short bright projectile + add a brief flame patch.
+            this.projectiles.spawn({
+              x: muzzleX, y: muzzleY,
+              vx: Math.cos(t.rotation) * t.def.projectileSpeed,
+              vy: Math.sin(t.rotation) * t.def.projectileSpeed,
+              damage: t.def.damage,
+              lifetime: 0.35,
+              color: 0xff8a3a,
+            });
+          } else {
+            this.projectiles.spawn({
+              x: muzzleX, y: muzzleY,
+              vx: Math.cos(t.rotation) * t.def.projectileSpeed,
+              vy: Math.sin(t.rotation) * t.def.projectileSpeed,
+              damage: t.def.damage,
+              color: COLORS.neonCyan,
+            });
+          }
           this._spawnMuzzleFlash(muzzleX, muzzleY, t.rotation);
           Sfx.turretFire();
         }
@@ -764,6 +829,103 @@ export class Game {
         t.fireCd = Math.max(0, t.fireCd - dt);
       }
     }
+    // Update lingering acid pools (spawned by acidTurret hits).
+    this._updateAcidPools(dt);
+  }
+
+  // Acid blob — a slow heavy projectile that creates a damaging pool on contact.
+  _spawnAcidShot(x, y, angle, def) {
+    if (!this._acidShots) this._acidShots = [];
+    const g = new Graphics();
+    g.x = x; g.y = y;
+    g.circle(0, 0, 7).fill(0x6aaa3a);
+    g.circle(0, 0, 4).fill(0x9af09a);
+    g.circle(-1, -1, 1.5).fill(0xffffff);
+    this.world.effectsLayer.addChild(g);
+    this._acidShots.push({
+      g, x, y,
+      vx: Math.cos(angle) * def.projectileSpeed,
+      vy: Math.sin(angle) * def.projectileSpeed,
+      damage: def.damage,
+      lifetime: 1.5,
+      def,
+    });
+  }
+
+  _updateAcidPools(dt) {
+    // Move + collide acid blobs first.
+    if (this._acidShots) {
+      for (let i = this._acidShots.length - 1; i >= 0; i--) {
+        const b = this._acidShots[i];
+        b.x += b.vx * dt; b.y += b.vy * dt;
+        b.g.x = b.x; b.g.y = b.y;
+        b.lifetime -= dt;
+        let hit = false;
+        for (const z of this.zombies) {
+          if (!z.alive) continue;
+          const dx = z.x - b.x, dy = z.y - b.y;
+          if (dx * dx + dy * dy < (z.radius + 8) * (z.radius + 8)) {
+            z.takeDamage(b.damage);
+            hit = true; break;
+          }
+        }
+        if (!hit) {
+          for (const w of this.build.placed) {
+            if (b.x >= w.x && b.x <= w.x + w.width && b.y >= w.y && b.y <= w.y + w.height) {
+              hit = true; break;
+            }
+          }
+        }
+        if (hit || b.lifetime <= 0) {
+          // spawn lingering pool at impact site
+          this._spawnAcidPool(b.x, b.y, b.def);
+          b.g.destroy();
+          this._acidShots.splice(i, 1);
+        }
+      }
+    }
+    // Active acid pools — damage zombies standing in them.
+    if (!this._acidPools) this._acidPools = [];
+    for (let i = this._acidPools.length - 1; i >= 0; i--) {
+      const p = this._acidPools[i];
+      p.life -= dt;
+      const a = Math.max(0, p.life / p.maxLife);
+      if (p.g) p.g.alpha = 0.35 + 0.35 * a;
+      for (const z of this.zombies) {
+        if (!z.alive) continue;
+        const dx = z.x - p.x, dy = z.y - p.y;
+        if (dx * dx + dy * dy < p.radius * p.radius) {
+          z.takeDamage(p.dps * dt);
+        }
+      }
+      if (p.life <= 0) {
+        if (p.g) p.g.destroy();
+        this._acidPools.splice(i, 1);
+      }
+    }
+  }
+
+  _spawnAcidPool(x, y, def) {
+    const r = def.acidPoolRadius || 60;
+    const g = new Graphics();
+    g.x = x; g.y = y;
+    g.circle(0, 0, r).fill({ color: 0x6aaa3a, alpha: 0.55 });
+    g.circle(0, 0, r * 0.7).fill({ color: 0x9af09a, alpha: 0.4 });
+    // a few darker speckles for texture
+    for (let i = 0; i < 6; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const d = Math.random() * r * 0.8;
+      g.circle(Math.cos(a) * d, Math.sin(a) * d, 2).fill({ color: 0x3a6a1a, alpha: 0.6 });
+    }
+    this.world.effectsLayer.addChildAt(g, 0);
+    if (!this._acidPools) this._acidPools = [];
+    this._acidPools.push({
+      g, x, y,
+      radius: r,
+      dps: def.acidPoolDps || 14,
+      life: def.acidPoolDur || 3.0,
+      maxLife: def.acidPoolDur || 3.0,
+    });
   }
 
   // ---------- Projectiles ----------
@@ -782,7 +944,7 @@ export class Game {
 
   // ---------- Build ----------
   _updateBuild() {
-    const buildHotkeys = ['wall', 'sandbag', 'spike', 'mine', 'turret', 'sniperTurret', 'repair'];
+    const buildHotkeys = ['wall', 'sandbag', 'spike', 'mine', 'turret', 'sniperTurret', 'repair', 'acidTurret', 'genShield', 'flamethrower'];
     if (this.input.takeOnePress())   { this.build.toggle(buildHotkeys[0]); this.hud.setBuildActive(!!this.build.selected, this.build.selected); }
     if (this.input.takeTwoPress())   { this.build.toggle(buildHotkeys[1]); this.hud.setBuildActive(!!this.build.selected, this.build.selected); }
     if (this.input.takeThreePress()) { this.build.toggle(buildHotkeys[2]); this.hud.setBuildActive(!!this.build.selected, this.build.selected); }
@@ -790,6 +952,9 @@ export class Game {
     if (this.input.takeFivePress())  { this.build.toggle(buildHotkeys[4]); this.hud.setBuildActive(!!this.build.selected, this.build.selected); }
     if (this.input.takeSixPress())   { this.build.toggle(buildHotkeys[5]); this.hud.setBuildActive(!!this.build.selected, this.build.selected); }
     if (this.input.takeSevenPress()) { this.build.toggle(buildHotkeys[6]); this.hud.setBuildActive(!!this.build.selected, this.build.selected); }
+    if (this.input.takeEightPress?.()) { this.build.toggle(buildHotkeys[7]); this.hud.setBuildActive(!!this.build.selected, this.build.selected); }
+    if (this.input.takeNinePress?.())  { this.build.toggle(buildHotkeys[8]); this.hud.setBuildActive(!!this.build.selected, this.build.selected); }
+    if (this.input.takeZeroPress?.())  { this.build.toggle(buildHotkeys[9]); this.hud.setBuildActive(!!this.build.selected, this.build.selected); }
     if (this.input.takeBPress())     { this.build.toggle('wall'); this.hud.setBuildActive(!!this.build.selected, this.build.selected); }
     if (this.input.takeEscPress())   { this.build.cancel(); this.hud.setBuildActive(false); }
     if (this.input.takeQPress()) this.build.rotate(-Math.PI / 8);
@@ -829,6 +994,38 @@ export class Game {
   _updateBuildables(dt) {
     for (let i = this.build.placed.length - 1; i >= 0; i--) {
       const p = this.build.placed[i];
+      // HP-tier visual refresh (clean / cracked / smoking) — early-outs if
+      // tier didn't change since last frame.
+      this.build.refreshDamage(p);
+      // Auto-cull buildings that fall below 0 HP from any damage source.
+      if (p.hp != null && p.hp <= 0) {
+        this.build.removePlaced(p);
+        continue;
+      }
+      // Zombies adjacent to a wall/turret chew it down. Without this, walls
+      // were effectively invincible against regular zombies — boss was the
+      // only thing that hurt them, so the new damage tiers never appeared.
+      if (!p.def.isRepair && !p.def.isMine && !p.def.isTrap) {
+        for (const z of this.zombies) {
+          if (!z.alive || z.def.isRanged) continue;
+          // Quick AABB overlap test — zombie center within wall bbox (slop=zombie radius)
+          const r = z.radius || 14;
+          if (z.x >= p.x - r && z.x <= p.x + p.width + r &&
+              z.y >= p.y - r && z.y <= p.y + p.height + r) {
+            z._wallChewT = (z._wallChewT || 0) + dt;
+            if (z._wallChewT > 0.6) {
+              z._wallChewT = 0;
+              p.hp -= z.damage * 0.5;
+              if (p.hp <= 0) {
+                this.build.removePlaced(p);
+                break;
+              }
+            }
+          } else if (z._wallChewT) {
+            z._wallChewT = 0;
+          }
+        }
+      }
       if (p.def.isTrap) {
         // damage zombies standing on it
         for (const z of this.zombies) {

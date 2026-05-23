@@ -4,6 +4,13 @@ import { createSfx } from '../../src/shared/miniSfx.js';
 import { showTip } from '../../src/shared/tutorialTip.js';
 import { drawIcon, iconSvg } from '../../src/shared/icons.js';
 import { drawPug } from '../../src/shared/pugSprite.js';
+import { createSpeedToggle } from '../../src/shared/speedToggle.js';
+import { showWavePreview } from '../../src/shared/wavePreview.js';
+import { createMobileControls } from '../../src/shared/mobileControls.js';
+
+// Tower-defense is tap-only — the shared module just adds the BACK chip and
+// mute toggle in the corners (and is auto-hidden on desktop). No movement.
+createMobileControls({ layout: 'single-tap', buttons: [] });
 
 const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
@@ -534,6 +541,8 @@ const WAVES = [
 
 let money, lives, waveIdx, enemies, towers, projectiles, particles, popups, running, spawnQueue, spawnT, betweenWaveT, inWave, selectedTowerType, selectedTower;
 let runId = 0;
+// Shared speed-toggle multiplier — set by createSpeedToggle (1/2/3)
+let __speedMult = 1;
 // Screen-shake state (canvas translate during render) + wave banner
 let shakeT = 0, shakeMag = 0, waveBannerT = 0, waveBannerText = '', vaultFlashT = 0;
 function screenShake(mag, dur) { shakeMag = Math.max(shakeMag, mag); shakeT = Math.max(shakeT, dur); }
@@ -580,14 +589,38 @@ function showTowerPopup(t) {
   const def = TOWERS[t.type];
   // 1.5× base cost scaling per level: Lv2 = 1.5×base, Lv3 = 3×base, Lv4 = 4.5×base
   const upCost = Math.floor(def.cost * 1.5 * (t.level + 1));
+  // Current stats
+  const dmgNow   = def.dmg   * (1 + t.level * 0.25);
+  const rangeNow = def.range * (1 + t.level * 0.15);
+  const rateNow  = 1 / (def.cd / (1 + t.level * 0.2));
+  // Preview NEXT-level stats so the player sees what the $upCost buys
+  // (Bloons-TD-style upgrade preview). MAX_LEVEL is 3 (4 ranks).
+  const isMax = t.level >= 3;
+  const nextLvl  = t.level + 1;
+  const dmgNext   = def.dmg   * (1 + nextLvl * 0.25);
+  const rangeNext = def.range * (1 + nextLvl * 0.15);
+  const rateNext  = 1 / (def.cd / (1 + nextLvl * 0.2));
+  const dmgDelta   = dmgNext   - dmgNow;
+  const rangeDelta = rangeNext - rangeNow;
+  const rateDelta  = rateNext  - rateNow;
+  const canAfford = money >= upCost;
+  const upgradePreview = isMax
+    ? `<div class="upgrade-preview"><div class="row" style="justify-content:center;"><b style="color:var(--neon-yellow)">★ MAX LEVEL ★</b></div></div>`
+    : `<div class="upgrade-preview">
+        <div class="row" style="justify-content:center;"><b style="color:var(--neon-cyan)">NEXT: Lv ${nextLvl + 1}</b></div>
+        <div class="row"><span>DMG</span><b>${dmgNext.toFixed(0)} <span class="delta">+${dmgDelta.toFixed(0)}</span></b></div>
+        <div class="row"><span>RANGE</span><b>${rangeNext.toFixed(1)} <span class="delta">+${rangeDelta.toFixed(1)}</span></b></div>
+        <div class="row"><span>RATE</span><b>${rateNext.toFixed(1)}/s <span class="delta">+${rateDelta.toFixed(1)}</span></b></div>
+      </div>`;
   el.innerHTML = `
     <div class="row"><b>${def.icon} ${def.name}</b><span>Lv ${t.level + 1}</span></div>
-    <div class="row"><span>DMG</span><b>${(def.dmg * (1 + t.level * 0.25)).toFixed(0)}</b></div>
-    <div class="row"><span>RANGE</span><b>${(def.range * (1 + t.level * 0.15)).toFixed(1)}</b></div>
-    <div class="row"><span>RATE</span><b>${(1 / (def.cd / (1 + t.level * 0.2))).toFixed(1)}/s</b></div>
+    <div class="row"><span>DMG</span><b>${dmgNow.toFixed(0)}</b></div>
+    <div class="row"><span>RANGE</span><b>${rangeNow.toFixed(1)}</b></div>
+    <div class="row"><span>RATE</span><b>${rateNow.toFixed(1)}/s</b></div>
     <div class="row"><span>TARGET</span><b id="targ-label">${t.targeting || 'FIRST'} · ${TARGETING_LABEL[t.targeting || 'FIRST']}</b></div>
+    ${upgradePreview}
     <button id="targ-btn">↻ CHANGE TARGETING</button>
-    <button id="up-btn">⬆ UPGRADE — $${upCost}</button>
+    <button id="up-btn"${isMax || !canAfford ? ' disabled style="opacity:0.5;cursor:not-allowed;"' : ''}>${isMax ? 'MAX LEVEL' : `⬆ UPGRADE — $${upCost}`}</button>
     <button id="sell-btn" class="sell">SELL — $${Math.floor(t.totalCost * 0.6)}</button>
   `;
   el.style.display = 'block';
@@ -613,6 +646,28 @@ function showTowerPopup(t) {
 
 canvas.addEventListener('mousedown', (e) => handleClick(e.clientX, e.clientY));
 canvas.addEventListener('touchstart', (e) => { const t = e.touches[0]; handleClick(t.clientX, t.clientY); e.preventDefault(); }, { passive: false });
+// Desktop hover preview — while the user hasn't selected a tower for upgrade,
+// hovering an existing tower opens the upgrade-preview popup. Leaves the
+// click-to-select model intact; clicking simply pins the popup (it was already
+// pinned before this hover was added). On touch devices, mouseover doesn't
+// fire so this is a no-op.
+let _hoverTower = null;
+canvas.addEventListener('mousemove', (e) => {
+  if (!running) return;
+  const x = e.clientX, y = e.clientY;
+  const c = Math.floor((x - gridOffsetX()) / TILE);
+  const r = Math.floor((y - gridOffsetY()) / TILE);
+  const found = towers.find((t) => t.col === c && t.row === r) || null;
+  if (found === _hoverTower) return;
+  _hoverTower = found;
+  // Don't override a click-pinned selection
+  if (selectedTower) return;
+  if (found) showTowerPopup(found); else hidePopup();
+});
+canvas.addEventListener('mouseleave', () => {
+  _hoverTower = null;
+  if (!selectedTower) hidePopup();
+});
 function gridOffsetX() { return Math.floor((W - GRID_W * TILE) / 2); }
 function gridOffsetY() { return 60; }
 function handleClick(x, y) {
@@ -645,8 +700,17 @@ function handleClick(x, y) {
 
 function startWave() {
   if (inWave || waveIdx >= WAVES.length) return;
-  // Bonus money for calling early
-  if (betweenWaveT > 0) money += Math.floor(betweenWaveT * 5);
+  // Bonus money for calling early (Kingdom Rush mechanic). Pop a yellow text
+  // near the vault so the player sees the reward.
+  if (betweenWaveT > 0) {
+    const early = Math.floor(betweenWaveT * 5);
+    money += early;
+    if (early > 0 && currentMap?.path) {
+      const vlast = currentMap.path[currentMap.path.length - 1];
+      spawnPopup(vlast[0] * TILE + gridOffsetX() + TILE / 2, vlast[1] * TILE + gridOffsetY() - 6, `EARLY +$${early}`, '#ffd23f');
+    }
+    betweenWaveT = 0;
+  }
   const wv = WAVES[waveIdx];
   spawnQueue = [];
   for (const [type, count] of Object.entries(wv)) {
@@ -663,6 +727,17 @@ function startWave() {
   waveIdx++;
   waveBannerText = `WAVE ${waveIdx}`;
   waveBannerT = 1.4;
+  // Bottom-center "incoming" wave preview (icons + counts + mini-boss flag)
+  try {
+    const enemyIcons = { squirrel: '🐿️', cat: '🐱', tank: '🛡️', bird: '🐦', boss: '👹' };
+    const enemyList = Object.entries(wv).map(([type, count]) => ({
+      icon: enemyIcons[type] || '?', count, label: type.toUpperCase(),
+    }));
+    if (oneBased === 5 || oneBased === 10 || oneBased === 15) {
+      enemyList.push({ icon: '★', count: 1, label: 'MINI-BOSS' });
+    }
+    showWavePreview({ wave: waveIdx, enemies: enemyList, duration: 2400, color: oneBased === 15 ? '#b055ff' : '#ff3aa1' });
+  } catch (e) { /* preview is non-critical */ }
   buildBar();
 }
 
@@ -1186,12 +1261,39 @@ function start() {
   updateHud();
   sfx.resume();
 }
+// Kingdom-Rush-style "Call next wave early" button — visible only during the
+// calm period between waves. Clicking it triggers the next wave and grants
+// bonus money equal to the remaining timer (same formula startWave() already
+// uses: floor(betweenWaveT * 5)). The button text refreshes every frame.
+const callWaveBtn = document.getElementById('td-call-wave');
+const callWaveBonusEl = callWaveBtn?.querySelector('.td-call-bonus');
+callWaveBtn?.addEventListener('click', () => {
+  if (!running || inWave || waveIdx >= WAVES.length) return;
+  sfx.tone(920, 'square', 0.08, 0.22);
+  startWave();
+  callWaveBtn.hidden = true;
+});
+
+function refreshCallWaveBtn() {
+  if (!callWaveBtn) return;
+  const showable = running && !inWave && waveIdx < WAVES.length && betweenWaveT > 0.1;
+  callWaveBtn.hidden = !showable;
+  if (showable && callWaveBonusEl) {
+    const bonus = Math.floor(betweenWaveT * 5);
+    callWaveBonusEl.textContent = `(+$${bonus})`;
+  }
+}
+
 let lastT = performance.now();
 (function loop(now) {
-  const dt = Math.min((now - lastT) / 1000, 0.05);
+  const dt = Math.min((now - lastT) / 1000, 0.05) * __speedMult;
   lastT = now; tick(dt); if (running) render();
+  refreshCallWaveBtn();
   requestAnimationFrame(loop);
 })(performance.now());
+
+// Floating 1x/2x/3x speed toggle (top-right) — multiplies the tick dt
+createSpeedToggle({ onChange: (m) => { __speedMult = m; } });
 
 // Tutorial tip — shows briefly when the game starts (every match)
 const _startOv = document.getElementById('overlay');

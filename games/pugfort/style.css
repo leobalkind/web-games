@@ -525,3 +525,240 @@ canvas { display: block; image-rendering: pixelated; image-rendering: crisp-edge
   0%, 100% { box-shadow: 0 0 0 rgba(255, 58, 58, 0); }
   50%      { box-shadow: 0 0 18px rgba(255, 58, 58, 0.85); }
 }
+
+/* =================================================================
+   INTRO CUTSCENE — Kennel King reveal
+================================================================= */
+.pugfort-cutscene {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  background: #050208;
+  display: block;
+  cursor: pointer;
+  overflow: hidden;
+  animation: pfCsIn 0.3s ease-out;
+}
+.pugfort-cutscene.pf-cs--out { animation: pfCsOut 0.22s ease-in forwards; }
+@keyframes pfCsIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pfCsOut { from { opacity: 1; } to { opacity: 0; } }
+
+/* CRT vignette — heavy dark corners + subtle red tint */
+.pf-cs__vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at center,
+      rgba(20, 4, 10, 0) 0%,
+      rgba(20, 4, 10, 0.35) 55%,
+      rgba(10, 0, 4, 0.85) 92%,
+      rgba(0, 0, 0, 1) 100%),
+    radial-gradient(ellipse at center,
+      rgba(255, 40, 32, 0.10) 0%,
+      rgba(255, 40, 32, 0) 60%);
+}
+/* CRT scanlines */
+.pf-cs__scanlines {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(0, 0, 0, 0) 0,
+    rgba(0, 0, 0, 0) 2px,
+    rgba(0, 0, 0, 0.25) 3px,
+    rgba(0, 0, 0, 0) 4px
+  );
+  mix-blend-mode: multiply;
+  opacity: 0.6;
+}
+.pugfort-cutscene::after {
+  /* faint CRT curvature glow */
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 50% 40%, rgba(94,243,140,0.04), transparent 70%);
+}
+
+/* King canvas — centered, rises from bottom */
+.pf-cs__king {
+  position: absolute;
+  left: 50%;
+  bottom: 8%;
+  width: 320px;
+  height: 380px;
+  transform: translateX(-50%);
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  pointer-events: none;
+  filter: drop-shadow(0 0 24px rgba(255, 40, 32, 0.55));
+}
+
+/* Text positions */
+.pf-cs__top, .pf-cs__mid, .pf-cs__bottom {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(92%, 880px);
+  text-align: center;
+  pointer-events: none;
+  text-shadow: 0 0 12px rgba(255, 40, 32, 0.6), 0 0 4px #000;
+}
+.pf-cs__top { top: 8%; }
+.pf-cs__mid { top: 30%; }
+.pf-cs__bottom { bottom: 9%; }
+
+.pf-cs__line {
+  font-family: var(--font-display, 'Press Start 2P', monospace);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  line-height: 1.6;
+  color: var(--neon-green, #5ef38c);
+  min-height: 1.2em;
+  white-space: pre-wrap;
+}
+.pf-cs__line--top {
+  color: var(--neon-cyan, #4cc9f0);
+  font-size: 0.62rem;
+}
+.pf-cs__line--mid {
+  color: #ff7a7a;
+  font-size: 0.85rem;
+  font-style: italic;
+  letter-spacing: 0.06em;
+  text-shadow:
+    0 0 14px rgba(255, 60, 60, 0.85),
+    0 0 4px #000;
+}
+.pf-cs__line--prompt {
+  color: var(--neon-yellow, #ffd23f);
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+}
+.pf-cs__line--blink { animation: pfCsBlink 0.95s ease-in-out infinite; }
+@keyframes pfCsBlink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}
+
+/* SKIP button */
+.pf-cs__skip {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  background: rgba(10, 7, 22, 0.7);
+  border: 2px solid var(--neon-cyan, #4cc9f0);
+  color: var(--neon-cyan, #4cc9f0);
+  font-family: var(--font-display, 'Press Start 2P', monospace);
+  font-size: 0.55rem;
+  letter-spacing: 0.1em;
+  padding: 8px 14px;
+  border-radius: 4px;
+  cursor: pointer;
+  z-index: 2;
+  pointer-events: auto;
+  transition: all 0.12s;
+  box-shadow: 0 0 10px rgba(76, 201, 240, 0.3);
+}
+.pf-cs__skip:hover {
+  background: rgba(76, 201, 240, 0.15);
+  transform: scale(1.05);
+  box-shadow: 0 0 18px rgba(76, 201, 240, 0.5);
+}
+
+/* Reduced motion — skip flicker, snap text on */
+body.reduced-motion .pf-cs__line--blink { animation: none; opacity: 1; }
+body.reduced-motion .pugfort-cutscene { animation: none; }
+
+/* ===========================================================================
+ * META-UNLOCK PANEL — start-screen list of buildables earned across runs.
+ * Locked items are dimmed with a padlock; unlocked ones glow.
+ * =========================================================================== */
+.unlocks-panel {
+  margin: 12px 0 10px;
+  padding: 10px 12px;
+  background: rgba(20, 16, 32, 0.6);
+  border: 1px solid rgba(76, 201, 240, 0.35);
+  border-radius: 4px;
+  text-align: left;
+}
+.unlocks-title {
+  font-size: 0.55rem;
+  letter-spacing: 0.1em;
+  color: var(--neon-yellow);
+  margin-bottom: 6px;
+}
+.unlocks-progress {
+  font-size: 0.5rem;
+  letter-spacing: 0.05em;
+  color: #cfd6e6;
+  opacity: 0.85;
+  margin-bottom: 8px;
+}
+.unlocks-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.unlocks-list li {
+  font-size: 0.5rem;
+  letter-spacing: 0.03em;
+  padding: 4px 6px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.unlocks-list li .ul-icon { font-size: 0.9rem; line-height: 1; }
+.unlocks-list li .ul-name { flex: 1; }
+.unlocks-list li.locked {
+  opacity: 0.65;
+  background: rgba(40, 36, 60, 0.35);
+  color: #9aa0b8;
+}
+.unlocks-list li.locked .ul-icon { filter: grayscale(1) brightness(0.55); }
+.unlocks-list li.unlocked {
+  background: rgba(94, 243, 140, 0.12);
+  color: #d8ffe6;
+  border-left: 2px solid #5ef38c;
+}
+.unlocks-list li.unlocked.fresh {
+  animation: ul-pulse 1.4s ease-out 2;
+  box-shadow: 0 0 14px rgba(94, 243, 140, 0.5);
+}
+@keyframes ul-pulse {
+  0%   { background: rgba(94, 243, 140, 0.55); }
+  100% { background: rgba(94, 243, 140, 0.12); }
+}
+
+/* Locked hotbar slot — dim + padlock corner badge */
+.hud-slot--locked {
+  filter: grayscale(0.7) brightness(0.55);
+  position: relative;
+  cursor: not-allowed;
+}
+.hud-slot--locked::after {
+  content: "🔒";
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  font-size: 12px;
+  filter: drop-shadow(0 0 2px black);
+}
+
+/* "NEW UNLOCK" toast styling for end screen */
+.end-unlock-banner {
+  margin: 8px 0;
+  padding: 8px 12px;
+  background: linear-gradient(90deg, rgba(94,243,140,0.18) 0%, rgba(94,243,140,0) 100%);
+  border-left: 3px solid #5ef38c;
+  color: #d8ffe6;
+  font-size: 0.55rem;
+  letter-spacing: 0.05em;
+  animation: ul-pulse 1.4s ease-out 2;
+}

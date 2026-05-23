@@ -202,6 +202,11 @@
           <li><b>SHIFT</b> sprint (uses stamina)</li>
         </ul>
         <p class="overlay__tip">Collect <span class="wood-pip">wood</span> by day · Build <span class="wall-pip">walls</span> · Survive the <span class="night-pip">night</span></p>
+        <div id="unlocks-panel" class="unlocks-panel" hidden>
+          <div class="unlocks-title">META-UNLOCKS</div>
+          <div id="unlocks-progress" class="unlocks-progress">0 nights survived</div>
+          <ul id="unlocks-list" class="unlocks-list"></ul>
+        </div>
         <button id="start-btn" class="overlay__btn">PLAY</button>
         <a class="overlay__back" href="../../index.html">← back to hub</a>
       </div>
@@ -260,6 +265,18 @@
         <div class="hud-slot" id="slot-repair">
           <div class="hud-slot__num">7</div><div class="hud-slot__icon">➕</div>
           <div class="hud-slot__name">REPAIR</div><div class="hud-slot__cost">20🪵 8🔌</div>
+        </div>
+        <div class="hud-slot" id="slot-acidTurret">
+          <div class="hud-slot__num">8</div><div class="hud-slot__icon">🧪</div>
+          <div class="hud-slot__name">ACID</div><div class="hud-slot__cost">22🪵 10🔩 4💣</div>
+        </div>
+        <div class="hud-slot" id="slot-genShield">
+          <div class="hud-slot__num">9</div><div class="hud-slot__icon">🛡️</div>
+          <div class="hud-slot__name">SHIELD</div><div class="hud-slot__cost">8🪵 4🔩 4🔌</div>
+        </div>
+        <div class="hud-slot" id="slot-flamethrower">
+          <div class="hud-slot__num">0</div><div class="hud-slot__icon">🔥</div>
+          <div class="hud-slot__name">FLAMER</div><div class="hud-slot__cost">25🪵 12🔩 6💣</div>
         </div>
       </div>
       <div class="hud-build-hint" id="hud-build-hint" hidden>

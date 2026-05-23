@@ -7,6 +7,11 @@ import { showTip } from '../../src/shared/tutorialTip.js';
 import { drawIcon } from '../../src/shared/icons.js';
 import { drawPug } from '../../src/shared/pugSprite.js';
 import { profileKey } from '../../src/shared/profile.js';
+import { createMobileControls } from '../../src/shared/mobileControls.js';
+import { createKillFeed } from '../../src/shared/killFeed.js';
+
+// Scrolling kill feed (top-right) — pushed when buildings are destroyed.
+const __pugzillaFeed = createKillFeed({ maxLines: 5, lifespan: 4500 });
 
 // =============================================================================
 // SKINS / FORMS — 8 visual variants the player picks on the start screen.
@@ -123,6 +128,11 @@ const FORMS = [
 
 let pug, buildings, vehicles, helicopters, missiles, particles, powerups, score, smashed, eaten, hp, formIdx, borkCd, cam, running;
 let combo = 0, comboT = 0, dmgBoostT = 0;
+// Combo-flash overlay (center-screen) — { tier, t, life }
+let comboFlash = null;
+function comboFlashPopup(tier) {
+  comboFlash = { tier, t: 0, life: 1.1 };
+}
 let mouse = { x: 0, y: 0 };
 // EVOLUTION SHOP — stackable per-run upgrades bought with score.
 // Each stack of an upgrade multiplies its cost by 1.5.
@@ -173,7 +183,7 @@ function reset() {
   for (let i = 0; i < 18; i++) spawnVehicle();
   for (let i = 0; i < 3; i++) spawnHelicopter();
   score = 0; smashed = 0; eaten = 0; hp = 100; borkCd = 0;
-  combo = 0; comboT = 0; dmgBoostT = 0;
+  combo = 0; comboT = 0; dmgBoostT = 0; _comboTier = 0; comboFlash = null;
   cam = { x: pug.x, y: pug.y };
   shakeT = 0; shakeMag = 0; hitFlashT = 0;
   popups = []; smokeColumns = []; craters = [];
@@ -284,6 +294,16 @@ window.addEventListener('keydown', (e) => {
   if (e.key === ' ' || e.code === 'Space') doBork();
 });
 window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
+// Mobile controls — joystick + bork/shop buttons. The fire-tap is handled by
+// the existing canvas touchstart->smashAt logic, so we don't need aim-fire.
+createMobileControls({
+  layout: 'wasd-only',
+  keys,
+  buttons: [
+    { id: 'bork', label: 'BORK', key: 'Space' },
+  ],
+  getCanvas: () => canvas,
+});
 canvas.addEventListener('mousemove', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; });
 canvas.addEventListener('mousedown', () => smashAt(mouse.x + cam.x - W / 2, mouse.y + cam.y - H / 2));
 canvas.addEventListener('touchstart', (e) => {
@@ -427,18 +447,45 @@ function doBork() {
       if (b.hp <= 0) {
         score += 30; smashed++;
         spawnDust(cx, cy, b.color);
+        try { __pugzillaFeed.push(`BORK CRUSH · ${(b.typeId || 'BUILDING').toUpperCase()} +$30`, '#b055ff'); } catch (e) { /* */ }
         buildings.splice(i, 1);
       }
     }
   }
   particles.push({ ring: true, x: pug.x, y: pug.y, t: 0, maxR: reach });
 }
+// Rampage-arcade-style combo chain. 3+ smashes within COMBO_WINDOW seconds
+// fires a big center-screen popup, extra screen shake, and a bright bell SFX
+// — and the per-smash score multiplier ramps to x2 / x3 / x4 / x5.
+const COMBO_WINDOW = 2.0;
+let _comboTier = 0; // last tier that fired a popup so we don't double-pop
 function bumpCombo() {
   if (comboT > 0) combo++;
-  else combo = 1;
-  comboT = 2.0;
+  else { combo = 1; _comboTier = 0; }
+  comboT = COMBO_WINDOW;
+  // Tier check — combo=3 → x2 popup (tier=2), combo=4 → x3 (tier=3), etc.
+  const tier = comboMult();
+  if (combo >= 3 && tier > _comboTier) {
+    _comboTier = tier;
+    // Center-screen flash popup
+    if (typeof comboFlashPopup === 'function') comboFlashPopup(tier);
+    // Screen-shake spike (bigger at higher tiers)
+    addShake(6 + tier * 2, 0.28);
+    // Bright bell tone — ascending triad scaled with tier
+    const base = 740 + tier * 80;
+    try {
+      sfx.arp([base, base * 1.25, base * 1.5, base * 2], 'triangle', 0.045, 0.22, 0.18);
+    } catch (e) { /* */ }
+    // Push a kill-feed line so the side ticker also shows the combo
+    try { __pugzillaFeed.push(`WAHOO! COMBO ×${tier}`, '#ff3aa1'); } catch (e) { /* */ }
+  }
 }
-function comboMult() { return Math.min(5, 1 + (combo - 1) * 0.25); }
+// Multiplier ramp: combo=1 → 1.0, combo=2 → 1.0, combo=3 → 2.0,
+// combo=4 → 3.0, combo=5+ → 4.0 (cap at 5x just like the brief's x2/x3/x4).
+function comboMult() {
+  if (combo < 3) return 1;
+  return Math.min(5, combo - 1);
+}
 
 function smashBuilding(b, idx) {
   bumpCombo();
@@ -448,6 +495,12 @@ function smashBuilding(b, idx) {
   smashed++;
   // Lifetime smashed count (for VOID skin unlock).
   skinState.buildingsEverSmashed = (skinState.buildingsEverSmashed || 0) + 1;
+  try {
+    const name = (b.typeId || 'BUILDING').toUpperCase();
+    const tag = combo > 1 ? ` x${combo}` : '';
+    const color = combo > 2 ? '#ff3aa1' : combo > 1 ? '#ffd23f' : '#5ef38c';
+    __pugzillaFeed.push(`SMASHED · ${name} +$${gain}${tag}`, color);
+  } catch (e) { /* */ }
   addRage(b.special ? 14 : 8);
   // Civilians inside this building scatter on death
   for (const c of civilians) {
@@ -759,7 +812,12 @@ function tick(dt) {
   if (shopOpen) return; // pause world while shopping
   borkCd = Math.max(0, borkCd - dt);
   comboT = Math.max(0, comboT - dt);
-  if (comboT <= 0) combo = 0;
+  if (comboT <= 0) { combo = 0; _comboTier = 0; }
+  // Tick the center-screen combo-flash overlay
+  if (comboFlash) {
+    comboFlash.t += dt;
+    if (comboFlash.t >= comboFlash.life) comboFlash = null;
+  }
   dmgBoostT = Math.max(0, dmgBoostT - dt);
   // Rage decay (idle 5/sec) — only when not actively rampaging
   if (rampageT > 0) {
@@ -1156,6 +1214,43 @@ function render() {
     ctx.fillStyle = '#ff3a3a'; ctx.font = "10px 'Press Start 2P', monospace"; ctx.textAlign = 'left';
     ctx.fillText(`RAMPAGE ${rampageT.toFixed(1)}s`, rgX, rgY + 22);
   }
+  // Tasty-Planet-style NEXT FORM preview bar — strip below the rage bar
+  // showing the next evolution name + remaining vehicles + a silhouette of
+  // the next form. Hidden when already at the final form.
+  if (formIdx < FORMS.length - 1) {
+    const nextForm = FORMS[formIdx + 1];
+    const needed = 5;
+    const got = Math.min(eaten, needed);
+    const nfX = rgX, nfY = rgY + (rampageT > 0 ? 32 : 14);
+    const nfW = 100, nfH = 6;
+    // Track
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(nfX, nfY, nfW, nfH);
+    // Fill
+    ctx.fillStyle = nextForm.color;
+    ctx.fillRect(nfX, nfY, nfW * (got / needed), nfH);
+    ctx.strokeStyle = nextForm.color; ctx.lineWidth = 1;
+    ctx.strokeRect(nfX + 0.5, nfY + 0.5, nfW - 1, nfH - 1);
+    // Label (left)
+    ctx.fillStyle = nextForm.color;
+    ctx.font = "7px 'Press Start 2P', monospace"; ctx.textAlign = 'left';
+    ctx.fillText(`NEXT: ${nextForm.name.toUpperCase()}`, nfX, nfY - 3);
+    // Count (right)
+    ctx.fillStyle = '#c8c0e8';
+    ctx.font = "7px 'Press Start 2P', monospace"; ctx.textAlign = 'right';
+    ctx.fillText(`${got}/${needed} 🍴`, nfX + nfW, nfY - 3);
+    // Silhouette — small filled circle scaled relative to the next form's radius
+    // drawn just right of the bar (a "shape preview").
+    const silR = Math.max(4, Math.min(10, nextForm.r * 0.14));
+    const silX = nfX + nfW + 12, silY = nfY + nfH / 2;
+    ctx.fillStyle = nextForm.color; ctx.globalAlpha = 0.85;
+    ctx.beginPath(); ctx.arc(silX, silY, silR, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+    // Eye dots for the silhouette so it reads as a creature
+    ctx.fillStyle = '#0a0716';
+    ctx.beginPath(); ctx.arc(silX - silR * 0.32, silY - silR * 0.15, Math.max(1, silR * 0.18), 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(silX + silR * 0.32, silY - silR * 0.15, Math.max(1, silR * 0.18), 0, Math.PI * 2); ctx.fill();
+  }
   // HP bar
   ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(W / 2 - 100, 16, 200, 8);
   ctx.fillStyle = hp > 50 ? '#5ef38c' : (hp > 25 ? '#ffd23f' : '#ff3a3a');
@@ -1172,7 +1267,31 @@ function render() {
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
     ctx.fillRect(W / 2 - 100, 72, 200, 4);
     ctx.fillStyle = '#ffd23f';
-    ctx.fillRect(W / 2 - 100, 72, 200 * (comboT / 2.0), 4);
+    ctx.fillRect(W / 2 - 100, 72, 200 * (comboT / COMBO_WINDOW), 4);
+  }
+  // Rampage-style center-screen COMBO flash — pops once per new tier reached.
+  // Big neon text + 'WAHOO!' subtitle. Scales up then fades, 1.1s total.
+  if (comboFlash) {
+    const p = comboFlash.t / comboFlash.life; // 0..1
+    const ease = p < 0.2 ? p / 0.2 : 1; // pop in first
+    const fade = p > 0.7 ? 1 - (p - 0.7) / 0.3 : 1;
+    const alpha = Math.max(0, fade);
+    const scale = 0.6 + ease * 0.6 + Math.sin(p * Math.PI * 4) * 0.04;
+    const hue = (comboFlash.tier % 4) * 90; // shifts colour per tier
+    ctx.save();
+    ctx.translate(W / 2, H / 2 - 40);
+    ctx.scale(scale, scale);
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = `hsl(${hue}, 95%, 60%)`;
+    ctx.shadowColor = `hsl(${hue}, 95%, 60%)`; ctx.shadowBlur = 28;
+    ctx.font = "bold 56px 'Press Start 2P', monospace";
+    ctx.textAlign = 'center';
+    ctx.fillText(`COMBO ×${comboFlash.tier}!`, 0, 0);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#fff';
+    ctx.font = "bold 18px 'Press Start 2P', monospace";
+    ctx.fillText('WAHOO!', 0, 42);
+    ctx.restore();
   }
   // Damage boost banner
   if (dmgBoostT > 0) {

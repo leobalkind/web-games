@@ -6,6 +6,8 @@ import { createSfx } from '../../src/shared/miniSfx.js';
 import { showTip } from '../../src/shared/tutorialTip.js';
 import { drawIcon, iconSvg } from '../../src/shared/icons.js';
 import { drawPug } from '../../src/shared/pugSprite.js';
+import { createMobileControls } from '../../src/shared/mobileControls.js';
+import { showGradeCard } from '../../src/shared/gradeCard.js';
 
 const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
@@ -90,24 +92,62 @@ function genFloor(level) {
   walls.push({ x: 0, y: H - 12, w: W, h: 12 });
   walls.push({ x: 0, y: 0, w: 12, h: H });
   walls.push({ x: W - 12, y: 0, w: 12, h: H });
-  // Interior walls forming rooms (random)
+  // Interior walls forming rooms (random) — with connectivity guarantee.
+  // Spawn lives in cell (row=2, col=0), exit in (row=0, col=cols-1). Without a
+  // guarantee, ~33% of layouts seal the spawn cell off (see git history).
   const cols = 4, rows = 3;
   const cw = W / cols, ch = H / rows;
+  // vGaps[c] = set of rows where the vertical wall at column c has a door.
+  // hGaps[r] = set of cols where the horizontal wall at row r has a door.
+  const vGaps = []; // index by c in [1..cols-1]
+  const hGaps = []; // index by r in [1..rows-1]
+  for (let c = 1; c < cols; c++) vGaps[c] = new Set([Math.floor(Math.random() * rows)]);
+  for (let r = 1; r < rows; r++) hGaps[r] = new Set([Math.floor(Math.random() * cols)]);
+  // BFS over the cell grid using current door sets — returns true if (sr,sc) reaches (er,ec).
+  const spawnR = rows - 1, spawnC = 0, exitR = 0, exitC = cols - 1;
+  function reachable() {
+    const seen = Array.from({ length: rows }, () => new Array(cols).fill(false));
+    const queue = [[spawnR, spawnC]];
+    seen[spawnR][spawnC] = true;
+    while (queue.length) {
+      const [r, c] = queue.shift();
+      if (r === exitR && c === exitC) return true;
+      // up — cross horizontal wall at row r (if c is in hGaps[r])
+      if (r > 0 && hGaps[r] && hGaps[r].has(c) && !seen[r - 1][c]) { seen[r - 1][c] = true; queue.push([r - 1, c]); }
+      // down — cross horizontal wall at row r+1 (if c is in hGaps[r+1])
+      if (r < rows - 1 && hGaps[r + 1] && hGaps[r + 1].has(c) && !seen[r + 1][c]) { seen[r + 1][c] = true; queue.push([r + 1, c]); }
+      // left — cross vertical wall at col c (if r is in vGaps[c])
+      if (c > 0 && vGaps[c] && vGaps[c].has(r) && !seen[r][c - 1]) { seen[r][c - 1] = true; queue.push([r, c - 1]); }
+      // right — cross vertical wall at col c+1 (if r is in vGaps[c+1])
+      if (c < cols - 1 && vGaps[c + 1] && vGaps[c + 1].has(r) && !seen[r][c + 1]) { seen[r][c + 1] = true; queue.push([r, c + 1]); }
+    }
+    return false;
+  }
+  // Add random extra doors until spawn->exit is reachable (cap at 10 tries).
+  for (let attempt = 0; attempt < 10 && !reachable(); attempt++) {
+    if (Math.random() < 0.5 && cols > 1) {
+      const c = 1 + Math.floor(Math.random() * (cols - 1));
+      vGaps[c].add(Math.floor(Math.random() * rows));
+    } else if (rows > 1) {
+      const r = 1 + Math.floor(Math.random() * (rows - 1));
+      hGaps[r].add(Math.floor(Math.random() * cols));
+    }
+  }
+  // Final guarantee: if random additions failed, force-open a corridor
+  // up column 0 then right along row 0 (always connects spawn → exit).
+  if (!reachable()) {
+    for (let r = 1; r < rows; r++) hGaps[r].add(0);            // open column 0 vertically
+    for (let c = 1; c < cols; c++) vGaps[c].add(0);            // open row 0 horizontally
+  }
+  // Emit wall rectangles from finalized gap sets.
   for (let c = 1; c < cols; c++) {
-    let y = 0;
-    const gaps = [Math.floor(Math.random() * rows)];
     for (let r = 0; r < rows; r++) {
-      if (!gaps.includes(r)) {
-        walls.push({ x: c * cw - 6, y: r * ch + 10, w: 12, h: ch - 20 });
-      }
+      if (!vGaps[c].has(r)) walls.push({ x: c * cw - 6, y: r * ch + 10, w: 12, h: ch - 20 });
     }
   }
   for (let r = 1; r < rows; r++) {
-    const gaps = [Math.floor(Math.random() * cols)];
     for (let c = 0; c < cols; c++) {
-      if (!gaps.includes(c)) {
-        walls.push({ x: c * cw + 10, y: r * ch - 6, w: cw - 20, h: 12 });
-      }
+      if (!hGaps[r].has(c)) walls.push({ x: c * cw + 10, y: r * ch - 6, w: cw - 20, h: 12 });
     }
   }
   // Cat ally: 30% chance per floor (helpful distraction NPC)
@@ -264,6 +304,51 @@ function isWallNear(x, y, r) {
   }
   return false;
 }
+// Wrap angle delta to [-PI, PI] — used by ghost-cone heading diff check.
+function angDiff(a, b) {
+  let d = a - b;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  return d;
+}
+// Predict where a guard will be FACING in ~1.5s. For patrol: angle to the
+// upcoming waypoint after the current one (or pause-turn at current target).
+// For distracted: angle to the distraction. Returns null if can't predict.
+function predictGuardAngle(h) {
+  if (h.state === 'distracted' && h.distractTarget) {
+    return Math.atan2(h.distractTarget.y - h.y, h.distractTarget.x - h.x);
+  }
+  if (!h.patrol || h.patrol.length === 0) return null;
+  // Current target — guard is moving toward / pausing at this
+  const curr = h.patrol[h.patrolIdx];
+  const distToCurr = Math.hypot(curr.x - h.x, curr.y - h.y);
+  // If close to current target, guard will rotate to next waypoint shortly
+  if (distToCurr < 80) {
+    const nextIdx = (h.patrolIdx + 1) % h.patrol.length;
+    const next = h.patrol[nextIdx];
+    return Math.atan2(next.y - curr.y, next.x - curr.x);
+  }
+  // Otherwise, still heading toward current → ghost = same as current; skip drawing
+  return Math.atan2(curr.y - h.y, curr.x - h.x);
+}
+
+// Camera: 1.25x zoom centered on pug, clamped to world bounds (0,0)→(W,H).
+const CAM_ZOOM = 1.25;
+function getCamera() {
+  const viewW = W / CAM_ZOOM, viewH = H / CAM_ZOOM;
+  const cx = pug ? pug.x : W / 2;
+  const cy = pug ? pug.y : H / 2;
+  let camX = cx - viewW / 2;
+  let camY = cy - viewH / 2;
+  camX = Math.max(0, Math.min(W - viewW, camX));
+  camY = Math.max(0, Math.min(H - viewH, camY));
+  return { x: camX, y: camY, zoom: CAM_ZOOM };
+}
+// Convert screen-space (clientX/clientY) coords into world coords for input.
+function screenToWorld(sx, sy) {
+  const cam = getCamera();
+  return { x: cam.x + sx / cam.zoom, y: cam.y + sy / cam.zoom };
+}
 
 function rectCollide(e, dx, dy) {
   const r = 10;
@@ -292,6 +377,20 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'x' || e.key === 'X') doThrow();
 });
 window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
+// Mobile controls — wasd-only joystick + action buttons. Buttons synth keys so
+// the existing keydown handlers (Q smoke, T decoy, X throw, etc.) just fire.
+createMobileControls({
+  layout: 'wasd-only',
+  keys,
+  buttons: [
+    { id: 'bark',   label: 'BARK',  key: 'Space' },
+    { id: 'fart',   label: 'BOOST', key: 'Shift' },
+    { id: 'smoke',  label: 'SMOKE', key: 'Q' },
+    { id: 'throw',  label: 'THROW', key: 'X' },
+    { id: 'decoy',  label: 'DECOY', key: 'T' },
+  ],
+  getCanvas: () => canvas,
+});
 let touchAim = null;
 const _throwBtn = document.getElementById('throw-btn');
 if (_throwBtn) {
@@ -431,7 +530,10 @@ function doThrow() {
   if (keys.has('s') || keys.has('arrowdown')) dy += 1;
   if (keys.has('a') || keys.has('arrowleft')) dx -= 1;
   if (keys.has('d') || keys.has('arrowright')) dx += 1;
-  if (touchAim) { dx = touchAim.clientX - pug.x; dy = touchAim.clientY - pug.y; }
+  if (touchAim) {
+    const wp = screenToWorld(touchAim.clientX, touchAim.clientY);
+    dx = wp.x - pug.x; dy = wp.y - pug.y;
+  }
   const l = Math.hypot(dx, dy);
   if (l < 0.1) { dx = 1; dy = 0; } else { dx /= l; dy /= l; }
   // Land target: 180px ahead, clamped inside walls
@@ -485,7 +587,8 @@ function tick(dt) {
   if (keys.has('a') || keys.has('arrowleft')) mx -= 1;
   if (keys.has('d') || keys.has('arrowright')) mx += 1;
   if (touchAim) {
-    mx = touchAim.clientX - pug.x; my = touchAim.clientY - pug.y;
+    const wp = screenToWorld(touchAim.clientX, touchAim.clientY);
+    mx = wp.x - pug.x; my = wp.y - pug.y;
     const l = Math.hypot(mx, my);
     if (l > 20) { mx /= l; my /= l; } else { mx = 0; my = 0; }
   }
@@ -616,8 +719,9 @@ function tick(dt) {
       // Trigger BETWEEN-FLOOR SHOP overlay before advancing
       pendingFloor = floor + 1;
       shopPending = true;
-      openHeistShop();
       sfx.arp([523, 659, 784], 'triangle', 0.08, 0.22, 0.2);
+      // S/A/B/C/D grade card — wraps openHeistShop on dismissal
+      showFloorGrade(true);
       return;
     }
   }
@@ -711,6 +815,8 @@ function caught() {
   document.getElementById('hud').hidden = true;
   document.getElementById('end-overlay').hidden = false;
   document.getElementById('end-overlay').classList.remove('is-hidden');
+  // Grade card layered above the end-overlay buttons (per the spec).
+  showFloorGrade(false);
 }
 
 function render() {
@@ -723,6 +829,11 @@ function render() {
   }
   ctx.save();
   ctx.translate(_sx, _sy);
+  // Camera: pug-centered 1.25x zoom, clamped to (0,0)→(W,H) world bounds.
+  // Applied here so everything inside this save block draws in world space.
+  const _cam = getCamera();
+  ctx.scale(_cam.zoom, _cam.zoom);
+  ctx.translate(-_cam.x, -_cam.y);
   // BG: vary tile color by room cell (bedroom / hallway / vault look)
   const cols = 4, rows = 3;
   const cw = W / cols, ch = H / rows;
@@ -847,6 +958,24 @@ function render() {
     if (fn) fn(ctx, lt.x, lt.y, 22);
     ctx.shadowBlur = 0;
   }
+  // Loot-value tooltip — Monaco-style: hover/proximity reveals value BEFORE
+  // pickup, so the player can decide to skip the $30 sock vs grab the $200 crown.
+  for (const lt of loot) {
+    if (lt.taken) continue;
+    const d = Math.hypot(lt.x - pug.x, lt.y - pug.y);
+    if (d > 80) continue;
+    const alpha = Math.max(0.25, Math.min(1, (80 - d) / 50));
+    const name = lt.iconName.replace(/([A-Z])/g, ' $1').toUpperCase();
+    const label = `${name} · $${lt.val}`;
+    ctx.font = "8px 'Press Start 2P', monospace";
+    ctx.textAlign = 'center';
+    const tw = ctx.measureText(label).width;
+    const ly = lt.y - 22;
+    ctx.fillStyle = `rgba(0,0,0,${alpha * 0.82})`;
+    ctx.fillRect(lt.x - tw / 2 - 4, ly - 7, tw + 8, 11);
+    ctx.fillStyle = lt.rare ? `rgba(255,210,63,${alpha})` : `rgba(94,243,140,${alpha})`;
+    ctx.fillText(label, lt.x, ly + 1);
+  }
   // Exit zone (only when all loot taken)
   if (loot.every((l) => l.taken)) {
     ctx.strokeStyle = '#5ef38c'; ctx.lineWidth = 3;
@@ -864,6 +993,22 @@ function render() {
     const r = Math.max(255, Math.floor(255));
     const g = alert ? 58 : Math.floor(210 - sus * 130);
     const b = alert ? 58 : Math.floor(63 - sus * 5);
+    // GHOST CONE — faint preview of where guard will be facing in ~1.5s.
+    // Hitman-GO-style readability: lets players plan peeks. Hidden while alerted.
+    if (!alert) {
+      const ghostAng = predictGuardAngle(h);
+      if (ghostAng !== null && Math.abs(angDiff(ghostAng, h.ang)) > 0.08) {
+        ctx.fillStyle = `rgba(${r},${g},${b},0.08)`;
+        ctx.strokeStyle = `rgba(${r},${g},${b},0.35)`;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(h.x, h.y);
+        ctx.arc(h.x, h.y, 180, ghostAng - 0.6, ghostAng + 0.6);
+        ctx.closePath(); ctx.fill(); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
     ctx.fillStyle = `rgba(${r},${g},${b},0.20)`;
     ctx.beginPath();
     ctx.moveTo(h.x, h.y);
@@ -1004,18 +1149,8 @@ function render() {
       ctx.moveTo(l.x - 6, l.y - 3); ctx.lineTo(l.x + 6, l.y - 3); ctx.stroke();
     }
   }
-  ctx.restore(); // closes the shake-translate save
-  // Hit flash overlay (screen space, after shake)
-  if (hitFlashT > 0) {
-    ctx.fillStyle = `rgba(255,58,58,${Math.min(0.5, hitFlashT * 2)})`;
-    ctx.fillRect(0, 0, W, H);
-  }
-  // Vignette
-  const vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.max(W, H) * 0.65);
-  vg.addColorStop(0, 'rgba(0,0,0,0)');
-  vg.addColorStop(1, 'rgba(0,0,0,0.6)');
-  ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
-  // EAGLE EYE upgrade — overlay glowing red dots above each human (visible through walls)
+  // EAGLE EYE upgrade — overlay glowing red dots above each human (visible through walls).
+  // Drawn in world space so they track humans correctly under the camera zoom.
   if (runUpgrades.eagleEye) {
     for (const h of humans) {
       const pulse = 0.6 + 0.4 * Math.sin(performance.now() / 200);
@@ -1025,6 +1160,17 @@ function render() {
       ctx.beginPath(); ctx.arc(h.x, h.y - 18, 5, 0, Math.PI * 2); ctx.stroke();
     }
   }
+  ctx.restore(); // closes the shake-translate save (and camera transform)
+  // Hit flash overlay (screen space, after shake)
+  if (hitFlashT > 0) {
+    ctx.fillStyle = `rgba(255,58,58,${Math.min(0.5, hitFlashT * 2)})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+  // Vignette (screen space)
+  const vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.max(W, H) * 0.65);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, 'rgba(0,0,0,0.6)');
+  ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
   drawGadgetHud();
 }
 
@@ -1230,6 +1376,38 @@ function calcGrade() {
   if (collectedPct >= 0.6) return { grade: 'B', desc: 'GOOD' };
   if (collectedPct >= 0.4) return { grade: 'C', desc: 'MESSY' };
   return { grade: 'D', desc: 'ROUGH' };
+}
+
+// Shared grade card after each floor — supplements the existing CAUGHT screen
+// and replaces the silent shop-open on successful exit. On dismissal:
+//   - escaped=true  -> opens the between-floor shop
+//   - escaped=false -> ends the run (caught() already populated end-overlay)
+function showFloorGrade(escaped) {
+  const floorTaken = loot.filter((l) => l.taken).length;
+  const lootMax = Math.max(1, loot.length);
+  const elapsed = (performance.now() - floorStartTime) / 1000;
+  const timePct = escaped ? Math.max(40, Math.min(100, 100 - elapsed * 1.2)) : 30;
+  const lootPct = (floorTaken / lootMax) * 100;
+  const stealthPct = alertedThisFloor ? 0 : 100;
+  showGradeCard({
+    title: escaped ? `FLOOR ${floor} CLEARED` : `CAUGHT ON FLOOR ${floor}`,
+    subtitle: escaped ? 'Spend your haul before the next floor.' : 'Restart from floor 1.',
+    stats: [
+      { label: 'Loot',       value: lootPct,    weight: 0.5 },
+      { label: 'Stealth',    value: stealthPct, weight: 0.3 },
+      { label: 'Speed',      value: timePct,    weight: 0.2 },
+    ],
+    breakdown: [
+      { label: 'Loot taken', value: floorTaken,            max: lootMax },
+      { label: 'Undetected', value: alertedThisFloor ? 0 : 1, max: 1 },
+      { label: 'Time (s)',   value: Math.round(elapsed),   max: 60 },
+    ],
+    restartLabel: escaped ? 'CONTINUE' : 'RESTART',
+    onRestart: () => {
+      if (escaped) { openHeistShop(); }
+      else { start(); }
+    },
+  });
 }
 
 document.getElementById('start-btn').addEventListener('click', start);

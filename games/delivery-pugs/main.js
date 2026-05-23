@@ -7,6 +7,12 @@ import { createSfx } from '../../src/shared/miniSfx.js';
 import { showTip } from '../../src/shared/tutorialTip.js';
 import { drawIcon } from '../../src/shared/icons.js';
 import { drawPug } from '../../src/shared/pugSprite.js';
+import { createMobileControls } from '../../src/shared/mobileControls.js';
+import { showGradeCard } from '../../src/shared/gradeCard.js';
+import { createKillFeed } from '../../src/shared/killFeed.js';
+
+// Scrolling kill feed (top-right) for delivery completions
+const __deliveryFeed = createKillFeed({ maxLines: 5, lifespan: 4500 });
 
 const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
@@ -39,6 +45,15 @@ const VEHICLES = {
 let pug, vehicle, marker, obstacles, time, deliveries, fuel, running, cam;
 let powerups, skidMarks, nitroT, shieldT, magnetT;
 let combo = 0, comboT = 0, toxicPuddles = [], spikeStrips = [], achievementsSeen = new Set();
+// Crazy Taxi stunt system: continuous-drift timer + near-miss tracking.
+// driftHoldT counts up while skidding (continuous slide); once it crosses
+// 1.5s a "DRIFT +50" pops and a fresh cycle begins. nearMissCooldown is per-
+// zombie debounce so passing a single zombie at speed only fires once.
+let driftHoldT = 0;
+let driftAwardedT = 0; // tiny suppression so we don't double-award immediately
+let nearMissBank = new WeakMap(); // obstacle -> cooldown seconds (so close-call fires once per pass)
+let stuntMult = 1; // multiplier from chained drift/near-miss/delivery events; decays over time
+let stuntMultT = 0; // seconds remaining before stuntMult decays back to 1
 let weather = 'clear'; // 'clear' | 'rain' | 'fog' | 'night'
 let weatherT = 0; // seconds remaining in current weather
 let raindrops = []; // for rain visual
@@ -63,6 +78,13 @@ let exhaust = []; // tiny exhaust puffs from vehicle
 let burst = []; // pickup burst particles
 function addShake(mag, dur) { shakeMag = Math.max(shakeMag, mag); shakeT = Math.max(shakeT, dur); }
 function addPopup(x, y, text, color) { popups.push({ x, y, text, color: color || '#ffd23f', t: 0 }); if (popups.length > 30) popups.shift(); }
+// Stunt multiplier — bumped by drift/near-miss/delivery events. Each bump
+// adds 1 to the multiplier (capped at 5x) and refreshes the 6s window. While
+// active, awarded score values are scaled up. Decay is handled in tick().
+function bumpStunt(_pts) {
+  stuntMult = Math.min(5, stuntMult + 1);
+  stuntMultT = 6;
+}
 function addBurst(x, y, color, n) {
   for (let i = 0; i < (n || 8); i++) {
     const a = Math.random() * Math.PI * 2;
@@ -81,7 +103,7 @@ const ACHIEVEMENTS = {
 };
 let toasts = []; // {text, t}
 const keys = new Set();
-let touchAim = null;
+let touchAim = null; // legacy — kept null; mobile controls now use synth-WASD via shared module
 
 function reset() {
   vehicle = VEHICLES.skateboard;
@@ -96,6 +118,9 @@ function reset() {
   skidMarks = [];
   nitroT = 0; shieldT = 0; magnetT = 0;
   combo = 0; comboT = 0;
+  driftHoldT = 0; driftAwardedT = 0;
+  nearMissBank = new WeakMap();
+  stuntMult = 1; stuntMultT = 0;
   toxicPuddles = []; spikeStrips = []; toasts = [];
   weather = 'clear'; weatherT = 0; raindrops = [];
   // Spawn raccoons (2), toxic puddles (5), spike strips (4)
@@ -311,9 +336,18 @@ function triggerRoadEvent() {
 
 window.addEventListener('keydown', (e) => keys.add(e.key.toLowerCase()));
 window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
-canvas.addEventListener('touchstart', (e) => { touchAim = e.touches[0]; e.preventDefault(); }, { passive: false });
-canvas.addEventListener('touchmove', (e) => { touchAim = e.touches[0]; e.preventDefault(); }, { passive: false });
-canvas.addEventListener('touchend', () => touchAim = null);
+// Mobile controls — wasd-mouse joystick + HORN/NITRO action buttons.
+// Joystick synthesises WASD into the shared `keys` Set so the existing top-down
+// movement code at line ~400 works unchanged.
+createMobileControls({
+  layout: 'wasd-only',
+  keys,
+  buttons: [
+    { id: 'horn',  label: 'HORN',  key: 'Space' },
+    { id: 'nitro', label: 'NITRO', key: 'Shift' },
+  ],
+  getCanvas: () => canvas,
+});
 
 function tick(dt) {
   if (!running) return;
@@ -391,6 +425,7 @@ function tick(dt) {
     addBurst(bonusMarker.x, bonusMarker.y, '#b055ff', 22);
     addShake(6, 0.24);
     toasts.push({ text: 'MYSTERY PACKAGE DELIVERED!', t: 0 });
+    try { __deliveryFeed.push(`★ BONUS PACKAGE +${bonus}s`, '#b055ff'); } catch (e) { /* */ }
     bonusMarker = null;
     if (activeEvent && activeEvent.kind === 'package') { activeEvent.t = activeEvent.life; }
   }
@@ -480,6 +515,30 @@ function tick(dt) {
   }
   for (const s of skidMarks) s.t += dt;
   skidMarks = skidMarks.filter((s) => s.t < 3);
+  // Crazy Taxi DRIFT bonus — sustained skid >1.5s pops "DRIFT +50".
+  // Counts both true drift AND nitro-skid (matches the skid-mark trigger
+  // above so the visual and the scoring stay coupled).
+  driftAwardedT = Math.max(0, driftAwardedT - dt);
+  if (spd > 100 && (drifting || nitroT > 0)) {
+    driftHoldT += dt;
+    if (driftHoldT >= 1.5 && driftAwardedT <= 0) {
+      addPopup(pug.x, pug.y - 28, `DRIFT +50`, '#ff8e3c');
+      addBurst(pug.x, pug.y, '#ff8e3c', 12);
+      sfx.tone(660, 'triangle', 0.06, 0.18);
+      bumpStunt(50);
+      try { __deliveryFeed.push(`★ DRIFT +50`, '#ff8e3c'); } catch (e) { /* */ }
+      driftHoldT = 0;
+      driftAwardedT = 0.5; // small cooldown so we don't insta-re-award
+    }
+  } else {
+    driftHoldT = 0;
+  }
+  // Decay the stunt multiplier (separate from delivery combo so stunts don't
+  // expire as fast). Once stuntMultT runs out, multiplier eases back to 1.
+  if (stuntMultT > 0) {
+    stuntMultT -= dt;
+    if (stuntMultT <= 0) { stuntMult = 1; stuntMultT = 0; }
+  }
   // Powerup pickup
   const grabR = magnetT > 0 ? 80 : 22;
   for (let i = powerups.length - 1; i >= 0; i--) {
@@ -515,12 +574,24 @@ function tick(dt) {
     // Combo: deliveries within 12s chain
     if (comboT > 0) combo = Math.min(99, combo + 1); else combo = 1;
     comboT = 12;
-    const bonusTime = 18 + Math.floor(combo * 0.5);
+    const baseBonus = 18 + Math.floor(combo * 0.5);
+    // Stunt multiplier from drifts/near-misses scales the delivery time
+    // payout, giving Crazy Taxi-style "drive crazy = bigger payday" loop.
+    const bonusTime = Math.floor(baseBonus * stuntMult);
     time = Math.min(time + bonusTime, 60);
+    // Refresh the stunt multiplier window on every delivery so stunts during
+    // delivery runs keep the chain alive (separate decay so multi-stunt
+    // runs feel rewarding).
+    if (stuntMult > 1) stuntMultT = 6;
     sfx.arp([523, 659, 784, 1047], 'triangle', 0.08, 0.22, 0.25);
-    addPopup(marker.x, marker.y - 10, `+${bonusTime}s`, '#5ef38c');
+    const stuntTag = stuntMult > 1 ? ` ×${stuntMult}` : '';
+    addPopup(marker.x, marker.y - 10, `+${bonusTime}s${stuntTag}`, stuntMult > 1 ? '#ffd23f' : '#5ef38c');
     addBurst(marker.x, marker.y, '#5ef38c', 16);
     addShake(4, 0.18);
+    try {
+      const tag = combo > 1 ? ` x${combo}` : '';
+      __deliveryFeed.push(`DELIVERED #${deliveries}${tag}`, combo > 1 ? '#ff3aa1' : '#5ef38c');
+    } catch (e) { /* */ }
     // Achievement check
     if (ACHIEVEMENTS[deliveries] && !achievementsSeen.has(deliveries)) {
       toasts.push({ text: '🏆 ' + ACHIEVEMENTS[deliveries], t: 0 });
@@ -607,6 +678,23 @@ function tick(dt) {
     if (o.type !== 'mailbox') {
       const cd = Math.hypot(pug.x - o.x, pug.y - o.y);
       if (cd < 24) damage();
+      // Crazy Taxi "CLOSE CALL" — passing within 30px of a zombie at >150
+      // speed (and not actually colliding) awards 25. Per-obstacle cooldown
+      // via nearMissBank so a single zombie pass only fires once.
+      else if (o.type === 'zombie' && cd < 30 && spd > 150) {
+        const cd2 = nearMissBank.get(o) || 0;
+        if (cd2 <= 0) {
+          addPopup(pug.x, pug.y - 18, `CLOSE CALL +25`, '#ff3aa1');
+          addBurst((pug.x + o.x) / 2, (pug.y + o.y) / 2, '#ff3aa1', 6);
+          sfx.tone(880, 'triangle', 0.05, 0.16);
+          bumpStunt(25);
+          try { __deliveryFeed.push(`★ CLOSE CALL +25`, '#ff3aa1'); } catch (e) { /* */ }
+          nearMissBank.set(o, 1.2);
+        }
+      }
+      // Cool the near-miss bank for this obstacle even when not in proximity.
+      const cur = nearMissBank.get(o);
+      if (cur && cur > 0) nearMissBank.set(o, cur - dt);
     }
   }
   updateHud();
@@ -1092,19 +1180,66 @@ function render() {
       ctx.beginPath(); ctx.moveTo(d.x, d.y); ctx.lineTo(d.x - 4, d.y + 10); ctx.stroke();
     }
   }
-  // Off-screen marker arrow
-  const dx = marker.x - pug.x, dy = marker.y - pug.y;
-  const d = Math.hypot(dx, dy);
-  if (d > 300) {
-    const ang = Math.atan2(dy, dx);
-    const ex = W / 2 + Math.cos(ang) * (Math.min(W, H) / 2 - 60);
-    const ey = H / 2 + Math.sin(ang) * (Math.min(W, H) / 2 - 60);
-    ctx.save();
-    ctx.translate(ex, ey);
-    ctx.rotate(ang);
-    ctx.fillStyle = '#5ef38c';
-    ctx.beginPath(); ctx.moveTo(20, 0); ctx.lineTo(-12, -12); ctx.lineTo(-12, 12); ctx.closePath(); ctx.fill();
-    ctx.restore();
+  // Crazy Taxi directional arrow — large screen-edge arrow pointing to the
+  // current marker. Hides when the marker is on-screen so it doesn't clutter
+  // the camera view; otherwise clamps to a viewport-edge ring. Also draws an
+  // "ETA: X.Xs" estimate beneath the arrow head based on straight-line
+  // distance / current speed (clamped so a parked vehicle doesn't show 9999).
+  {
+    const dxA = marker.x - pug.x, dyA = marker.y - pug.y;
+    const dA = Math.hypot(dxA, dyA);
+    // On-screen detection — marker screen position vs viewport with a small
+    // safety margin so the arrow shows again the moment it slips off-edge.
+    const markerScreenX = marker.x - cam.x + W / 2;
+    const markerScreenY = marker.y - cam.y + H / 2;
+    const offEdge = markerScreenX < 60 || markerScreenX > W - 60 ||
+                    markerScreenY < 60 || markerScreenY > H - 60;
+    if (offEdge && dA > 80) {
+      const ang = Math.atan2(dyA, dxA);
+      // Clamp to a viewport-edge ring (rectangular clamp so the arrow hugs
+      // the side it points toward — matches Crazy Taxi).
+      const margin = 70;
+      const tx = Math.cos(ang), ty = Math.sin(ang);
+      // Distance from screen center to the rectangle edge along (tx,ty).
+      const halfW = W / 2 - margin, halfH = H / 2 - margin;
+      const scale = Math.min(
+        Math.abs(tx) > 1e-3 ? halfW / Math.abs(tx) : Infinity,
+        Math.abs(ty) > 1e-3 ? halfH / Math.abs(ty) : Infinity,
+      );
+      const ex = W / 2 + tx * scale;
+      const ey = H / 2 + ty * scale;
+      // Pulsing scale + glow so it reads in heavy weather / smog.
+      const pulse = 1 + Math.sin(performance.now() / 220) * 0.08;
+      ctx.save();
+      ctx.translate(ex, ey);
+      ctx.rotate(ang);
+      ctx.scale(pulse, pulse);
+      // Arrow shadow / outline
+      ctx.shadowColor = '#5ef38c'; ctx.shadowBlur = 18;
+      ctx.fillStyle = '#000';
+      ctx.beginPath(); ctx.moveTo(46, 0); ctx.lineTo(-18, -22); ctx.lineTo(-10, 0); ctx.lineTo(-18, 22); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#5ef38c';
+      ctx.beginPath(); ctx.moveTo(42, 0); ctx.lineTo(-14, -18); ctx.lineTo(-6, 0); ctx.lineTo(-14, 18); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#9affc0';
+      ctx.beginPath(); ctx.moveTo(36, 0); ctx.lineTo(-6, -10); ctx.lineTo(-6, 10); ctx.closePath(); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.restore();
+      // ETA label below the arrow, axis-aligned (no rotation).
+      const spdNow = Math.hypot(pug.vx, pug.vy);
+      const eta = spdNow > 25 ? (dA / spdNow) : 99;
+      const etaTxt = eta >= 99 ? 'ETA: --' : `ETA: ${eta.toFixed(1)}s`;
+      ctx.font = "bold 11px 'Press Start 2P', monospace";
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#000'; ctx.fillText(etaTxt, ex + 1, ey + 41);
+      ctx.fillStyle = eta < 5 ? '#ffd23f' : '#5ef38c';
+      ctx.fillText(etaTxt, ex, ey + 40);
+      // Distance label
+      ctx.fillStyle = '#000';
+      ctx.font = "9px 'Press Start 2P', monospace";
+      ctx.fillText(`${Math.floor(dA)}m`, ex + 1, ey + 55);
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.fillText(`${Math.floor(dA)}m`, ex, ey + 54);
+    }
   }
   // Time bar
   ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(W / 2 - 100, 16, 200, 8);
@@ -1145,6 +1280,20 @@ function render() {
     ctx.fillRect(W / 2 - 80, 100, 160, 4);
     ctx.fillStyle = '#ffd23f';
     ctx.fillRect(W / 2 - 80, 100, 160 * (comboT / 12), 4);
+  }
+  // Stunt multiplier — separate from delivery combo. Rises with drifts +
+  // near-misses, decays after 6s of no stunts. Shows just below combo banner.
+  if (stuntMult > 1 && running) {
+    const my = 124;
+    ctx.fillStyle = '#ff3aa1';
+    ctx.font = "bold 14px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.shadowColor = '#ff3aa1'; ctx.shadowBlur = 10;
+    ctx.fillText(`STUNT ×${stuntMult}`, W / 2, my);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(W / 2 - 60, my + 4, 120, 3);
+    ctx.fillStyle = '#ff3aa1';
+    ctx.fillRect(W / 2 - 60, my + 4, 120 * Math.max(0, Math.min(1, stuntMultT / 6)), 3);
   }
   // Toasts (achievement/combo messages)
   for (let i = 0; i < toasts.length; i++) {
@@ -1233,6 +1382,27 @@ function end() {
   document.getElementById('hud').hidden = true;
   document.getElementById('end-overlay').hidden = false;
   document.getElementById('end-overlay').classList.remove('is-hidden');
+  // S/A/B/C/D grade card — supplements existing end-overlay.
+  try {
+    const delPct  = Math.max(0, Math.min(100, (deliveries / 12) * 100));
+    const survPct = pug.hp > 0 ? 100 : 0;
+    const comboPct = Math.max(0, Math.min(100, ((combo || 0) / 6) * 100));
+    showGradeCard({
+      title: pug.hp <= 0 ? 'WIPED OUT' : 'SHIFT OVER',
+      subtitle: `${deliveries} delivery${deliveries === 1 ? '' : 's'} · $${deliveries * 12} tips`,
+      stats: [
+        { label: 'Deliveries', value: delPct,    weight: 0.6 },
+        { label: 'Survival',   value: survPct,   weight: 0.2 },
+        { label: 'Combo',      value: comboPct,  weight: 0.2 },
+      ],
+      breakdown: [
+        { label: 'Deliveries done', value: deliveries,  max: 12 },
+        { label: 'Best combo',      value: combo || 0,  max: 6 },
+        { label: 'Tips ($)',        value: deliveries * 12, max: 144 },
+      ],
+      onRestart: () => start(),
+    });
+  } catch (e) { /* */ }
 }
 
 function updateHud() {

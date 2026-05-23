@@ -2735,9 +2735,14 @@
         <button id="settings-btn" type="button" class="hub__icon-btn" title="Settings" aria-label="Settings">⚙</button>
         <button id="changelog-btn" type="button" class="hub__icon-btn" title="What's new" aria-label="What's new">★</button>
         <button id="stats-btn" type="button" class="hub__icon-btn" title="Your stats" aria-label="Your stats">📊</button>
+        <button id="mydata-btn" type="button" class="hub__icon-btn hub__icon-btn--accent" title="My data (per-profile saved runs)" aria-label="My data">💾</button>
         <button id="profile-btn" type="button" class="hub__icon-btn" title="Profile / account" aria-label="Profile">👤</button>
         <button id="random-btn" type="button" class="hub__icon-btn" title="Play a random game" aria-label="Play a random game">🎲</button>
-        <span id="profile-chip" class="hub__chip" title="Active profile" style="margin-left:8px;font-size:0.45rem;">👤 GUEST</span>
+        <span id="profile-chip" class="hub__chip hub__chip--profile" title="Active profile · click to switch" style="margin-left:8px;font-size:0.45rem;">
+          <span class="profile-chip__dot" style="background:#8a90b1"></span>
+          <span class="profile-chip__name">GUEST</span>
+          <span class="profile-chip__chev">▾</span>
+        </span>
       </footer>
     </main>
 
@@ -2859,7 +2864,11 @@
       import {
         listProfiles, getActive, setActive, createProfile, deleteProfile,
         verifyPin, exportProfile, importProfile, activeLabel, onChange,
+        profileColor, profileInitials,
       } from './src/shared/profile.js';
+      import {
+        initHubAccounts, syncProfileChip, openMyDataModal, forceShowLoginOverlay,
+      } from './src/hub/login.js';
 
       // Register service worker (offline cache) — only in production
       if ('serviceWorker' in navigator && location.hostname !== 'localhost') {
@@ -2922,10 +2931,6 @@
         const el = $('profile-error'); if (!el) return;
         el.textContent = msg; el.hidden = !msg;
       };
-      function syncProfileChip() {
-        const chip = $('profile-chip');
-        if (chip) chip.textContent = '👤 ' + activeLabel();
-      }
       function renderProfileModal() {
         profErr('');
         const active = getActive();
@@ -3017,8 +3022,9 @@
         });
         input.click();
       });
-      onChange(syncProfileChip);
-      syncProfileChip();
+      // login.js owns onChange + initial chip render via initHubAccounts()
+      // Hook the new "My Data" footer button
+      $('mydata-btn')?.addEventListener('click', () => openMyDataModal());
       function renderStats() {
         const cards = [...document.querySelectorAll('.hub__grid .card[href*="/games/"]')];
         const rows = [];
@@ -3069,9 +3075,21 @@
         closeModal('onboard-modal');
         localStorage.setItem('wg:onboarded', '1');
       });
-      // First visit → show onboarding
-      if (!localStorage.getItem('wg:onboarded')) {
+      // Boot the rich accounts UX (login overlay + chip + dropdown + My Data).
+      // Must run BEFORE the legacy onboarding logic so we can suppress the old
+      // tip modal when the player chose / created a profile.
+      initHubAccounts();
+      // First visit → show onboarding, but only AFTER the login overlay is
+      // resolved AND the player isn't actively in a profile (logged-in players
+      // have already seen the welcome via the login screen).
+      const _hasActive = !!getActive();
+      const _onboarded = !!localStorage.getItem('wg:onboarded');
+      if (!_onboarded && !_hasActive && localStorage.getItem('wg:login:guest') === '1') {
+        // Guest player who has not seen onboarding yet — show classic tip modal.
         setTimeout(() => openModal('onboard-modal'), 400);
+      } else if (_hasActive && !_onboarded) {
+        // Logged-in: implicitly mark onboarded so guests later don't see it twice.
+        localStorage.setItem('wg:onboarded', '1');
       }
       // Click backdrop closes
       ['settings-modal','changelog-modal','onboard-modal'].forEach((id) => {

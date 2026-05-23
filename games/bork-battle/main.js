@@ -6,14 +6,28 @@ import { Sfx } from './src/Sfx.js';
 import { createTouchControls } from '../../src/touch/touchControls.js';
 import '../../src/touch/touchControls.css';
 import { getGamepad } from '../../src/gamepad/gamepad.js';
+import { createMobileControls } from '../../src/shared/mobileControls.js';
 
 import { showTip } from '../../src/shared/tutorialTip.js';
 import { drawIcon, iconSvg } from '../../src/shared/icons.js';
+import { createSpeedToggle } from '../../src/shared/speedToggle.js';
+import { createKillFeed } from '../../src/shared/killFeed.js';
+import { showWavePreview } from '../../src/shared/wavePreview.js';
 
 // Detect touch device + create overlay controls (no-op on desktop)
 const touch = createTouchControls({ enableAbility: true, abilityLabel: 'BORK' });
 if (touch.enabled) document.body.classList.add('is-touch');
 const gp = getGamepad();
+// Universal mobile-controls overlay — for aim/fire bork-battle, the existing
+// dual-stick `touch` handles move+aim+fire; we add right-hand action buttons
+// (RELOAD, SHOP) on top so mobile users can reach them without keyboard.
+createMobileControls({
+  layout: 'single-tap',
+  buttons: [
+    { id: 'reload', label: 'RELOAD', key: 'R' },
+    { id: 'shop',   label: 'SHOP',   key: 'B' },
+  ],
+});
 
 const root = document.getElementById('game-root');
 const startOverlay = document.getElementById('overlay');
@@ -426,3 +440,65 @@ if (touch.enabled) {
   bind('touch-btn-decoy', (input) => input.triggerTouchQ());
   bind('touch-btn-heal',  (input) => input.triggerTouchR());
 }
+
+// ============ Shared utilities: speed toggle + kill feed + zone preview ============
+// Speed toggle is only enabled when a match is running (Game.running === true).
+// Zone-warn preview fires once when the danger zone starts shrinking and once
+// just before the "final" tight zone is reached.
+const __borkSpeed = createSpeedToggle({ onChange: (m) => { if (game) game._speedMult = m; } });
+__borkSpeed.setDisabled(true);
+const __borkFeed = createKillFeed({ maxLines: 5, lifespan: 5000 });
+
+game.onKillFeed = ({ killer, victim, byZone, weaponName, weaponIcon }) => {
+  // Surviv.io-style: "{icon} Killer borked Victim · WEAPON"
+  // Zone deaths skip the weapon tag and use the skull marker.
+  const v = victim?.name || '?';
+  if (!killer && byZone) {
+    __borkFeed.push(`☣ THE ZONE ▶ ${v}`, '#ff3aa1');
+    return;
+  }
+  const k = killer?.name || '?';
+  const color = killer === game.player ? '#5ef38c'
+              : victim === game.player ? '#ff3a3a'
+              : '#c8c0e8';
+  const icon = weaponIcon || '🐾';
+  const wpn = (weaponName || 'BORK').toUpperCase();
+  __borkFeed.push(`${icon} ${k} borked ${v} · ${wpn}`, color);
+};
+game.onLevelUp = (lvl) => {
+  try { __borkFeed.push(`★ LEVEL UP ${lvl} ★`, '#ffd23f'); } catch (e) { /* */ }
+};
+
+// Watch World.zone.shrinkStart to fire zone-warning previews. World is created
+// inside game.start(), so poll for it.
+let __zoneWarnSent = false, __zoneFinalSent = false;
+setInterval(() => {
+  if (!game) return;
+  __borkSpeed.setDisabled(!game.running || !!game.evolving);
+  const w = game.world;
+  if (!w || !w.zone || !game.running) { __zoneWarnSent = false; __zoneFinalSent = false; return; }
+  const z = w.zone;
+  const t = game.matchTime || 0;
+  // 5-second pre-warn before shrink starts
+  if (!__zoneWarnSent && t > Math.max(0, z.shrinkStart - 5) && t < z.shrinkStart) {
+    __zoneWarnSent = true;
+    showWavePreview({
+      title: 'ZONE CLOSING',
+      subtitle: 'Stay in the safe area',
+      enemies: [{ icon: '⚠', count: null, label: 'INCOMING' }],
+      duration: 2400,
+      color: '#ff3aa1',
+    });
+  }
+  // 5-second pre-warn before final shrink
+  if (!__zoneFinalSent && t > Math.max(0, z.shrinkEnd - 5) && t < z.shrinkEnd) {
+    __zoneFinalSent = true;
+    showWavePreview({
+      title: 'FINAL ZONE',
+      subtitle: 'No more safe ground',
+      enemies: [{ icon: '☠', count: null, label: 'LAST STAND' }],
+      duration: 2400,
+      color: '#b055ff',
+    });
+  }
+}, 400);

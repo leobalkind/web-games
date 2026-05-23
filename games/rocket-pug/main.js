@@ -4,6 +4,9 @@ import { createSfx } from '../../src/shared/miniSfx.js';
 import { showTip } from '../../src/shared/tutorialTip.js';
 import { drawIcon } from '../../src/shared/icons.js';
 import { drawPug } from '../../src/shared/pugSprite.js';
+import { createMobileControls } from '../../src/shared/mobileControls.js';
+import { showGradeCard } from '../../src/shared/gradeCard.js';
+import { createKillFeed } from '../../src/shared/killFeed.js';
 
 // --- Custom weapon icons (drawn on canvas; size ~ 18px) -----------------------
 // Library doesn't have sausage / toast / bubble, so we draw them inline here in
@@ -80,6 +83,10 @@ let pug, bots, projectiles, particles, popups, sparks, kills, running, mouse;
 let shakeT = 0, shakeAmp = 0;
 let comboT = 0, comboN = 0, comboBannerT = 0;
 let lastHitT = 0; // for player hit-flash
+// PWNED freeze-frame: when set, tick() pauses physics/AI; render still runs and
+// draws the giant PWNED banner over the victim with slight zoom-in.
+let pwnedT = 0;     // seconds remaining of freeze (0.6 total)
+let pwnedVictim = null; // pug ref — banner anchor + camera zoom center
 let crowd = [];
 let weaponPickups = []; // {x, y, weapon, t, bob}
 let weaponSpawnT = 0;   // seconds until next spawn
@@ -223,6 +230,16 @@ function crowdCheer() {
   // Triggered on kills — sweep wave across the stands
   for (const c of crowd) c.waveT = 0.5 + Math.random() * 0.2;
 }
+// Scrolling kill feed (top-right) — pushed on each elimination.
+const __rocketFeed = createKillFeed({ maxLines: 5, lifespan: 5000 });
+function pushKillFeed(killer, victim) {
+  const isPlayer = killer === pug;
+  const isDeath = victim === pug;
+  const color = isPlayer ? '#5ef38c' : isDeath ? '#ff3a3a' : '#c8c0e8';
+  const k = isPlayer ? 'YOU' : (killer && killer.color) ? 'BOT' : 'THE ARENA';
+  const v = isDeath ? 'YOU' : 'BOT';
+  __rocketFeed.push(`${k} ▶ ${v}`, color);
+}
 function reset() {
   pug = mkPug(W / 2, H - 100, true, '#c8854a', '#1a0d05');
   pug.weapon = WEAPONS[0]; // start with tennis
@@ -279,6 +296,18 @@ canvas.addEventListener('touchmove', (e) => { const t = e.touches[0]; mouse.x = 
 canvas.addEventListener('touchend', () => firing = false);
 document.getElementById('jet-btn').addEventListener('click', doJet);
 if ('ontouchstart' in window) document.getElementById('jet-btn').style.display = 'block';
+// Universal mobile controls — aim-fire layout. Joystick moves, drag-anywhere
+// forwards mousemove to the canvas (so existing `firing`/`mouse` logic reads
+// from canvas-relative mouse events). FIRE button triggers held-mouse-down.
+createMobileControls({
+  layout: 'aim-fire',
+  keys,
+  buttons: [
+    { id: 'jet',    label: 'JET',    key: 'Space' },
+  ],
+  getCanvas: () => canvas,
+  onFire: (down) => { firing = down; },
+});
 
 function doJet() {
   if (!running || pug.jetCd > 0) return;
@@ -301,6 +330,13 @@ function fire(shooter, ang) {
 
 function tick(dt) {
   if (!running) return;
+  // PWNED freeze: pause world for 0.6s after a kill (Rocket League goal cam).
+  // Only the freeze timer + render flow advance during this window.
+  if (pwnedT > 0) {
+    pwnedT = Math.max(0, pwnedT - dt);
+    if (pwnedT === 0) pwnedVictim = null;
+    return;
+  }
   // Weapon pickups — periodic spawn + collision check
   weaponSpawnT -= dt;
   if (weaponSpawnT <= 0 && weaponPickups.length < 2) {
@@ -474,6 +510,21 @@ function tick(dt) {
         const finalDmg = pr.dmg * outMul * inMul;
         target.hp -= finalDmg;
         target.hitFlashT = 0.18;
+        // SMASH-BROS knockback: scales with (1 - hp%) so low-HP pugs ragdoll
+        // far, full-HP barely flinch. Direction = projectile travel direction
+        // (so a back-shot launches them away from the shooter).
+        {
+          const hpPct = Math.max(0, target.hp) / target.maxHp;
+          const intensity = 1 - hpPct;           // 0 at full HP, ~1 near death
+          const baseKick = 60 + finalDmg * 6;    // baseline pop
+          const kick = baseKick + intensity * intensity * 720; // quadratic ramp
+          const vlen = Math.hypot(pr.vx, pr.vy) || 1;
+          const nx = pr.vx / vlen, ny = pr.vy / vlen;
+          target.vx += nx * kick;
+          target.vy += ny * kick;
+          // Low-HP targets briefly lose footing for visual "ragdoll" feel.
+          if (intensity > 0.5) target.slipT = Math.max(target.slipT, 0.35);
+        }
         spawnHit(pr.x, pr.y, pr.color);
         sfx.tone(220, 'square', 0.05, 0.18);
         if (target === pug) { lastHitT = 0.25; shake(4, 0.18); }
@@ -489,9 +540,18 @@ function tick(dt) {
           } else {
             shake(5, 0.18);
           }
+          try { pushKillFeed(pr.owner, target); } catch (e) { /* */ }
           crowdCheer();
           spawnDeath(target.x, target.y, target.color);
           sfx.sweep(440, 110, 'sawtooth', 0.25, 0.22);
+          // ROCKET-LEAGUE freeze frame: 0.6s freeze + giant PWNED + slow zoom
+          // over the victim. Skip if the player is the victim (death already
+          // shows end overlay; freeze would feel like a hang on game-over).
+          if (target !== pug) {
+            pwnedT = 0.6;
+            pwnedVictim = target;
+            sfx.tone(880, 'square', 0.12, 0.3);
+          }
         }
         projectiles.splice(i, 1);
         break;
@@ -575,6 +635,17 @@ function render() {
   const sy = shakeAmp > 0 ? (Math.random() - 0.5) * shakeAmp * 2 : 0;
   ctx.save();
   ctx.translate(sx, sy);
+  // PWNED slow zoom — ramps from 1.0 → 1.18 over the 0.6s freeze, centered
+  // on victim. Applied as scale+translate inside the existing shake save block
+  // so the matching ctx.restore() at the bottom of render() unwinds both.
+  if (pwnedT > 0 && pwnedVictim) {
+    const k = 1 - (pwnedT / 0.6);             // 0 → 1
+    const zoom = 1 + 0.18 * k;
+    const vx = pwnedVictim.x, vy = pwnedVictim.y;
+    ctx.translate(vx, vy);
+    ctx.scale(zoom, zoom);
+    ctx.translate(-vx, -vy);
+  }
 
   // Stadium floor: warm tone with a parking-lot/stadium grid
   ctx.fillStyle = '#5a3a1c'; ctx.fillRect(-12, -12, W + 24, H + 24);
@@ -927,6 +998,36 @@ function render() {
     ctx.globalAlpha = 1;
   }
   ctx.restore();
+  // PWNED freeze-frame banner — screen-space, drawn after restore so the
+  // big yellow text doesn't get scaled with the world zoom.
+  if (pwnedT > 0 && pwnedVictim) {
+    const k = 1 - (pwnedT / 0.6);
+    // dim flash that punches the screen at the moment of kill
+    ctx.fillStyle = `rgba(0,0,0,${0.35 - k * 0.25})`;
+    ctx.fillRect(0, 0, W, H);
+    // banner sized big with subtle pop-in
+    const popK = Math.min(1, k * 3);              // 0→1 quickly
+    const size = 64 * (0.7 + popK * 0.35);
+    ctx.save();
+    ctx.font = `bold ${Math.round(size)}px 'Press Start 2P', monospace`;
+    ctx.textAlign = 'center';
+    const cx = W / 2, cy = H / 2 - 20;
+    // black thick stroke first for legibility
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = '#1a0d05';
+    ctx.strokeText('PWNED!', cx, cy);
+    // yellow fill with glow
+    ctx.shadowColor = '#ffd23f';
+    ctx.shadowBlur = 18 + popK * 14;
+    ctx.fillStyle = '#ffd23f';
+    ctx.fillText('PWNED!', cx, cy);
+    ctx.shadowBlur = 0;
+    // small "killer" subline (skip if killed by arena/hazard with no shooter)
+    ctx.font = "bold 12px 'Press Start 2P', monospace";
+    ctx.fillStyle = '#fff';
+    ctx.fillText('▼ ELIMINATED ▼', cx, cy + 36);
+    ctx.restore();
+  }
 }
 
 function updateHud() {
@@ -962,6 +1063,27 @@ function end(won) {
   document.getElementById('hud').hidden = true;
   document.getElementById('end-overlay').hidden = false;
   document.getElementById('end-overlay').classList.remove('is-hidden');
+  // S/A/B/C/D grade card layered above the existing end-overlay.
+  try {
+    const killsPct  = Math.max(0, Math.min(100, (kills / 8) * 100));
+    const winPct    = won ? 100 : 0;
+    const survivPct = Math.max(0, Math.min(100, (pug.hp / 100) * 100));
+    showGradeCard({
+      title: won ? 'LAST PUG STANDING' : 'KITCHEN CLOSED',
+      subtitle: `${kills} kill${kills === 1 ? '' : 's'} · ${won ? 'VICTORY' : 'DEFEAT'}`,
+      stats: [
+        { label: 'Kills',    value: killsPct,   weight: 0.55 },
+        { label: 'Victory',  value: winPct,     weight: 0.3 },
+        { label: 'Survival', value: survivPct,  weight: 0.15 },
+      ],
+      breakdown: [
+        { label: 'Kills',         value: kills,                max: 8 },
+        { label: 'Won match',     value: won ? 1 : 0,           max: 1 },
+        { label: 'HP remaining',  value: Math.max(0, Math.round(pug.hp)), max: 100 },
+      ],
+      onRestart: () => start(),
+    });
+  } catch (e) { /* */ }
 }
 
 document.getElementById('start-btn').addEventListener('click', start);

@@ -36,6 +36,12 @@ export class Boss {
     this.container.label = `boss-${this.id}`;
     this.container.x = x;
     this.container.y = y;
+    // RAGE AURA — separate container behind the visual so it doesn't tint with body
+    this.aura = new Container();
+    this.container.addChild(this.aura);
+    this.auraGfx = new Graphics();
+    this.aura.addChild(this.auraGfx);
+    this._auraT = 0;
     this.visual = new Container();
     this.container.addChild(this.visual);
     this._draw();
@@ -117,16 +123,63 @@ export class Boss {
     ears.rect(-25, -12, 4, 1).fill(0x000000);
     this.visual.addChild(ears);
 
-    // crown of bones / spikes
+    // BIGGER, GAUDIER crown of bones + gold + spikes (was tiny — now POPS)
     const crown = new Graphics();
-    crown.rect(-12, -34, 4, 6).fill(0xfde0b8);
-    crown.rect(-6, -36, 4, 8).fill(0xfde0b8);
-    crown.rect(0, -38, 4, 10).fill(0xfde0b8);
-    crown.rect(6, -36, 4, 8).fill(0xfde0b8);
-    crown.rect(12, -34, 4, 6).fill(0xfde0b8);
-    crown.rect(-14, -28, 28, 3).fill(0x4a4a52);
-    crown.rect(-14, -28, 28, 1).fill(0x7a7a84);
+    // gold base band (wider)
+    crown.rect(-20, -30, 40, 6).fill(0xffd23f);
+    crown.rect(-20, -30, 40, 2).fill(0xfff0a8);
+    crown.rect(-20, -25, 40, 1).fill(0x8a5a10);
+    // taller spikes (5 of them, alternating bone + gold)
+    crown.rect(-18, -38, 4, 8).fill(0xfde0b8);
+    crown.rect(-18, -38, 1, 8).fill(0xffffff);
+    crown.rect(-10, -42, 4, 12).fill(0xffd23f);
+    crown.rect(-10, -42, 1, 12).fill(0xfff0a8);
+    crown.rect(-2, -46, 4, 16).fill(0xfde0b8);     // centerpiece — TALLEST
+    crown.rect(-2, -46, 1, 16).fill(0xffffff);
+    crown.rect(6, -42, 4, 12).fill(0xffd23f);
+    crown.rect(6, -42, 1, 12).fill(0xfff0a8);
+    crown.rect(14, -38, 4, 8).fill(0xfde0b8);
+    crown.rect(14, -38, 1, 8).fill(0xffffff);
+    // 3 inset gems (red/cyan/red)
+    crown.circle(-10, -27, 1.5).fill(COLORS.bloodRed);
+    crown.circle(0, -27, 1.5).fill(COLORS.neonCyan);
+    crown.circle(10, -27, 1.5).fill(COLORS.bloodRed);
+    // crown apex blood drip (centerpiece looks bloody)
+    crown.rect(-1, -32, 2, 4).fill(COLORS.bloodRed);
     this.visual.addChild(crown);
+
+    // ===== CHAINS — heavy iron chains draped across body =====
+    const chains = new Graphics();
+    // primary horizontal chain across chest
+    const chainColor = 0x4a4a52;
+    const chainHi = 0x7a7a84;
+    const chainShade = 0x222228;
+    for (let i = -28; i <= 28; i += 5) {
+      chains.circle(i, 8, 1.8).fill(chainColor);
+      chains.circle(i, 8, 1.8).stroke({ color: chainShade, width: 0.5 });
+      chains.circle(i - 1, 7, 0.6).fill(chainHi);
+    }
+    // diagonal chain across shoulder (left to right)
+    for (let t = 0; t < 8; t++) {
+      const cx = -22 + t * 5;
+      const cy = -2 + t * 2;
+      chains.circle(cx, cy, 1.6).fill(chainColor);
+      chains.circle(cx - 1, cy - 1, 0.5).fill(chainHi);
+    }
+    // dangling chain ends (with broken padlock + bone)
+    chains.rect(-28, 20, 2, 6).fill(chainColor);
+    chains.circle(-27, 20, 1.5).fill(chainColor);
+    chains.circle(-27, 23, 1.5).fill(chainColor);
+    chains.circle(-27, 26, 1.5).fill(chainColor);
+    // padlock
+    chains.rect(-30, 27, 6, 5).fill(0x6a5a10);
+    chains.rect(-30, 27, 6, 1).fill(0xaa9a30);
+    chains.circle(-27, 30, 0.8).fill(0x000000);
+    // right-side dangle
+    chains.rect(26, 22, 2, 5).fill(chainColor);
+    chains.circle(27, 25, 1.5).fill(chainColor);
+    chains.circle(27, 28, 1.5).fill(chainColor);
+    this.visual.addChild(chains);
 
     // MULTIPLE GLOWING EYES (4 of them)
     const eyes = new Graphics();
@@ -229,14 +282,46 @@ export class Boss {
     this.container.x = this.x;
     this.container.y = this.y;
     this.container.rotation = this.aim;
+
+    // ===== Glowing RAGE AURA — pulsing red/orange halo behind the boss =====
+    // Aura intensifies as HP drops (boss gets angrier).
+    this._auraT += dt;
+    const hpRatio = this.maxHp > 0 ? this.hp / this.maxHp : 1;
+    const rage = 1 - hpRatio;   // 0..1, higher = lower HP
+    const pulse = 0.55 + 0.3 * Math.sin(this._auraT * 4.5);   // 0.25..0.85
+    const radius = 70 + rage * 18 + Math.sin(this._auraT * 6) * 4;
+    this.auraGfx.clear();
+    // outer red glow
+    this.auraGfx.circle(0, 6, radius)
+      .fill({ color: COLORS.bloodRed, alpha: (0.12 + rage * 0.18) * pulse });
+    // mid orange glow
+    this.auraGfx.circle(0, 6, radius * 0.65)
+      .fill({ color: 0xff6a3a, alpha: (0.15 + rage * 0.2) * pulse });
+    // inner crimson ring
+    this.auraGfx.circle(0, 6, radius * 0.85)
+      .stroke({ color: COLORS.bloodRed, width: 2, alpha: 0.4 + rage * 0.4 });
+    // jagged rage spikes (more when low HP)
+    const spikeCount = 6 + Math.floor(rage * 6);
+    for (let i = 0; i < spikeCount; i++) {
+      const a = (i / spikeCount) * Math.PI * 2 + this._auraT * 0.6;
+      const r1 = radius * 0.95;
+      const r2 = radius * (1.15 + rage * 0.1);
+      const x1 = Math.cos(a) * r1;
+      const y1 = Math.sin(a) * r1 + 6;
+      const x2 = Math.cos(a) * r2;
+      const y2 = Math.sin(a) * r2 + 6;
+      this.auraGfx.moveTo(x1, y1).lineTo(x2, y2)
+        .stroke({ color: COLORS.bloodRed, width: 2.5, alpha: 0.55 + rage * 0.4 });
+    }
+
     if (this.flashT > 0) {
       this.flashT -= dt;
       this.visual.alpha = 0.6 + Math.random() * 0.4;
       this.visual.tint = 0xffffff;
     } else {
       this.visual.alpha = 1;
-      // intimidating pulse
-      const p = 1 + Math.sin(performance.now() / 200) * 0.02;
+      // intimidating pulse — bigger when more enraged
+      const p = 1 + Math.sin(performance.now() / 200) * (0.025 + rage * 0.02);
       this.visual.scale.set(p);
     }
   }
