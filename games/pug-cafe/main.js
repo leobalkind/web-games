@@ -7,6 +7,7 @@ import { drawPug } from '../../src/shared/pugSprite.js';
 import { createMobileControls } from '../../src/shared/mobileControls.js';
 import { createSpeedToggle } from '../../src/shared/speedToggle.js';
 import { createKillFeed } from '../../src/shared/killFeed.js';
+import { createSettingsMenu } from '../../src/shared/settingsMenu.js';
 
 // Cafe is click-only — shared module just adds a BACK chip + mute toggle.
 createMobileControls({ layout: 'single-tap', buttons: [] });
@@ -18,6 +19,10 @@ function _ingIcon(ing) {
 
 const sfx = createSfx({ storageKey: 'cafe:muted' });
 sfx.applyButton(document.getElementById('mute-btn'));
+const _isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+createSettingsMenu({ gameId: 'pug-cafe', getControlsHelp: () => (_isTouch
+  ? 'TAP an ingredient → TAP SERVE on right order. Tap ★ SHOP (top-right) for upgrades. ⚡ SPEED TOGGLE top-right. Saved to your profile.'
+  : 'CLICK an ingredient → CLICK SERVE on right order. Tap ★ SHOP (top-right). T = speed toggle. Saved to your profile.') });
 
 // ----- Visual polish: decorations + staff animation + popups + shake ------
 const VISUAL_CSS = `
@@ -533,6 +538,19 @@ function renderOrders() {
   for (let i = 0; i < orders.length; i++) {
     const o = orders[i];
     const div = document.createElement('div');
+    div.dataset.orderIdx = i;
+    div.addEventListener('dragover', (e) => { e.preventDefault(); div.classList.add('is-drop-target'); });
+    div.addEventListener('dragleave', () => div.classList.remove('is-drop-target'));
+    div.addEventListener('drop', (e) => {
+      e.preventDefault();
+      div.classList.remove('is-drop-target');
+      // Overcooked-style flick: dropping a single ingredient from the bench
+      // immediately adds it (i.e., "throws" across the counter). If the order
+      // is fully satisfied after adding, auto-serve.
+      const ingId = e.dataTransfer?.getData('text/plain');
+      if (!ingId) return;
+      throwIngredient(ingId, i, e.clientX, e.clientY);
+    });
     let cls = 'order';
     const k = o.time / o.maxTime;
     if (k < 0.3) cls += ' crit';
@@ -602,17 +620,58 @@ function renderBench() {
   const b = document.getElementById('bench');
   b.innerHTML = '';
   if (bench.length === 0) {
-    b.innerHTML = '<span style="color:var(--muted);font-size:0.5rem;">empty bench</span>';
+    b.innerHTML = '<span style="color:var(--muted);font-size:0.5rem;">empty bench (drag chips onto an order to throw 🎯)</span>';
     return;
   }
   for (let i = 0; i < bench.length; i++) {
     const ing = INGREDIENTS.find((g) => g.id === bench[i]);
     const el = document.createElement('div');
     el.className = 'bench__held';
+    el.draggable = true;
+    el.title = 'Drag onto an order to THROW · click to discard';
     const iconHtml = ing.iconName && iconSvg[ing.iconName] ? iconSvg[ing.iconName](24) : ing.icon;
     el.innerHTML = `<div class="station__icon">${iconHtml}</div><div class="station__name">${ing.name}</div>`;
     el.addEventListener('click', () => { bench.splice(i, 1); renderBench(); });
+    // Native drag-and-drop = chunky-but-works throw mechanic; touch users can
+    // still use the SERVE button on each order card.
+    el.addEventListener('dragstart', (e) => {
+      e.dataTransfer.setData('text/plain', ing.id);
+      e.dataTransfer.effectAllowed = 'move';
+      el.classList.add('is-throwing');
+    });
+    el.addEventListener('dragend', () => el.classList.remove('is-throwing'));
     b.appendChild(el);
+  }
+}
+
+// Overcooked throw: removes one of `ingId` from bench, marks it as fulfilling
+// any matching needed slot on order `orderIdx`. If the order is now complete,
+// auto-serve. Visual = quick popup along the throw arc.
+function throwIngredient(ingId, orderIdx, clientX, clientY) {
+  const o = orders[orderIdx];
+  if (!o) return;
+  const benchIdx = bench.indexOf(ingId);
+  if (benchIdx === -1) return;
+  // Check it's still needed
+  const stillNeeded = o.items.some((it) => it.id === ingId && !it.done);
+  if (!stillNeeded) {
+    popup(clientX, clientY, '✗ NOT NEEDED', '#ff8a8a');
+    sfx.tone(220, 'sawtooth', 0.08, 0.18);
+    return;
+  }
+  // Consume one from bench + mark first matching slot done
+  bench.splice(benchIdx, 1);
+  for (const it of o.items) { if (it.id === ingId && !it.done) { it.done = true; break; } }
+  popup(clientX, clientY, '🍳 THROW!', '#ffd23f');
+  sfx.tone(820, 'triangle', 0.05, 0.16);
+  // Auto-serve if every slot is filled
+  if (o.items.every((it) => it.done)) {
+    // We need to make sure bench has ALL items, because serve() re-checks.
+    // Add the marked-done items back to bench so serve() can consume them.
+    for (const it of o.items) bench.push(it.id);
+    serve(orderIdx);
+  } else {
+    renderBench(); renderOrders();
   }
 }
 
@@ -907,6 +966,8 @@ document.getElementById('start-btn').addEventListener('click', start);
 document.getElementById('end-restart').addEventListener('click', start);
 function start() {
   reset(); running = true;
+  // Wipe stale serve-feed lines from a previous match.
+  try { __cafeFeed && __cafeFeed.clear(); } catch (e) { /* */ }
   document.getElementById('overlay').hidden = true; document.getElementById('overlay').classList.add('is-hidden');
   document.getElementById('end-overlay').hidden = true; document.getElementById('end-overlay').classList.add('is-hidden');
   document.getElementById('hud').hidden = false;

@@ -6,6 +6,8 @@ import { drawIcon } from '../../src/shared/icons.js';
 import { drawPug } from '../../src/shared/pugSprite.js';
 import { createMobileControls } from '../../src/shared/mobileControls.js';
 import { showGradeCard } from '../../src/shared/gradeCard.js';
+import { createSettingsMenu } from '../../src/shared/settingsMenu.js';
+import { getShakeMul as _shakeMul } from '../../src/shared/screenShake.js';
 
 // --- Custom plush toy icon (library has no plushie) ---------------------------
 function drawPlushToy(ctx, x, y, size) {
@@ -43,6 +45,10 @@ const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
 const sfx = createSfx({ storageKey: 'diggers:muted' });
 sfx.applyButton(document.getElementById('mute-btn'));
+const _isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+createSettingsMenu({ gameId: 'dungeon-diggers', getControlsHelp: () => _isTouch
+  ? 'JOYSTICK dig · BEAM button to place wooden beams · return to surface to spend $. Saved to your profile.'
+  : 'WASD dig · B = place wooden beam (blocks cave-ins) · return to surface to spend $. Saved to your profile.' });
 
 let W = 0, H = 0, DPR = 1;
 const TILE = 36;
@@ -79,6 +85,15 @@ let cartTracks = []; // {row} horizontal rail rows
 let crystalPockets = []; // {row, col, n}
 let beams = []; // {row, col} player-placed beams that block cave-ins above
 let supervisor = null; // surface pug walking back and forth
+// SHOPKEEPER NPCS — 3 per run, each in a carved open chamber at fixed depths.
+// Walk into the shopkeeper → opens a modal with 2 items + STEAL. STEAL toggles
+// `ragedShopkeeper` (global hunter) — he then chases the player across all
+// remaining layers at high speed dealing massive damage.
+// shopkeeper: { row, col, baseCol, baseRow, x, y, dir, t, mode:'shop'|'hunt', sold:[], hp, alive, anger:0..1 }
+let shopkeepers = [];
+let ragedShopkeeper = null; // active hunter (clone of one of shopkeepers when STEAL fires)
+let shopOpenWith = null;    // shopkeeper currently in modal
+let shopTouchCd = 0;        // brief cooldown after closing modal so we don't re-open
 let shakeT = 0, shakeAmp = 0;
 let surfaceCelebT = 0;     // rays/light burst on surface arrival with loot
 let lastPickup = 0;        // dollar haul to flash since last surface
@@ -125,7 +140,7 @@ function bumpCombo(worldX, worldY) {
     shake(4, 0.18);
   }
 }
-function shake(amp, dur) { shakeAmp = Math.max(shakeAmp, amp); shakeT = Math.max(shakeT, dur); }
+function shake(amp, dur) { const k = _shakeMul(); shakeAmp = Math.max(shakeAmp, amp * k); shakeT = Math.max(shakeT, dur); }
 function popup(x, y, text, color) {
   if (popups.length > 24) popups.shift();
   popups.push({ x, y, vy: -32, text, color: color || '#ffd23f', life: 1.0, t: 0 });
@@ -232,6 +247,7 @@ function reset() {
     }
   }
   resetCombo(); comboBannerT = 0; comboBannerText = '';
+  lanternT = 0; amuletCharges = 0;
   // Pre-place decorative support beams every ~5 rows along the side walls
   for (let r = 5; r < rows; r += 5) {
     supports.push({ row: r, col: 0 });
@@ -260,10 +276,116 @@ function reset() {
   }
   // Surface supervisor pug (walks back and forth on row 0)
   supervisor = { x: cols * TILE * 0.3, dir: 1, t: 0 };
+  // SHOPKEEPERS — 3 carved chambers at fixed depth bands so players reliably
+  // encounter at least one shop on every run. Each shop sells 2 random items
+  // + offers STEAL (sets ragedShopkeeper = global hunter pug).
+  shopkeepers = [];
+  ragedShopkeeper = null;
+  shopOpenWith = null;
+  shopTouchCd = 0;
+  const shopRows = [12, 28, 44];
+  for (const sr of shopRows) {
+    const sc = Math.floor(cols / 2) + (Math.random() < 0.5 ? -2 : 2);
+    // Carve a 5x3 open chamber centered on (sr, sc)
+    for (let dr = -1; dr <= 1; dr++) {
+      for (let dc = -2; dc <= 2; dc++) {
+        const r = sr + dr, c = sc + dc;
+        if (r < 2 || r >= rows || c < 0 || c >= cols) continue;
+        grid[r][c] = 'air';
+        if (crackedSet) unmarkCracked(r, c);
+      }
+    }
+    // Pick 2 items for this shop (no duplicates)
+    const stock = [];
+    const pool = SHOP_ITEMS.slice();
+    for (let i = 0; i < 2 && pool.length; i++) {
+      const idx = Math.floor(Math.random() * pool.length);
+      stock.push(pool.splice(idx, 1)[0]);
+    }
+    shopkeepers.push({
+      row: sr, col: sc, baseRow: sr, baseCol: sc,
+      x: sc * TILE + TILE / 2, y: sr * TILE + TILE / 2,
+      mode: 'shop', dir: 1, t: 0, hp: 999, alive: true,
+      stock, sold: [],
+    });
+  }
   renderUpgrades();
   updateBeamsHud();
   document.getElementById('upgrades').style.display = 'none';
 }
+
+// 2-item shop catalog. Effects applied immediately on BUY via apply().
+const SHOP_ITEMS = [
+  { id: 'bag',     name: 'BIGGER BAG',      cost: 80,  desc: '+5 carry slots', apply: () => { maxBag += 5; popup(pug.x, pug.y - 20, '+5 BAG SLOTS', '#5ef38c'); } },
+  { id: 'lantern', name: 'PHANTOM LANTERN', cost: 120, desc: 'reveals nearby cracked walls', apply: () => { lanternT = 999999; popup(pug.x, pug.y - 20, 'LANTERN GLOW!', '#ffd23f'); } },
+  { id: 'treat',   name: 'DOG TREAT',       cost: 50,  desc: 'restore full stamina',         apply: () => { stam = maxStam; popup(pug.x, pug.y - 20, 'STAM RESTORED', '#5ef38c'); } },
+  { id: 'beams',   name: 'BEAM PACK',       cost: 60,  desc: '+5 wooden beams',              apply: () => { beamsLeft = Math.min(MAX_BEAMS + 5, beamsLeft + 5); updateBeamsHud(); popup(pug.x, pug.y - 20, '+5 BEAMS', '#5ef38c'); } },
+  { id: 'amulet',  name: 'CAVE-IN AMULET',  cost: 150, desc: 'next cave-in is dodged',       apply: () => { amuletCharges = (amuletCharges || 0) + 1; popup(pug.x, pug.y - 20, 'AMULET +1', '#b055ff'); } },
+  { id: 'pickaxe', name: 'STEEL PICKAXE',   cost: 130, desc: '+30% drill speed',             apply: () => { drillSpeed *= 1.3; popup(pug.x, pug.y - 20, 'DRILL +30%', '#ffd23f'); } },
+];
+let lanternT = 0;        // when > 0, cracked-wall pulse is brighter + glows
+let amuletCharges = 0;   // each charge auto-dodges next cave-in hit
+
+function openShop(sk) {
+  shopOpenWith = sk;
+  const modal = document.getElementById('shop-modal');
+  const itemsEl = document.getElementById('shop-items');
+  const greetEl = document.getElementById('shop-greet');
+  if (!modal || !itemsEl) return;
+  greetEl.textContent = 'Welcome, friend! Take a look:';
+  itemsEl.innerHTML = '';
+  for (const item of sk.stock) {
+    const row = document.createElement('button');
+    const sold = sk.sold.includes(item.id);
+    const canAfford = money >= item.cost;
+    row.type = 'button';
+    row.disabled = sold || !canAfford;
+    row.style.cssText = `background:rgba(0,0,0,0.4);border:2px solid ${sold ? '#5a5a5a' : (canAfford ? '#5ef38c' : '#ff5a5a')};color:#fff;font-family:var(--font-display);font-size:0.45rem;padding:10px;border-radius:6px;cursor:${sold ? 'not-allowed' : 'pointer'};letter-spacing:0.05em;text-align:left;display:flex;justify-content:space-between;align-items:center;gap:10px;opacity:${sold ? 0.4 : 1};`;
+    row.innerHTML = `<div><div style="color:#ffd23f;">${item.name}</div><div style="color:#cacacf;margin-top:2px;font-size:0.4rem;">${item.desc}</div></div><div style="color:${canAfford ? '#5ef38c' : '#ff5a5a'};">${sold ? 'SOLD' : '$' + item.cost}</div>`;
+    row.addEventListener('click', () => {
+      if (sold || money < item.cost) return;
+      money -= item.cost;
+      sk.sold.push(item.id);
+      item.apply();
+      sfx.arp([523, 784, 1047], 'triangle', 0.06, 0.18, 0.12);
+      closeShop();
+      updateHud();
+    });
+    itemsEl.appendChild(row);
+  }
+  modal.hidden = false;
+}
+function closeShop() {
+  shopOpenWith = null;
+  const modal = document.getElementById('shop-modal');
+  if (modal) modal.hidden = true;
+  shopTouchCd = 0.8; // brief grace so we don't re-trigger immediately
+}
+function stealFromShop(sk) {
+  if (!sk) return;
+  // Spawn raged hunter at shopkeeper's location
+  ragedShopkeeper = {
+    x: sk.x, y: sk.y, row: sk.row, col: sk.col,
+    vx: 0, vy: 0, dmgCd: 0, anger: 1.0, t: 0,
+  };
+  sk.alive = false;
+  // Player grabs the unsold inventory for free
+  let snagged = 0;
+  for (const item of sk.stock) {
+    if (!sk.sold.includes(item.id)) { item.apply(); snagged++; }
+  }
+  popup(pug.x, pug.y - 30, '💀 SHOPKEEPER ENRAGED!', '#ff3a3a');
+  popup(pug.x, pug.y - 50, `STOLE ${snagged} ITEM${snagged !== 1 ? 'S' : ''}`, '#ffd23f');
+  shake(8, 0.5);
+  sfx.sweep(880, 110, 'sawtooth', 0.5, 0.3);
+  sfx.tone(220, 'sawtooth', 0.3, 0.25);
+  closeShop();
+}
+// Wire shop modal buttons (once)
+const shopCloseBtn = document.getElementById('shop-close');
+const shopStealBtn = document.getElementById('shop-steal');
+if (shopCloseBtn) shopCloseBtn.addEventListener('click', closeShop);
+if (shopStealBtn) shopStealBtn.addEventListener('click', () => stealFromShop(shopOpenWith));
 function syncXY() { pug.x = pug.col * TILE + TILE / 2; pug.y = pug.row * TILE + TILE / 2; }
 
 const keys = new Set();
@@ -449,6 +571,53 @@ function tick(dt) {
   if (!running) return;
   drillCd = Math.max(0, drillCd - dt);
   moveT += dt;
+  // Shopkeeper proximity → open shop if not already open.
+  if (shopTouchCd > 0) shopTouchCd = Math.max(0, shopTouchCd - dt);
+  for (const sk of shopkeepers) {
+    if (!sk.alive) continue;
+    sk.t += dt;
+    // gentle idle bob (no movement — they stand by their stock)
+    const d = Math.hypot(sk.x - pug.x, sk.y - pug.y);
+    if (d < TILE * 1.4 && !shopOpenWith && shopTouchCd <= 0 && !ragedShopkeeper) {
+      openShop(sk);
+      break;
+    }
+  }
+  // RAGED HUNTER — chases player at high speed, deals massive damage on touch
+  if (ragedShopkeeper) {
+    const rh = ragedShopkeeper;
+    rh.t += dt; rh.dmgCd = Math.max(0, rh.dmgCd - dt);
+    const dx = pug.x - rh.x, dy = pug.y - rh.y;
+    const d = Math.hypot(dx, dy);
+    // Phasing through walls — pure chase. Speed = 200 px/s (player moves
+    // grid-step so this is faster than a casual digger).
+    const SPEED = 200;
+    if (d > 0.001) {
+      rh.x += (dx / d) * SPEED * dt;
+      rh.y += (dy / d) * SPEED * dt;
+    }
+    // On contact: massive stam damage every 0.7s
+    if (d < TILE * 0.7 && rh.dmgCd <= 0) {
+      if (amuletCharges > 0) {
+        amuletCharges--;
+        popup(pug.x, pug.y - 26, 'AMULET BLOCKED!', '#b055ff');
+        sfx.tone(880, 'triangle', 0.15, 0.22);
+        // knock the hunter back briefly
+        rh.x -= (dx / d) * TILE * 1.5;
+        rh.y -= (dy / d) * TILE * 1.5;
+        rh.dmgCd = 1.0;
+      } else {
+        const dmg = maxStam * 0.40;
+        stam = Math.max(0, stam - dmg);
+        rh.dmgCd = 0.7;
+        popup(pug.x, pug.y - 26, 'SHOPKEEPER MAULS! -40%', '#ff3a3a');
+        shake(9, 0.35);
+        sfx.sweep(440, 110, 'sawtooth', 0.25, 0.25);
+        resetCombo();
+        if (stam <= 0) { setTimeout(end, 50); return; }
+      }
+    }
+  }
   // Combo idle decay — when no dig within COMBO_WINDOW seconds, reset.
   if (combo > 0) {
     comboTimer += dt;
@@ -523,16 +692,25 @@ function tick(dt) {
       spawnDust(b.x, stopY, '#6a4a28', 12);
       shake(4, 0.2);
       if (!b.blocked && !b.hit && Math.abs(b.x - pug.x) < TILE * 0.6 && Math.abs(stopY - pug.y) < TILE) {
-        // Hit the player
-        const dmg = maxStam * 0.25;
-        stam = Math.max(0, stam - dmg);
-        b.hit = true;
-        popup(pug.x, pug.y - 26, 'CRUSH! -25%', '#ff3a3a');
-        shake(7, 0.35);
-        sfx.tone(110, 'sawtooth', 0.2, 0.22);
-        // Combo break on damage (Downwell rule)
-        resetCombo();
-        if (stam <= 0) { setTimeout(end, 50); }
+        if (amuletCharges > 0) {
+          // AMULET dodges the hit
+          amuletCharges--;
+          b.hit = true;
+          popup(pug.x, pug.y - 26, 'AMULET DODGED!', '#b055ff');
+          shake(4, 0.18);
+          sfx.tone(880, 'triangle', 0.15, 0.22);
+        } else {
+          // Hit the player
+          const dmg = maxStam * 0.25;
+          stam = Math.max(0, stam - dmg);
+          b.hit = true;
+          popup(pug.x, pug.y - 26, 'CRUSH! -25%', '#ff3a3a');
+          shake(7, 0.35);
+          sfx.tone(110, 'sawtooth', 0.2, 0.22);
+          // Combo break on damage (Downwell rule)
+          resetCombo();
+          if (stam <= 0) { setTimeout(end, 50); }
+        }
       } else if (b.blocked) {
         popup(b.x, stopY - 14, 'BLOCKED!', '#5ef38c');
       }
@@ -861,6 +1039,75 @@ function render() {
     ctx.globalAlpha = 1;
   }
 
+  // SHOPKEEPERS — friendly pugs in carved chambers, surrounded by a small
+  // pile of "stock" pixels and a glow halo so the player can spot one even
+  // through dense walls.
+  for (const sk of shopkeepers) {
+    if (!sk.alive) continue;
+    const sx = sk.x, sy = sk.y;
+    if (sy + TILE < camY || sy > camY + H) continue;
+    // glow halo (so players spot the chamber easily)
+    const glow = 0.4 + 0.2 * Math.sin(sk.t * 2);
+    const grd = ctx.createRadialGradient(sx, sy, 6, sx, sy, 60);
+    grd.addColorStop(0, `rgba(255,210,63,${glow})`);
+    grd.addColorStop(1, 'rgba(255,210,63,0)');
+    ctx.fillStyle = grd;
+    ctx.beginPath(); ctx.arc(sx, sy, 60, 0, Math.PI * 2); ctx.fill();
+    // sack of items behind shopkeeper
+    ctx.fillStyle = '#6a4a28';
+    ctx.fillRect(sx + 10, sy - 4, 14, 18);
+    ctx.fillStyle = '#8a6a3a';
+    ctx.fillRect(sx + 10, sy - 4, 14, 4);
+    // gold coins poking out
+    ctx.fillStyle = '#ffd23f';
+    ctx.fillRect(sx + 12, sy - 8, 3, 3);
+    ctx.fillRect(sx + 18, sy - 7, 3, 3);
+    ctx.fillRect(sx + 15, sy - 11, 3, 3);
+    // shopkeeper pug
+    const bob = Math.sin(sk.t * 2) * 1.5;
+    drawPug(ctx, sx, sy + bob, { size: 26, body: '#c8a06a', hat: true, hatColor: '#5ef38c' });
+    // "$" sign hovering above
+    ctx.fillStyle = '#ffd23f';
+    ctx.font = "bold 12px 'Press Start 2P', monospace";
+    ctx.textAlign = 'center';
+    ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 8;
+    ctx.fillText('$', sx, sy - 22 + bob);
+    ctx.shadowBlur = 0;
+    // "TAP TO SHOP" hint when player is nearby
+    if (Math.hypot(sx - pug.x, sy - pug.y) < TILE * 3) {
+      ctx.fillStyle = 'rgba(0,0,0,0.7)';
+      ctx.fillRect(sx - 50, sy - 50, 100, 14);
+      ctx.fillStyle = '#5ef38c';
+      ctx.font = "8px 'Press Start 2P', monospace";
+      ctx.fillText('WALK TO SHOP', sx, sy - 40);
+    }
+  }
+  // RAGED HUNTER — glowing-red eyes, fast chaser, phases through walls
+  if (ragedShopkeeper) {
+    const rh = ragedShopkeeper;
+    const pulse = 0.5 + 0.5 * Math.sin(rh.t * 8);
+    // angry red aura
+    const rg = ctx.createRadialGradient(rh.x, rh.y, 4, rh.x, rh.y, 50);
+    rg.addColorStop(0, `rgba(255,58,58,${0.4 + pulse * 0.3})`);
+    rg.addColorStop(1, 'rgba(255,58,58,0)');
+    ctx.fillStyle = rg;
+    ctx.beginPath(); ctx.arc(rh.x, rh.y, 50, 0, Math.PI * 2); ctx.fill();
+    // body
+    drawPug(ctx, rh.x, rh.y, { size: 30, body: '#5a1a1a' });
+    // glowing red eyes (override the pug face)
+    ctx.fillStyle = `rgba(255,58,58,${0.8 + pulse * 0.2})`;
+    ctx.fillRect(rh.x - 6, rh.y - 3, 4, 4);
+    ctx.fillRect(rh.x + 2, rh.y - 3, 4, 4);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(rh.x - 5, rh.y - 2, 2, 2);
+    ctx.fillRect(rh.x + 3, rh.y - 2, 2, 2);
+    // exclamation above
+    ctx.fillStyle = '#ff3a3a';
+    ctx.font = "bold 14px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.shadowColor = '#ff3a3a'; ctx.shadowBlur = 10;
+    ctx.fillText('!', rh.x, rh.y - 22);
+    ctx.shadowBlur = 0;
+  }
   // Pug — high-detail digger with yellow hard hat
   drawPug(ctx, pug.x, pug.y, { size: 30, hat: true, hatColor: '#ffd23f' });
   // helmet headlamp glow when underground
@@ -1029,7 +1276,7 @@ const _startOv = document.getElementById('overlay');
 if (_startOv) {
   const _showOnHide = () => {
     if (_startOv.classList.contains('is-hidden') || _startOv.hidden) {
-      showTip('WASD dig · B = place wooden beam (blocks cave-ins) · return to surface to spend $', 6500);
+      showTip('WASD dig · B = beam (blocks cave-ins) · find shopkeepers — BUY safely or STEAL (he hunts you!)', 7500);
     }
   };
   new MutationObserver(_showOnHide).observe(_startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });

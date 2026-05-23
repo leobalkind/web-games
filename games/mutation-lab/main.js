@@ -11,9 +11,14 @@ import { drawPug } from '../../src/shared/pugSprite.js';
 import { makeIngredientCanvas } from '../../src/shared/ingredientIcons.js';
 import { profileKey } from '../../src/shared/profile.js';
 import { createMobileControls } from '../../src/shared/mobileControls.js';
+import { createSettingsMenu } from '../../src/shared/settingsMenu.js';
 
 // Mutation lab is drag-only; the shared module just adds a BACK chip + mute.
 createMobileControls({ layout: 'single-tap', buttons: [] });
+const _isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+createSettingsMenu({ gameId: 'mutation-lab', getControlsHelp: () => _isTouch
+  ? 'TAP 3 ingredients → ⚗ FUSE. Each combo is one-shot — get creative! 📖 CODEX tracks species. Saved to your profile.'
+  : 'CLICK 3 ingredients → ⚗ FUSE. Each combo is one-shot — get creative! 📖 CODEX tracks species. Saved to your profile.' });
 
 // Procedurally derive body/mask/ear from a discovery key — any string with the
 // same content always yields the same colors, but two different keys diverge.

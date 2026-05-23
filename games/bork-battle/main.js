@@ -13,6 +13,11 @@ import { drawIcon, iconSvg } from '../../src/shared/icons.js';
 import { createSpeedToggle } from '../../src/shared/speedToggle.js';
 import { createKillFeed } from '../../src/shared/killFeed.js';
 import { showWavePreview } from '../../src/shared/wavePreview.js';
+import { createSettingsMenu } from '../../src/shared/settingsMenu.js';
+const _isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+createSettingsMenu({ gameId: 'bork-battle', getControlsHelp: () => _isTouch
+  ? 'LEFT JOYSTICK move · RIGHT JOYSTICK aim · BORK / DASH / DECOY / HEAL buttons · 🛒 SHOP top-right. Saved to your profile.'
+  : 'WASD move · MOUSE aim · CLICK fire · SPACE BORK · E dash · Q decoy · R heal · B shop · T speed toggle. Saved to your profile.' });
 
 // Detect touch device + create overlay controls (no-op on desktop)
 const touch = createTouchControls({ enableAbility: true, abilityLabel: 'BORK' });
@@ -36,12 +41,16 @@ const restartBtn = document.getElementById('end-restart');
 const starterChoices = document.getElementById('starter-choices');
 const muteBtn = document.getElementById('mute-btn');
 
-// Mute toggle — persists across sessions
+// Mute UI now lives in the shared Settings panel (⚙ top-left). Hide the legacy
+// 🔊 button to avoid duplicate controls, but keep clicks functional so any
+// holdout muscle memory still works. Persisted per-game `bork:muted` is read at
+// boot to honour the user's previous choice.
 function applyMuteUI(muted) {
   if (!muteBtn) return;
   muteBtn.textContent = muted ? '🔇' : '🔊';
   muteBtn.classList.toggle('muted', muted);
 }
+if (muteBtn) muteBtn.style.display = 'none';
 const savedMute = localStorage.getItem('bork:muted') === '1';
 Sfx.setMuted(savedMute);
 applyMuteUI(savedMute);
@@ -50,15 +59,7 @@ muteBtn?.addEventListener('click', () => {
   localStorage.setItem('bork:muted', m ? '1' : '0');
   applyMuteUI(m);
 });
-window.addEventListener('keydown', (e) => {
-  // Don't trigger when typing in inputs
-  if (e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
-  if (e.key === 'm' || e.key === 'M') {
-    const m = Sfx.toggleMute();
-    localStorage.setItem('bork:muted', m ? '1' : '0');
-    applyMuteUI(m);
-  }
-});
+// M-key mute is now owned by settingsMenu (toggles global wg:settings:muted).
 
 const game = new Game();
 game.touchControls = touch;
@@ -190,6 +191,9 @@ function show(el) { el.hidden = false; el.classList.remove('is-hidden'); }
 async function play() {
   hide(startOverlay);
   hide(endOverlay);
+  // Wipe stale kill-feed lines + zone-warn flags from a previous match.
+  try { __borkFeed.clear(); } catch (e) { /* */ }
+  __zoneWarnSent = false; __zoneFinalSent = false;
   await game.start(chosenStarter, chosenWeapon, chosenSkin, chosenDifficulty);
   // Defensively unpause + restart ticker (in case any prior interaction stopped it)
   if (typeof paused !== 'undefined' && paused) setPaused(false);

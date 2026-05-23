@@ -7,11 +7,17 @@ import { showTip } from '../../src/shared/tutorialTip.js';
 import { drawIcon } from '../../src/shared/icons.js';
 import { drawPug } from '../../src/shared/pugSprite.js';
 import { createMobileControls } from '../../src/shared/mobileControls.js';
+import { createSettingsMenu } from '../../src/shared/settingsMenu.js';
+import { getShakeMul as _shakeMul } from '../../src/shared/screenShake.js';
 
 const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
 const sfx = createSfx({ storageKey: 'lava:muted' });
 sfx.applyButton(document.getElementById('mute-btn'));
+const _isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+createSettingsMenu({ gameId: 'floor-lava', getControlsHelp: () => _isTouch
+  ? 'TILT/TAP LEFT-RIGHT to move · TAP JUMP to leap · double-tap = double-jump · Saved to your profile.'
+  : 'A/D move · SPACE jump · avoid SPIKES on platforms · grab WINGS for triple-jump. Saved to your profile.' });
 
 let W = 0, H = 0, DPR = 1;
 function resize() {
@@ -130,7 +136,7 @@ function seedCaveSpikes(yAround) {
     caveSpikes.push({ x, y, side, orient, h });
   }
 }
-function shake(mag, dur) { shakeMag = Math.max(shakeMag, mag); shakeT = Math.max(shakeT, dur); }
+function shake(mag, dur) { const k = _shakeMul(); shakeMag = Math.max(shakeMag, mag * k); shakeT = Math.max(shakeT, dur); }
 function pop(x, y, text, color) {
   if (popups.length > 80) popups.shift();
   popups.push({ x, y, vy: -40, life: 0, max: 0.9, text, color: color || '#ffd23f' });

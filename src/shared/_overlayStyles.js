@@ -14,7 +14,7 @@ export function ensureSharedStyles() {
 // the deep-bg purple gradient is hoisted to `--wg-bg`.
 const F = "font-family:'Press Start 2P',monospace";
 const CSS = ":where(.wg-speed-toggle,.wg-grade,.wg-feed__item,.wg-grade__btn,.wg-wave-preview__inner){" + F + "}"
-+ ".wg-speed-toggle{position:fixed;top:calc(12px + env(safe-area-inset-top,0));right:calc(64px + env(safe-area-inset-right,0));z-index:210;min-width:46px;height:40px;padding:0 10px;background:rgba(10,7,22,.85);color:#4cc9f0;border:2px solid #4cc9f0;border-radius:6px;font-size:.6rem;letter-spacing:.06em;cursor:pointer;box-shadow:0 0 12px rgba(76,201,240,.3);-webkit-tap-highlight-color:transparent}"
++ ".wg-speed-toggle{position:fixed;top:calc(12px + env(safe-area-inset-top,0));right:calc(114px + env(safe-area-inset-right,0));z-index:210;min-width:46px;height:40px;padding:0 10px;background:rgba(10,7,22,.85);color:#4cc9f0;border:2px solid #4cc9f0;border-radius:6px;font-size:.6rem;letter-spacing:.06em;cursor:pointer;box-shadow:0 0 12px rgba(76,201,240,.3);-webkit-tap-highlight-color:transparent}"
 + ".wg-speed-toggle:hover{transform:scale(1.06)}"
 + ".wg-speed-toggle[data-speed=\"2\"]{color:#ffd23f;border-color:#ffd23f;box-shadow:0 0 12px rgba(255,210,63,.35)}"
 + ".wg-speed-toggle[data-speed=\"3\"]{color:#ff3aa1;border-color:#ff3aa1;box-shadow:0 0 14px rgba(255,58,161,.4)}"

@@ -7,6 +7,7 @@ import { drawPug } from '../../src/shared/pugSprite.js';
 import { createSpeedToggle } from '../../src/shared/speedToggle.js';
 import { showWavePreview } from '../../src/shared/wavePreview.js';
 import { createMobileControls } from '../../src/shared/mobileControls.js';
+import { createSettingsMenu } from '../../src/shared/settingsMenu.js';
 
 // Tower-defense is tap-only — the shared module just adds the BACK chip and
 // mute toggle in the corners (and is auto-hidden on desktop). No movement.
@@ -16,6 +17,10 @@ const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
 const sfx = createSfx({ storageKey: 'td:muted' });
 sfx.applyButton(document.getElementById('mute-btn'));
+const _isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+createSettingsMenu({ gameId: 'pug-td', getControlsHelp: () => (_isTouch
+  ? 'TAP a tile to place a tower → TAP tower to upgrade. At Lv2 CHOOSE A PATH. ⚡ SPEED TOGGLE top-right. Saved to your profile.'
+  : 'CLICK to place tower → CLICK tower to upgrade. At Lv2 CHOOSE A PATH. T = speed toggle. Saved to your profile.') });
 
 let W = 0, H = 0, DPR = 1, TILE = 0;
 function resize() {
@@ -513,6 +518,53 @@ const TOWERS = {
 const TARGETING_MODES = ['FIRST', 'LAST', 'STRONG', 'CLOSE'];
 const TARGETING_LABEL = { FIRST: 'first on path', LAST: 'last on path', STRONG: 'highest HP', CLOSE: 'closest' };
 
+// === 2-PATH UPGRADE TREE ===
+// At level 2 (after first upgrade) the player must pick one of two paths per
+// tower. Picking commits — levels 3+ apply that path's stat boosts and the
+// tower draws a small badge indicating the chosen path.
+// Each path has: label, blurb, badge color/glyph, and stat multipliers
+// applied per upgrade level beyond the path-pick. Tower-specific behavior
+// flags (crit, pierce, splash, knockback, etc.) are checked in firing code.
+const TOWER_PATHS = {
+  basic: {
+    A: { id: 'CRIT',   label: 'CRIT',   blurb: '15% chance ×3 dmg',         badge: '#ffd23f', glyph: '★', dmgMul: 1.0, rangeMul: 1.0, rateMul: 1.0, crit: 0.15, critMul: 3 },
+    B: { id: 'PIERCE', label: 'PIERCE', blurb: 'shots pierce 2 targets',     badge: '#4cc9f0', glyph: '➤', dmgMul: 1.0, rangeMul: 1.0, rateMul: 1.0, pierce: 2 },
+  },
+  sniper: {
+    A: { id: 'SCOPE', label: 'SCOPE', blurb: '+50% range · crit full-HP',  badge: '#ff8e3c', glyph: '◎', dmgMul: 1.0, rangeMul: 1.5, rateMul: 1.0, fullHpCrit: true, critMul: 2 },
+    B: { id: 'AMMO',  label: 'AMMO',  blurb: '1.5× fire rate',              badge: '#5ef38c', glyph: '|||', dmgMul: 1.0, rangeMul: 1.0, rateMul: 1.5 },
+  },
+  gatling: {
+    A: { id: 'SPREAD', label: 'SPREAD', blurb: '5 pellets, wider arc',      badge: '#ff8e3c', glyph: '※', dmgMul: 0.8, rangeMul: 1.0, rateMul: 1.0, spreadCount: 5 },
+    B: { id: 'SLUG',   label: 'SLUG',   blurb: '1 slug · ×3 dmg · knock',   badge: '#3a3030', glyph: '●', dmgMul: 3.0, rangeMul: 1.0, rateMul: 0.7, knockback: true },
+  },
+  cannon: {
+    A: { id: 'NAPALM', label: 'NAPALM', blurb: 'leaves burning ground',     badge: '#ff5a3a', glyph: '🔥', dmgMul: 1.0, rangeMul: 1.0, rateMul: 1.0, napalm: true },
+    B: { id: 'CLUSTER',label: 'CLUSTER',blurb: '+60% splash · ×1.3 dmg',    badge: '#ffd23f', glyph: '✦', dmgMul: 1.3, rangeMul: 1.0, rateMul: 1.0, splashMul: 1.6 },
+  },
+  frost: {
+    A: { id: 'GLACIER', label: 'GLACIER', blurb: '70% slow · longer freeze', badge: '#b0e8ff', glyph: '❄', dmgMul: 1.0, rangeMul: 1.0, rateMul: 1.0, slowBoost: 0.7, slowDurBoost: 1.8 },
+    B: { id: 'SHATTER', label: 'SHATTER', blurb: '×2 dmg vs slowed enemies', badge: '#4cc9f0', glyph: '✧', dmgMul: 1.0, rangeMul: 1.0, rateMul: 1.0, shatter: true },
+  },
+  buff: {
+    A: { id: 'COMMANDER', label: 'COMMAND', blurb: '+60% buff aura',         badge: '#ffd23f', glyph: '⚔', dmgMul: 1.0, rangeMul: 1.1, rateMul: 1.0, buffBoost: 1.6 },
+    B: { id: 'BANK',      label: 'BANK',    blurb: '+$1/sec passive income', badge: '#5ef38c', glyph: '$', dmgMul: 1.0, rangeMul: 1.0, rateMul: 1.0, incomeSec: 1 },
+  },
+  bone: {
+    A: { id: 'TRIPLE', label: 'TRIPLE', blurb: 'returning hits ×3',          badge: '#eae0c0', glyph: '↺', dmgMul: 1.0, rangeMul: 1.0, rateMul: 1.0, boomerangBounces: 3 },
+    B: { id: 'HEAVY',  label: 'HEAVY',  blurb: '×2 dmg · slower throw',      badge: '#8a6a3a', glyph: '▣', dmgMul: 2.0, rangeMul: 1.0, rateMul: 0.7 },
+  },
+  tar: {
+    A: { id: 'BOG',    label: 'BOG',    blurb: '80% slow · pool lingers',    badge: '#222230', glyph: '◉', dmgMul: 1.0, rangeMul: 1.0, rateMul: 1.0, slowBoost: 0.8, slowDurBoost: 2.0 },
+    B: { id: 'TOXIC',  label: 'TOXIC',  blurb: 'pool tics +6 dmg/sec',       badge: '#5ef38c', glyph: '☣', dmgMul: 1.0, rangeMul: 1.0, rateMul: 1.0, dotPerSec: 6 },
+  },
+};
+function getPathDef(tw) {
+  if (!tw.path) return null;
+  const map = TOWER_PATHS[tw.type];
+  return map && map[tw.path] ? map[tw.path] : null;
+}
+
 const ENEMIES = {
   squirrel: { name: 'squirrel', hp: 14, speed: 1.6, gold: 5,  color: '#a06030', size: 10, air: false },
   cat:      { name: 'cat',      hp: 40, speed: 1.0, gold: 10, color: '#222',    size: 12, air: false },
@@ -584,43 +636,87 @@ function buildBar() {
 }
 
 function hidePopup() { document.getElementById('tower-popup').style.display = 'none'; }
+// Effective stats for a tower (level + chosen path mul). Used by render + fire.
+function effDmg(tw)   { const def = TOWERS[tw.type]; const p = getPathDef(tw); return def.dmg   * (1 + tw.level * 0.25) * (p ? p.dmgMul   : 1); }
+function effRange(tw) { const def = TOWERS[tw.type]; const p = getPathDef(tw); return def.range * (1 + tw.level * 0.15) * (p ? p.rangeMul : 1); }
+function effRate(tw)  { const def = TOWERS[tw.type]; const p = getPathDef(tw); const cd = def.cd / (1 + tw.level * 0.2) / (p ? p.rateMul : 1); return 1 / cd; }
+function effCd(tw)    { const def = TOWERS[tw.type]; const p = getPathDef(tw); return def.cd / (1 + tw.level * 0.2) / (p ? p.rateMul : 1); }
 function showTowerPopup(t) {
   const el = document.getElementById('tower-popup');
   const def = TOWERS[t.type];
   // 1.5× base cost scaling per level: Lv2 = 1.5×base, Lv3 = 3×base, Lv4 = 4.5×base
   const upCost = Math.floor(def.cost * 1.5 * (t.level + 1));
-  // Current stats
-  const dmgNow   = def.dmg   * (1 + t.level * 0.25);
-  const rangeNow = def.range * (1 + t.level * 0.15);
-  const rateNow  = 1 / (def.cd / (1 + t.level * 0.2));
-  // Preview NEXT-level stats so the player sees what the $upCost buys
-  // (Bloons-TD-style upgrade preview). MAX_LEVEL is 3 (4 ranks).
+  // Current stats (path-aware)
+  const dmgNow   = effDmg(t);
+  const rangeNow = effRange(t);
+  const rateNow  = effRate(t);
+  // Path-fork condition: tower is at level 2 (t.level === 1) and has no path
+  // chosen yet. In this state, the regular upgrade is replaced by a PATH
+  // PICKER. Picking a path commits it and bumps the tower to Lv3 (level=2).
+  const paths = TOWER_PATHS[t.type];
+  const needsPathChoice = !t.path && t.level === 1 && !!paths;
   const isMax = t.level >= 3;
   const nextLvl  = t.level + 1;
-  const dmgNext   = def.dmg   * (1 + nextLvl * 0.25);
-  const rangeNext = def.range * (1 + nextLvl * 0.15);
-  const rateNext  = 1 / (def.cd / (1 + nextLvl * 0.2));
-  const dmgDelta   = dmgNext   - dmgNow;
-  const rangeDelta = rangeNext - rangeNow;
-  const rateDelta  = rateNext  - rateNow;
-  const canAfford = money >= upCost;
-  const upgradePreview = isMax
-    ? `<div class="upgrade-preview"><div class="row" style="justify-content:center;"><b style="color:var(--neon-yellow)">★ MAX LEVEL ★</b></div></div>`
-    : `<div class="upgrade-preview">
+  // For preview row (only shown for regular upgrades, not at the fork point)
+  let upgradePreview;
+  if (needsPathChoice) {
+    upgradePreview = `<div class="upgrade-preview">
+      <div class="row" style="justify-content:center;"><b style="color:var(--neon-pink)">★ CHOOSE A PATH ★</b></div>
+      <div class="row" style="justify-content:center;font-size:0.4rem;color:var(--text-soft);">paths are PERMANENT</div>
+    </div>`;
+  } else if (isMax) {
+    upgradePreview = `<div class="upgrade-preview"><div class="row" style="justify-content:center;"><b style="color:var(--neon-yellow)">★ MAX LEVEL ★</b></div></div>`;
+  } else {
+    // Build a temp "next-tower" object to compute path-aware preview stats.
+    const next = { ...t, level: nextLvl };
+    const dmgNext   = effDmg(next);
+    const rangeNext = effRange(next);
+    const rateNext  = effRate(next);
+    const dmgDelta   = dmgNext   - dmgNow;
+    const rangeDelta = rangeNext - rangeNow;
+    const rateDelta  = rateNext  - rateNow;
+    upgradePreview = `<div class="upgrade-preview">
         <div class="row" style="justify-content:center;"><b style="color:var(--neon-cyan)">NEXT: Lv ${nextLvl + 1}</b></div>
         <div class="row"><span>DMG</span><b>${dmgNext.toFixed(0)} <span class="delta">+${dmgDelta.toFixed(0)}</span></b></div>
         <div class="row"><span>RANGE</span><b>${rangeNext.toFixed(1)} <span class="delta">+${rangeDelta.toFixed(1)}</span></b></div>
         <div class="row"><span>RATE</span><b>${rateNext.toFixed(1)}/s <span class="delta">+${rateDelta.toFixed(1)}</span></b></div>
       </div>`;
+  }
+  const canAfford = money >= upCost;
+  // Show chosen path badge in header if committed
+  const pathDef = getPathDef(t);
+  const pathTag = pathDef
+    ? `<span style="color:${pathDef.badge};font-size:0.4rem;letter-spacing:0.08em;">${pathDef.glyph} ${pathDef.label}</span>`
+    : '';
+  // Path-pick UI: two buttons side-by-side
+  let pathButtons = '';
+  if (needsPathChoice) {
+    const pA = paths.A, pB = paths.B;
+    pathButtons = `
+      <div style="display:flex;gap:6px;margin-top:6px;">
+        <button id="path-a" style="flex:1;border-color:${pA.badge};color:${pA.badge};">
+          <div style="font-size:0.55rem;">${pA.glyph} ${pA.label}</div>
+          <div style="font-size:0.4rem;color:var(--text-soft);margin-top:2px;">${pA.blurb}</div>
+          <div style="font-size:0.4rem;color:var(--neon-yellow);margin-top:2px;">$${upCost}</div>
+        </button>
+        <button id="path-b" style="flex:1;border-color:${pB.badge};color:${pB.badge};">
+          <div style="font-size:0.55rem;">${pB.glyph} ${pB.label}</div>
+          <div style="font-size:0.4rem;color:var(--text-soft);margin-top:2px;">${pB.blurb}</div>
+          <div style="font-size:0.4rem;color:var(--neon-yellow);margin-top:2px;">$${upCost}</div>
+        </button>
+      </div>`;
+  }
   el.innerHTML = `
-    <div class="row"><b>${def.icon} ${def.name}</b><span>Lv ${t.level + 1}</span></div>
+    <div class="row"><b>${def.icon} ${def.name}</b><span>Lv ${t.level + 1} ${pathTag}</span></div>
     <div class="row"><span>DMG</span><b>${dmgNow.toFixed(0)}</b></div>
     <div class="row"><span>RANGE</span><b>${rangeNow.toFixed(1)}</b></div>
     <div class="row"><span>RATE</span><b>${rateNow.toFixed(1)}/s</b></div>
     <div class="row"><span>TARGET</span><b id="targ-label">${t.targeting || 'FIRST'} · ${TARGETING_LABEL[t.targeting || 'FIRST']}</b></div>
     ${upgradePreview}
     <button id="targ-btn">↻ CHANGE TARGETING</button>
-    <button id="up-btn"${isMax || !canAfford ? ' disabled style="opacity:0.5;cursor:not-allowed;"' : ''}>${isMax ? 'MAX LEVEL' : `⬆ UPGRADE — $${upCost}`}</button>
+    ${needsPathChoice
+      ? pathButtons
+      : `<button id="up-btn"${isMax || !canAfford ? ' disabled style="opacity:0.5;cursor:not-allowed;"' : ''}>${isMax ? 'MAX LEVEL' : `⬆ UPGRADE — $${upCost}`}</button>`}
     <button id="sell-btn" class="sell">SELL — $${Math.floor(t.totalCost * 0.6)}</button>
   `;
   el.style.display = 'block';
@@ -630,12 +726,28 @@ function showTowerPopup(t) {
     sfx.tone(550, 'square', 0.06, 0.16);
     showTowerPopup(t);
   });
-  document.getElementById('up-btn').addEventListener('click', () => {
-    if (money < upCost || t.level >= 3) return;
-    money -= upCost; t.level++; t.totalCost += upCost;
-    sfx.tone(660, 'triangle', 0.1, 0.22);
-    showTowerPopup(t); updateHud();
-  });
+  if (needsPathChoice) {
+    const commit = (which) => {
+      if (money < upCost) return;
+      money -= upCost; t.level++; t.totalCost += upCost;
+      t.path = which;
+      sfx.arp([523, 784, 1047], 'triangle', 0.08, 0.22, 0.22);
+      spawnPopup((t.col + 0.5) * TILE + gridOffsetX(), (t.row + 0.5) * TILE + gridOffsetY(), `${paths[which].label} PATH!`, paths[which].badge);
+      showTowerPopup(t); updateHud(); buildBar();
+    };
+    const aBtn = document.getElementById('path-a');
+    const bBtn = document.getElementById('path-b');
+    if (aBtn) { if (!canAfford) { aBtn.disabled = true; aBtn.style.opacity = 0.5; } aBtn.addEventListener('click', () => commit('A')); }
+    if (bBtn) { if (!canAfford) { bBtn.disabled = true; bBtn.style.opacity = 0.5; } bBtn.addEventListener('click', () => commit('B')); }
+  } else {
+    const upBtn = document.getElementById('up-btn');
+    if (upBtn) upBtn.addEventListener('click', () => {
+      if (money < upCost || t.level >= 3) return;
+      money -= upCost; t.level++; t.totalCost += upCost;
+      sfx.tone(660, 'triangle', 0.1, 0.22);
+      showTowerPopup(t); updateHud();
+    });
+  }
   document.getElementById('sell-btn').addEventListener('click', () => {
     money += Math.floor(t.totalCost * 0.6);
     towers = towers.filter((x) => x !== t);
@@ -811,6 +923,9 @@ function tick(dt) {
   for (const e of enemies) {
     if (!e.alive) continue;
     if (e.slowT > 0) { e.slowT -= dt; if (e.slowT <= 0) e.slowMul = 1; }
+    // DOT (toxic tar) + NAPALM (cannon NAPALM) damage-over-time
+    if (e.dotT > 0)     { e.dotT -= dt;     if (e.dotT > 0)     e.hp -= (e.dotDps     || 0) * dt; }
+    if (e.napalmT > 0)  { e.napalmT -= dt;  if (e.napalmT > 0)  e.hp -= (e.napalmDps  || 0) * dt; }
     const target = currentMap.path[e.pathIdx + 1];
     if (!target) {
       // Reached end
@@ -842,19 +957,34 @@ function tick(dt) {
   // Towers fire
   for (const tw of towers) {
     const def = TOWERS[tw.type];
+    const path = getPathDef(tw);
+    // BANK path: passive income (BUFF tower, BANK chosen)
+    if (path && path.incomeSec) {
+      tw._bankT = (tw._bankT || 0) + dt;
+      while (tw._bankT >= 1) {
+        tw._bankT -= 1;
+        money += path.incomeSec;
+        spawnPopup((tw.col + 0.5) * TILE + gridOffsetX(), (tw.row + 0.5) * TILE + gridOffsetY() - 6, `+$${path.incomeSec}`, '#5ef38c');
+      }
+    }
     if (def.buff) continue; // buff towers don't fire
     tw.cd -= dt;
     if (tw.cd > 0) continue;
-    // find a buff
+    // find a buff (path-aware: COMMAND path = +60% aura)
     let buffMult = 1;
     for (const b of towers) {
       if (b === tw) continue;
       const bd = TOWERS[b.type];
-      if (bd.buff && Math.hypot(b.col - tw.col, b.row - tw.row) <= bd.range) {
-        buffMult = Math.max(buffMult, bd.buff);
+      if (bd.buff) {
+        const bp = getPathDef(b);
+        const bRange = bd.range * (bp ? bp.rangeMul : 1);
+        if (Math.hypot(b.col - tw.col, b.row - tw.row) <= bRange) {
+          const bMul = bp && bp.buffBoost ? bp.buffBoost : bd.buff;
+          buffMult = Math.max(buffMult, bMul);
+        }
       }
     }
-    const range = def.range * (1 + tw.level * 0.15);
+    const range = effRange(tw);
     // Targeting selection — FIRST (most progress), LAST, STRONG (highest HP), CLOSE (smallest dist)
     let target = null;
     const inRange = [];
@@ -870,20 +1000,74 @@ function tick(dt) {
     else if (mode === 'LAST') target = inRange.reduce((a, b) => (a.e.pathIdx < b.e.pathIdx ? a : b)).e;
     else if (mode === 'STRONG') target = inRange.reduce((a, b) => (a.e.hp > b.e.hp ? a : b)).e;
     else target = inRange.reduce((a, b) => (a.d < b.d ? a : b)).e;
-    // Fire
-    const dmg = def.dmg * (1 + tw.level * 0.25) * buffMult;
-    tw.cd = def.cd / (1 + tw.level * 0.2);
-    projectiles.push({
-      x: (tw.col + 0.5) * TILE + gridOffsetX(),
-      y: (tw.row + 0.5) * TILE + gridOffsetY(),
+    // Fire — base dmg/cd from path-aware effective values
+    let dmg = effDmg(tw) * buffMult;
+    tw.cd = effCd(tw);
+    // CRIT path: random 15% chance ×3
+    let isCrit = false;
+    if (path && path.crit && Math.random() < path.crit) { dmg *= (path.critMul || 3); isCrit = true; }
+    // SCOPE: crit when firing on a full-HP target
+    if (path && path.fullHpCrit && target.hp >= target.maxHp - 0.01) { dmg *= (path.critMul || 2); isCrit = true; }
+    // SHATTER: ×2 vs slowed enemies (frost SHATTER)
+    if (path && path.shatter && target.slowT > 0) { dmg *= 2; isCrit = true; }
+    // Spawn projectiles. SPREAD = 5 pellets in a small arc; SLUG = single
+    // heavy shot (already covered by dmgMul + knockback flag). Default = 1.
+    const baseProjArgs = {
       target, dmg, color: def.projColor,
-      splash: def.splash || 0,
-      slow: def.slow || 0, slowDur: def.slowDur || 0,
+      splash: (def.splash || 0) * (path && path.splashMul ? path.splashMul : 1),
+      slow: Math.max(def.slow || 0, path && path.slowBoost ? path.slowBoost : 0),
+      slowDur: Math.max(def.slowDur || 0, path && path.slowDurBoost ? path.slowDurBoost : 0),
       boomerang: !!def.boomerang,
+      boomerangBounces: path && path.boomerangBounces ? path.boomerangBounces : (def.boomerang ? 1 : 0),
+      pierce: path && path.pierce ? path.pierce : 0,
+      pierceHit: [],
+      knockback: !!(path && path.knockback),
+      napalm: !!(path && path.napalm),
+      dotPerSec: path && path.dotPerSec ? path.dotPerSec : 0,
+      crit: isCrit,
       speed: 800, dead: false,
       origX: (tw.col + 0.5) * TILE + gridOffsetX(),
       origY: (tw.row + 0.5) * TILE + gridOffsetY(),
-    });
+    };
+    const spreadCount = (path && path.spreadCount) ? path.spreadCount : 1;
+    if (spreadCount > 1) {
+      // SPREAD: fan out toward the target with a wider angle than the base
+      // gatling's natural spray.
+      const ox = (tw.col + 0.5) * TILE + gridOffsetX();
+      const oy = (tw.row + 0.5) * TILE + gridOffsetY();
+      const tx = target.x * TILE + gridOffsetX();
+      const ty = target.y * TILE + gridOffsetY();
+      const baseAng = Math.atan2(ty - oy, tx - ox);
+      const arc = 0.6; // ~35deg total
+      for (let i = 0; i < spreadCount; i++) {
+        const t01 = spreadCount === 1 ? 0.5 : i / (spreadCount - 1);
+        const a = baseAng - arc / 2 + arc * t01;
+        // Synthesize a "virtual target" point so the existing projectile
+        // homing code reaches the swept angle. We use the closest enemy
+        // along this ray instead — fall back to actual target.
+        const reachX = ox + Math.cos(a) * range * TILE;
+        const reachY = oy + Math.sin(a) * range * TILE;
+        // Find nearest enemy to that ray point
+        let bestE = target, bestD = Infinity;
+        for (const e of enemies) {
+          if (!e.alive) continue;
+          if (e.def.air && !def.hitsAir) continue;
+          const dd = Math.hypot(e.x * TILE + gridOffsetX() - reachX, e.y * TILE + gridOffsetY() - reachY);
+          if (dd < bestD) { bestD = dd; bestE = e; }
+        }
+        projectiles.push({
+          ...baseProjArgs, target: bestE,
+          x: ox, y: oy,
+          pierceHit: [], // own array per pellet
+        });
+      }
+    } else {
+      projectiles.push({
+        ...baseProjArgs,
+        x: (tw.col + 0.5) * TILE + gridOffsetX(),
+        y: (tw.row + 0.5) * TILE + gridOffsetY(),
+      });
+    }
     sfx.tone(440 + Math.random() * 200, def.cannon ? 'sawtooth' : 'square', 0.04, 0.12);
   }
   // Projectiles
@@ -899,31 +1083,73 @@ function tick(dt) {
         for (const e of enemies) {
           if (!e.alive) continue;
           const dd = Math.hypot(e.x * TILE + gridOffsetX() - tx, e.y * TILE + gridOffsetY() - ty);
-          if (dd < p.splash * TILE) e.hp -= p.dmg;
+          if (dd < p.splash * TILE) {
+            e.hp -= p.dmg;
+            // NAPALM: leave a burning ground patch (handled via short-lived
+            // ground particles + persistent DOT on enemies inside)
+            if (p.napalm) { e.napalmT = Math.max(e.napalmT || 0, 2.5); e.napalmDps = 6; }
+          }
         }
-        particles.push({ x: tx, y: ty, t: 0, life: 0.4, ring: true, maxR: p.splash * TILE, color: p.color });
+        particles.push({ x: tx, y: ty, t: 0, life: p.napalm ? 1.2 : 0.4, ring: true, maxR: p.splash * TILE, color: p.napalm ? '#ff5a3a' : p.color });
       } else if (p.target.alive) {
-        p.target.hp -= p.dmg;
-        if (p.slow > 0) {
-          p.target.slowMul = Math.min(p.target.slowMul, 1 - p.slow);
-          p.target.slowT = p.slowDur;
+        // PIERCE handling — apply damage, mark target as hit, then re-aim to
+        // a fresh enemy along the trajectory until pierce budget exhausted.
+        const applyHit = (e) => {
+          e.hp -= p.dmg;
+          if (p.slow > 0) {
+            e.slowMul = Math.min(e.slowMul, 1 - p.slow);
+            e.slowT = p.slowDur;
+          }
+          if (p.knockback) {
+            // shove enemy back along its path by ~0.7 tile (reduces pathIdx)
+            e.pathIdx = Math.max(0, e.pathIdx - 1);
+            e.slowMul = Math.min(e.slowMul, 0.5);
+            e.slowT = Math.max(e.slowT, 0.4);
+          }
+          if (p.dotPerSec) {
+            e.dotT = Math.max(e.dotT || 0, 2.5);
+            e.dotDps = Math.max(e.dotDps || 0, p.dotPerSec);
+          }
+          if (p.crit) {
+            // crit ping particle
+            particles.push({ x: e.x * TILE + gridOffsetX(), y: e.y * TILE + gridOffsetY(), t: 0, life: 0.35, ring: true, maxR: 18, color: '#ffd23f' });
+          }
+        };
+        applyHit(p.target);
+        if (p.pierce > 0) {
+          p.pierceHit.push(p.target);
+          // Find next enemy along forward direction (closest) not yet hit
+          let next = null, bestD = Infinity;
+          for (const e of enemies) {
+            if (!e.alive || p.pierceHit.includes(e)) continue;
+            const ed = Math.hypot(e.x * TILE + gridOffsetX() - p.x, e.y * TILE + gridOffsetY() - p.y);
+            if (ed < bestD && ed < 200) { bestD = ed; next = e; }
+          }
+          if (next) {
+            p.target = next;
+            p.pierce -= 1;
+            continue; // keep this projectile alive, re-fly to new target
+          }
         }
         // Boomerang: queue a second hit 0.4s later on whatever is closest to origin
         if (p.boomerang) {
           const runToken = runId;
-          setTimeout(() => {
-            if (!running || runToken !== runId) return; // stale projectile from a prior match
-            let best = null, bestD = Infinity;
-            for (const e of enemies) {
-              if (!e.alive) continue;
-              const d = Math.hypot(e.x * TILE + gridOffsetX() - p.origX, e.y * TILE + gridOffsetY() - p.origY);
-              if (d < bestD) { bestD = d; best = e; }
-            }
-            if (best && best.alive) {
-              best.hp -= p.dmg * 0.7;
-              particles.push({ x: best.x * TILE + gridOffsetX(), y: best.y * TILE + gridOffsetY(), t: 0, life: 0.3, ring: true, maxR: 14, color: p.color });
-            }
-          }, 400);
+          const bounces = p.boomerangBounces || 1;
+          for (let bi = 1; bi <= bounces; bi++) {
+            setTimeout(() => {
+              if (!running || runToken !== runId) return;
+              let best = null, bestD = Infinity;
+              for (const e of enemies) {
+                if (!e.alive) continue;
+                const dd = Math.hypot(e.x * TILE + gridOffsetX() - p.origX, e.y * TILE + gridOffsetY() - p.origY);
+                if (dd < bestD) { bestD = dd; best = e; }
+              }
+              if (best && best.alive) {
+                best.hp -= p.dmg * (0.7 / bi); // diminishing returns per bounce
+                particles.push({ x: best.x * TILE + gridOffsetX(), y: best.y * TILE + gridOffsetY(), t: 0, life: 0.3, ring: true, maxR: 14, color: p.color });
+              }
+            }, 400 * bi);
+          }
         }
       }
       p.dead = true;
@@ -1062,14 +1288,31 @@ function render() {
         ctx.beginPath(); ctx.arc(x, y + 6, TILE * 0.36 + 4 + i * 4, 0, Math.PI * 2); ctx.stroke();
       }
     }
-    // Shared high-detail pug sprite — body color comes from tower type.
-    drawPug(ctx, x, bobY + 4, { size: 30, body: def.color || '#c8854a' });
+    // Path tint — overlay the chosen path's badge color on the tower body
+    // so players can read PATH at a glance. PIERCE blue trail, CRIT gold,
+    // etc. The pug body inherits the color when a path is set.
+    const tPath = getPathDef(tw);
+    drawPug(ctx, x, bobY + 4, { size: 30, body: tPath ? tPath.badge : (def.color || '#c8854a') });
     // Tower-type icon overlay above the pug head (small badge).
     if (def.iconName && drawIcon[def.iconName]) {
       drawIcon[def.iconName](ctx, x, bobY - 22, 12);
     } else {
       ctx.font = "12px serif"; ctx.textAlign = 'center';
       ctx.fillText(def.icon, x, bobY - 18);
+    }
+    // PATH BADGE — small glyph in a colored bubble at the tower's top-right
+    // corner. Strongly visible so players can see at-a-glance which path a
+    // tower committed to (esp. on busy boards).
+    if (tPath) {
+      const bx = x + TILE * 0.32;
+      const by = bobY - 18;
+      ctx.fillStyle = '#0a0716';
+      ctx.beginPath(); ctx.arc(bx, by, 7, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = tPath.badge; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(bx, by, 7, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = tPath.badge;
+      ctx.font = "8px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+      ctx.fillText(tPath.glyph, bx, by + 3);
     }
     // Level pips
     for (let i = 0; i < tw.level; i++) {
@@ -1300,7 +1543,7 @@ const _startOv = document.getElementById('overlay');
 if (_startOv) {
   const _showOnHide = () => {
     if (_startOv.classList.contains('is-hidden') || _startOv.hidden) {
-      showTip('Place towers → tap one to UPGRADE/SELL. Waves 5, 10, 15 spawn MINI-BOSSES (+$100 bounty)', 7000);
+      showTip('Place towers → tap to upgrade. At Lv2 CHOOSE A PATH (permanent!). Mini-bosses on waves 5/10/15.', 7500);
     }
   };
   new MutationObserver(_showOnHide).observe(_startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });

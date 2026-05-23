@@ -8,11 +8,16 @@ import { drawIcon, iconSvg } from '../../src/shared/icons.js';
 import { drawPug } from '../../src/shared/pugSprite.js';
 import { createMobileControls } from '../../src/shared/mobileControls.js';
 import { showGradeCard } from '../../src/shared/gradeCard.js';
+import { createSettingsMenu } from '../../src/shared/settingsMenu.js';
 
 const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
 const sfx = createSfx({ storageKey: 'heist:muted' });
 sfx.applyButton(document.getElementById('mute-btn'));
+const _isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+createSettingsMenu({ gameId: 'pug-heist', getControlsHelp: () => _isTouch
+  ? 'JOYSTICK sneak · BARK / SMOKE / TONGUE / DECOY / VASE buttons · 🛒 SHOP between floors. Saved to your profile.'
+  : 'WASD sneak · Q smoke · G tongue · T decoy · X throw vase · spend $$ between floors. Saved to your profile.' });
 
 let W = 0, H = 0, DPR = 1;
 function resize() {

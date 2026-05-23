@@ -7,6 +7,8 @@ import { drawPug } from '../../src/shared/pugSprite.js';
 import { createMobileControls } from '../../src/shared/mobileControls.js';
 import { showGradeCard } from '../../src/shared/gradeCard.js';
 import { createKillFeed } from '../../src/shared/killFeed.js';
+import { createSettingsMenu } from '../../src/shared/settingsMenu.js';
+import { getShakeMul as _shakeMul } from '../../src/shared/screenShake.js';
 
 // --- Custom weapon icons (drawn on canvas; size ~ 18px) -----------------------
 // Library doesn't have sausage / toast / bubble, so we draw them inline here in
@@ -61,6 +63,10 @@ const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
 const sfx = createSfx({ storageKey: 'rocket:muted' });
 sfx.applyButton(document.getElementById('mute-btn'));
+const _isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+createSettingsMenu({ gameId: 'rocket-pug', getControlsHelp: () => _isTouch
+  ? 'LEFT JOYSTICK move · TAP-anywhere aim · FIRE / JETPACK buttons. Saved to your profile.'
+  : 'WASD move · MOUSE aim · CLICK fire · SPACE jetpack burst. Saved to your profile.' });
 
 let W = 0, H = 0, DPR = 1;
 function resize() {
@@ -100,7 +106,7 @@ const BUFF_TYPES = ['shield', 'damage', 'speed'];
 let pedestal = null;    // {x, y, ready, t, type}
 let pedestalCd = 0;     // seconds until next ready
 let activeBuffs = new Map(); // pug -> {type, t}
-function shake(amp, dur) { shakeAmp = Math.max(shakeAmp, amp); shakeT = Math.max(shakeT, dur); }
+function shake(amp, dur) { const k = _shakeMul(); shakeAmp = Math.max(shakeAmp, amp * k); shakeT = Math.max(shakeT, dur); }
 function popup(x, y, text, color) {
   if (popups.length > 32) popups.shift();
   popups.push({ x, y, vy: -40, text, color: color || '#ffd23f', life: 1.0, t: 0 });
@@ -257,6 +263,10 @@ function reset() {
   weaponPickups = []; weaponSpawnT = 6; // first pickup after 6s
   mouse = { x: W / 2, y: H / 2 };
   activeBuffs = new Map();
+  // Reset PWNED freeze so a fresh match doesn't inherit a stuck freeze if the
+  // previous match ended while the cam was still up.
+  pwnedT = 0; pwnedVictim = null;
+  lastHitT = 0;
   buildCrowd();
   buildStove();
   buildObstacles();
@@ -1090,6 +1100,9 @@ document.getElementById('start-btn').addEventListener('click', start);
 document.getElementById('end-restart').addEventListener('click', start);
 function start() {
   reset(); running = true;
+  // Wipe stale kill-feed lines from a previous match so they don't bleed into
+  // the new round (otherwise the ticker shows "you killed X" from last run).
+  try { __rocketFeed.clear(); } catch (e) { /* */ }
   document.getElementById('overlay').hidden = true; document.getElementById('overlay').classList.add('is-hidden');
   document.getElementById('end-overlay').hidden = true; document.getElementById('end-overlay').classList.add('is-hidden');
   document.getElementById('hud').hidden = false;

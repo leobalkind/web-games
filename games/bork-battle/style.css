@@ -705,6 +705,41 @@ body.colorblind {
   height: 96px;
 }
 
+/* ======= Brotato-style Shop on Level-Up ======= */
+.evolve-card { position: relative; }
+.evolve-card--locked { box-shadow: 0 0 18px rgba(255,210,63,0.55), 0 0 0 2px #ffd23f inset; }
+.evolve-card__lock {
+  position: absolute; top: 6px; right: 6px; z-index: 2;
+  width: 28px; height: 28px; border-radius: 50%;
+  background: rgba(0,0,0,0.6); border: 1px solid #4cc9f0;
+  color: #ffd23f; font-size: 14px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.evolve-card__lock:hover { background: rgba(76,201,240,0.25); }
+.bork-shop-bar {
+  display: flex; align-items: center; justify-content: center;
+  gap: 12px; margin-top: 14px;
+  padding: 8px 12px;
+  background: rgba(10,7,22,0.7);
+  border: 2px solid #4cc9f0; border-radius: 8px;
+  font-family: var(--font-display); font-size: 0.55rem;
+  letter-spacing: 0.05em;
+}
+.bork-shop-bar__money { color: #ffd23f; text-shadow: 0 0 6px #ffd23f; }
+.bork-shop-bar__reroll, .bork-shop-bar__skip {
+  font-family: var(--font-display); font-size: 0.5rem; letter-spacing: 0.06em;
+  padding: 6px 12px; border-radius: 6px; cursor: pointer;
+  border: 2px solid #ff3aa1; background: linear-gradient(180deg,#3a0f30,#1a0716); color: #ff3aa1;
+  text-shadow: 0 0 6px #ff3aa1;
+  -webkit-tap-highlight-color: transparent;
+}
+.bork-shop-bar__reroll:hover:not(:disabled) { background: linear-gradient(180deg,#5a1a48,#2a0d28); transform: translateY(-1px); }
+.bork-shop-bar__reroll:disabled { opacity: 0.4; cursor: not-allowed; }
+.bork-shop-bar__cost { color: #ffd23f; margin-left: 4px; }
+.bork-shop-bar__skip { border-color: #5a5a72; color: #c8c0e8; text-shadow: none; }
+.bork-shop-bar__skip:hover { background: rgba(90,90,114,0.3); }
+
 /* =========================================================================
    HUD  (Pass 3)
    ========================================================================= */
@@ -1220,7 +1255,7 @@ body:not(.is-touch) .touch-ability-extra { display: none !important; }
 .bork-shop-modal {
   position: fixed;
   inset: 0;
-  z-index: 300;
+  z-index: 2100;
   display: flex;
   align-items: center;
   justify-content: center;

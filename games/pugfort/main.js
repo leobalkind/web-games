@@ -11,6 +11,11 @@ import { BUILDABLES, MATERIALS, getUnlockSummary, recordSurvival, isLocked } fro
 import { playIntroCutscene } from './src/Cutscene.js';
 import { createSpeedToggle } from '../../src/shared/speedToggle.js';
 import { showWavePreview } from '../../src/shared/wavePreview.js';
+import { createSettingsMenu } from '../../src/shared/settingsMenu.js';
+const _isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+createSettingsMenu({ gameId: 'pugfort', getControlsHelp: () => _isTouch
+  ? 'LEFT JOYSTICK move · RIGHT JOYSTICK aim · BUILD button · SHOP button · ⚡ SPEED TOGGLE top-right. Saved to your profile.'
+  : 'WASD move · MOUSE aim · CLICK fire · B build menu · 1-9 build slots · ESC cancel · T speed toggle. Saved to your profile.' });
 
 const touch = createTouchControls({ enableAbility: true, abilityLabel: 'BUILD' });
 if (touch.enabled) document.body.classList.add('is-touch');
@@ -30,12 +35,14 @@ const endOverlay = document.getElementById('end-overlay');
 const restartBtn = document.getElementById('end-restart');
 const muteBtn = document.getElementById('mute-btn');
 
-// Mute toggle — persists across sessions
+// Mute UI moved into the shared Settings panel (⚙ top-left). Legacy 🔊 button
+// is hidden but its click handler is preserved as a safety net.
 function applyMuteUI(muted) {
   if (!muteBtn) return;
   muteBtn.textContent = muted ? '🔇' : '🔊';
   muteBtn.classList.toggle('muted', muted);
 }
+if (muteBtn) muteBtn.style.display = 'none';
 const savedMute = localStorage.getItem('pugfort:muted') === '1';
 Sfx.setMuted?.(savedMute);
 applyMuteUI(savedMute);
@@ -44,13 +51,7 @@ muteBtn?.addEventListener('click', () => {
   localStorage.setItem('pugfort:muted', m ? '1' : '0');
   applyMuteUI(m);
 });
-window.addEventListener('keydown', (e) => {
-  if (e.key === 'm' || e.key === 'M') {
-    const m = Sfx.toggleMute ? Sfx.toggleMute() : false;
-    localStorage.setItem('pugfort:muted', m ? '1' : '0');
-    applyMuteUI(m);
-  }
-});
+// M-key mute is now owned by settingsMenu (toggles global wg:settings:muted).
 
 const game = new Game();
 game.touchControls = touch;

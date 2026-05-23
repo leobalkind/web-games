@@ -1,24 +1,33 @@
 // =============================================================================
 // Sound system — WebAudio synth, NO audio files.
 // All effects programmatically generated via oscillators + noise + envelopes.
+// Routes master gain through src/shared/settingsMenu.js (global SFX slider).
 // =============================================================================
+import { getMasterGain, onSettingsChange } from '../../../src/shared/settingsMenu.js';
 let ctx = null;
 let masterGain = null;
+let musicGainHandle = null;
 let muted = false;
 let baseVolume = 0.5;
+
+function _applySettings() {
+  if (masterGain) masterGain.gain.value = muted ? 0 : baseVolume * getMasterGain('sfx');
+  if (musicGainHandle) musicGainHandle.gain.value = 0.1 * getMasterGain('music');
+}
 
 function ensureCtx() {
   if (ctx) return ctx;
   try {
     ctx = new (window.AudioContext || window.webkitAudioContext)();
     masterGain = ctx.createGain();
-    masterGain.gain.value = 0.5;
+    masterGain.gain.value = baseVolume * getMasterGain('sfx');
     masterGain.connect(ctx.destination);
   } catch (e) {
     console.warn('[Sfx] no AudioContext', e);
   }
   return ctx;
 }
+onSettingsChange(_applySettings);
 
 // Resume after first user gesture
 window.addEventListener('click', () => {
@@ -275,8 +284,9 @@ export const Sfx = {
     const c = ensureCtx(); if (!c) return;
     if (this._music) return;
     const musicGain = c.createGain();
-    musicGain.gain.value = 0.1;
+    musicGain.gain.value = 0.1 * getMasterGain('music');
     musicGain.connect(masterGain);
+    musicGainHandle = musicGain;
     const bpm = 96;
     const beat = 60 / bpm;
     // A minor — eerie pad-style bass
@@ -315,18 +325,18 @@ export const Sfx = {
     if (!this._music) return;
     clearInterval(this._music.timer);
     try { this._music.gain.disconnect(); } catch {}
-    this._music = null;
+    this._music = null; musicGainHandle = null;
   },
 
   setVolume(v) {
     ensureCtx();
     baseVolume = Math.max(0, Math.min(1, v));
-    if (masterGain) masterGain.gain.value = muted ? 0 : baseVolume;
+    _applySettings();
   },
   setMuted(m) {
     muted = !!m;
     ensureCtx();
-    if (masterGain) masterGain.gain.value = muted ? 0 : baseVolume;
+    _applySettings();
   },
   toggleMute() {
     this.setMuted(!muted);

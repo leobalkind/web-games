@@ -31,6 +31,17 @@
   <div class="hud-row hud-row--small"><b>BEST</b> <span id="hud-best">0</span></div>
 </div></div>
 <button id="beam-btn" type="button" style="position:fixed;right:20px;bottom:200px;width:72px;height:72px;border-radius:50%;background:linear-gradient(180deg,#a87a4a,#6a4a28);color:#fff;border:3px solid #d0a878;font-family:var(--font-display);font-size:0.55rem;cursor:pointer;display:none;z-index:150;-webkit-tap-highlight-color:transparent;box-shadow:0 6px 0 rgba(60,40,20,0.8);">BEAM</button>
+<div id="shop-modal" hidden style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:2100;background:rgba(0,0,0,0.6);">
+  <div style="background:linear-gradient(180deg,#2a1a14,#1a0d05);border:3px solid #d0a878;border-radius:10px;padding:18px 22px;min-width:320px;max-width:90vw;box-shadow:0 0 32px rgba(208,168,120,0.5);">
+    <div style="font-family:var(--font-display);font-size:0.7rem;color:#ffd23f;text-align:center;margin-bottom:6px;letter-spacing:0.1em;">SHOPKEEPER</div>
+    <div id="shop-greet" style="font-family:var(--font-display);font-size:0.45rem;color:#fffbe6;text-align:center;margin-bottom:14px;letter-spacing:0.06em;">Welcome, friend!</div>
+    <div id="shop-items" style="display:flex;flex-direction:column;gap:8px;"></div>
+    <div style="display:flex;gap:8px;margin-top:14px;">
+      <button id="shop-steal" type="button" style="flex:1;background:linear-gradient(180deg,#5a1010,#2a0808);border:2px solid #ff3a3a;color:#ff8a8a;font-family:var(--font-display);font-size:0.45rem;padding:8px;border-radius:6px;cursor:pointer;letter-spacing:0.08em;">⚠ STEAL ⚠</button>
+      <button id="shop-close" type="button" style="flex:1;background:rgba(0,0,0,0.4);border:2px solid #d0a878;color:#fff;font-family:var(--font-display);font-size:0.45rem;padding:8px;border-radius:6px;cursor:pointer;letter-spacing:0.08em;">LEAVE</button>
+    </div>
+  </div>
+</div>
 <div id="end-overlay" class="overlay is-hidden" hidden><div class="overlay__panel">
   <h2 class="overlay__title">DUG OUT</h2>
   <p class="overlay__sub" id="end-sub">You collapsed exhausted.</p>

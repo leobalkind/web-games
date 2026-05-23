@@ -11,6 +11,7 @@ import { Input } from './Input.js';
 import { Sfx } from './Sfx.js';
 import { Generator } from './Generator.js';
 import { Boss } from './Boss.js';
+import { getShakeMul as _pf_shakeMul } from '../../../src/shared/screenShake.js';
 
 const DAY_DURATION = 30;
 const DAY_DURATION_FIRST = 45; // first day = longer prep (Night 1 ramp-fix)
@@ -67,7 +68,8 @@ export class Game {
   }
 
   _screenShake(mag, dur) {
-    this.shakeMag = Math.max(this.shakeMag || 0, mag);
+    const k = _pf_shakeMul();
+    this.shakeMag = Math.max(this.shakeMag || 0, mag * k);
     this.shakeT = Math.max(this.shakeT || 0, dur);
   }
 

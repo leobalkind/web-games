@@ -8,6 +8,8 @@ import { drawIcon } from '../../src/shared/icons.js';
 import { drawPug } from '../../src/shared/pugSprite.js';
 import { createMobileControls } from '../../src/shared/mobileControls.js';
 import { showGradeCard } from '../../src/shared/gradeCard.js';
+import { createSettingsMenu } from '../../src/shared/settingsMenu.js';
+import { getShakeMul as _shakeMul } from '../../src/shared/screenShake.js';
 
 // --- Custom item icons for ones not in the shared library ---------------------
 // Chicken drumstick — beige leg + brown bone tip
@@ -64,6 +66,10 @@ const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
 const sfx = createSfx({ storageKey: 'mart:muted' });
 sfx.applyButton(document.getElementById('mute-btn'));
+const _isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+createSettingsMenu({ gameId: 'supermarket-pug', getControlsHelp: () => _isTouch
+  ? 'JOYSTICK move · GRAB / RAM / CART buttons (right) · 💰 BRIBE button (top) · EXIT bottom-right. Saved to your profile.'
+  : 'WASD move · E grab · SPACE ram · C cart · 💰 BRIBE top-right (B) · EXIT bottom-right. Saved to your profile.' });
 
 let W = 0, H = 0, DPR = 1;
 function resize() {
@@ -128,7 +134,7 @@ let cleanerBot = null;  // {x, y, ang, speed, brushPhase}
 let counter = null;     // {x, y, w, h}
 let alarm = { on: false, T: 0, escaped: false, bonus: 0 };
 let breathPuffs = [];   // {x, y, vy, life, max}
-function shake(amp, dur) { shakeAmp = Math.max(shakeAmp, amp); shakeT = Math.max(shakeT, dur); }
+function shake(amp, dur) { const k = _shakeMul(); shakeAmp = Math.max(shakeAmp, amp * k); shakeT = Math.max(shakeT, dur); }
 function popup(x, y, text, color) {
   if (!popups) return;
   if (popups.length > 24) popups.shift();
@@ -309,6 +315,53 @@ function grabNear() {
   }
 }
 
+// Cart-momentum domino chain: knock the shelf over, fling it along (nx, ny),
+// then look for any adjacent shelves within `chainR` and recurse with reduced
+// power. Each link bumps heat and adds a popup; max chain depth keeps it
+// from going O(n^2 * recurse-forever).
+function knockOverShelf(s, nx, ny, power, chainDepth) {
+  if (!s || s.hp <= 0 || s.toppled || chainDepth > 6) return;
+  s.hp = 0; s.toppled = true;
+  s.tvx = nx * (40 + power * 0.4);
+  s.tvy = ny * (40 + power * 0.4);
+  s.tlife = 0;
+  // Drop all items on this shelf
+  for (const it of items) {
+    if (it.on === s && !it.taken) { it.y += 18; it.fallen = true; }
+  }
+  shelvesKnocked++;
+  heat = Math.min(1, heat + 0.18 + chainDepth * 0.04);
+  shake(3 + chainDepth, 0.18);
+  sfx.tone(140 - chainDepth * 12, 'sawtooth', 0.12, 0.22);
+  const cx = s.x + s.w / 2, cy = s.y + s.h / 2;
+  popup(cx, cy - 18, chainDepth === 0 ? 'DOMINO!' : `CHAIN ×${chainDepth + 1}`, chainDepth === 0 ? '#ffd23f' : '#ff3aa1');
+  checkObjectives();
+  // Chain into nearby shelves within ~110px along the impact direction
+  const chainR = 130;
+  const nextPower = power * 0.7;
+  if (nextPower < 80) return;
+  // Sort candidates by signed distance along (nx,ny) so we cascade outward
+  const candidates = [];
+  for (const o of shelves) {
+    if (o === s || o.hp <= 0 || o.toppled) continue;
+    const ocx = o.x + o.w / 2, ocy = o.y + o.h / 2;
+    const dx = ocx - cx, dy = ocy - cy;
+    const proj = dx * nx + dy * ny; // distance along impact dir
+    const dist = Math.hypot(dx, dy);
+    if (dist < chainR && proj > -10) candidates.push({ o, proj, dist });
+  }
+  candidates.sort((a, b) => a.dist - b.dist);
+  // Knock the closest up to 2 in chain to avoid wiping the whole row in one hit
+  for (let i = 0; i < Math.min(2, candidates.length); i++) {
+    const next = candidates[i];
+    // Use the relative direction from current shelf to next as the new impact
+    const tx = (next.o.x + next.o.w / 2) - cx;
+    const ty = (next.o.y + next.o.h / 2) - cy;
+    const tl = Math.hypot(tx, ty) || 1;
+    knockOverShelf(next.o, tx / tl, ty / tl, nextPower, chainDepth + 1);
+  }
+}
+
 function ram() {
   if (!running) return;
   for (const s of shelves) {
@@ -380,18 +433,41 @@ function tick(dt) {
     const b = breathPuffs[i]; b.life += dt; b.y += b.vy * dt; b.vy *= 0.95;
     if (b.life >= b.max) breathPuffs.splice(i, 1);
   }
-  // Shelf collision (block movement)
+  // Shelf collision (block movement) + cart-momentum knockover.
+  // In cart mode @ high speed, hitting a shelf knocks it down (HP -> 0) and
+  // imparts velocity to it, which can chain-knock adjacent shelves.
   pug.x += pug.vx * dt; pug.y += pug.vy * dt;
   pug.vx *= Math.pow(0.5, dt * 4); pug.vy *= Math.pow(0.5, dt * 4);
+  const pugSpeed = Math.hypot(pug.vx, pug.vy);
   for (const s of shelves) {
+    if (s.toppled) continue; // toppled shelves are visually-only (flat on floor)
     if (pug.x + 14 > s.x && pug.x - 14 < s.x + s.w && pug.y + 14 > s.y && pug.y - 14 < s.y + s.h) {
-      // push out (simple)
+      // Cart RAM threshold: speed > 200 in-cart triggers domino chain
+      if (inCart && pugSpeed > 200 && s.hp > 0) {
+        // Direction of ram = velocity normalized
+        const len = pugSpeed || 1;
+        const nx = pug.vx / len, ny = pug.vy / len;
+        knockOverShelf(s, nx, ny, pugSpeed, /*chainDepth*/ 0);
+        // Player keeps most momentum (only mild slow)
+        pug.vx *= 0.6; pug.vy *= 0.6;
+        continue;
+      }
+      // Normal push-out
       const cx = s.x + s.w / 2, cy = s.y + s.h / 2;
       const dx = pug.x - cx, dy = pug.y - cy;
       if (Math.abs(dx) > Math.abs(dy)) pug.x = dx > 0 ? s.x + s.w + 14 : s.x - 14;
       else pug.y = dy > 0 ? s.y + s.h + 14 : s.y - 14;
       pug.vx *= 0.5; pug.vy *= 0.5;
     }
+  }
+  // Tick toppling shelves' visual flight (slides briefly then settles).
+  for (const s of shelves) {
+    if (!s.toppled) continue;
+    if (s.tvx == null) continue;
+    s.x += s.tvx * dt; s.y += s.tvy * dt;
+    s.tvx *= Math.pow(0.5, dt * 3); s.tvy *= Math.pow(0.5, dt * 3);
+    s.tlife = (s.tlife || 0) + dt;
+    if (s.tlife > 0.6) { s.tvx = 0; s.tvy = 0; }
   }
   pug.x = Math.max(20, Math.min(W - 20, pug.x));
   pug.y = Math.max(20, Math.min(H - 20, pug.y));
@@ -647,6 +723,24 @@ function render() {
   // Shelves — multi-tier with colorful products visible
   const PROD = ['#ff5a3a', '#ffd23f', '#5ef38c', '#4cc9f0', '#c062ff', '#ff8e3c'];
   for (const s of shelves) {
+    // TOPPLED shelves render as a flat "fallen" rectangle on the floor with
+    // scattered product dots so the player can read the chaos.
+    if (s.toppled) {
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.fillRect(s.x - 2, s.y + s.h - 4, s.w + 4, 6);
+      ctx.fillStyle = '#3a2a14';
+      ctx.fillRect(s.x, s.y + s.h - 8, s.w, 8); // flat board
+      ctx.fillStyle = '#5a3a1c';
+      ctx.fillRect(s.x, s.y + s.h - 10, s.w, 2);
+      // Scattered products
+      for (let i = 0; i < 6; i++) {
+        ctx.fillStyle = PROD[(s.seed + i) % PROD.length];
+        const px = s.x + 4 + ((i * 13 + (s.seed * 7) % 19) % (s.w - 8));
+        const py = s.y + s.h - 12 + ((i * 5 + (s.seed * 3) % 7) % 8);
+        ctx.fillRect(px, py, 5, 4);
+      }
+      continue;
+    }
     // back board
     ctx.fillStyle = s.hp > 1 ? '#5a3a1c' : '#3a2a14';
     ctx.fillRect(s.x, s.y, s.w, s.h);
@@ -725,9 +819,15 @@ function render() {
       ctx.fillStyle = '#ff3a3a'; ctx.font = "16px sans-serif"; ctx.textAlign = 'center';
       ctx.fillText('!', g.x, g.y - 28);
     }
-    // Speech bubble bark — white rounded rect with red text above the guard
+    // Speech bubble bark — white rounded rect with red text above the guard.
+    // Use real elapsed time (now - lastT) so frame-rate variation doesn't desync
+    // the fade. Renderer-only tick means it pauses correctly with the game
+    // (render is gated by `if (running) render()`).
     if (g.bark) {
-      g.bark.t += (1 / 60); // approx — render runs ~60Hz; bark fades on its own life
+      const nowB = performance.now() / 1000;
+      const lastB = g.bark._lastT || nowB;
+      g.bark.t += Math.max(0, Math.min(0.1, nowB - lastB));
+      g.bark._lastT = nowB;
       if (g.bark.t >= g.bark.life) { g.bark = null; }
       else {
         const txt = g.bark.text;

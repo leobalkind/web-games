@@ -10,6 +10,8 @@ import { drawPug } from '../../src/shared/pugSprite.js';
 import { createMobileControls } from '../../src/shared/mobileControls.js';
 import { showGradeCard } from '../../src/shared/gradeCard.js';
 import { createKillFeed } from '../../src/shared/killFeed.js';
+import { createSettingsMenu } from '../../src/shared/settingsMenu.js';
+import { getShakeMul as _shakeMul } from '../../src/shared/screenShake.js';
 
 // Scrolling kill feed (top-right) for delivery completions
 const __deliveryFeed = createKillFeed({ maxLines: 5, lifespan: 4500 });
@@ -18,6 +20,10 @@ const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
 const sfx = createSfx({ storageKey: 'delivery:muted' });
 sfx.applyButton(document.getElementById('mute-btn'));
+const _isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+createSettingsMenu({ gameId: 'delivery-pugs', getControlsHelp: () => _isTouch
+  ? 'JOYSTICK drive · BOOST / HORN buttons · reach the green 📍 marker. Saved to your profile.'
+  : 'WASD drive to the green 📍 marker · SHIFT to boost · grab 🔥 powerups. Saved to your profile.' });
 
 let W = 0, H = 0, DPR = 1;
 function resize() {
@@ -44,6 +50,11 @@ const VEHICLES = {
 
 let pug, vehicle, marker, obstacles, time, deliveries, fuel, running, cam;
 let powerups, skidMarks, nitroT, shieldT, magnetT;
+// CARGO FRAGILITY — each delivery starts at 100% intact. Every collision (any
+// damage source) drops it 10%. Payout (= time bonus + tip $$) scales with how
+// intact the cargo arrives: 1.5× at 100%, 1.0× at 50%, 0.5× at 0%.
+let intact = 100;
+let intactFlashT = 0; // brief red pulse on damage
 let combo = 0, comboT = 0, toxicPuddles = [], spikeStrips = [], achievementsSeen = new Set();
 // Crazy Taxi stunt system: continuous-drift timer + near-miss tracking.
 // driftHoldT counts up while skidding (continuous slide); once it crosses
@@ -76,7 +87,7 @@ let popups = []; // {x, y, text, color, t}
 let smog = []; // ambient dust drift particles
 let exhaust = []; // tiny exhaust puffs from vehicle
 let burst = []; // pickup burst particles
-function addShake(mag, dur) { shakeMag = Math.max(shakeMag, mag); shakeT = Math.max(shakeT, dur); }
+function addShake(mag, dur) { const k = _shakeMul(); shakeMag = Math.max(shakeMag, mag * k); shakeT = Math.max(shakeT, dur); }
 function addPopup(x, y, text, color) { popups.push({ x, y, text, color: color || '#ffd23f', t: 0 }); if (popups.length > 30) popups.shift(); }
 // Stunt multiplier — bumped by drift/near-miss/delivery events. Each bump
 // adds 1 to the multiplier (capped at 5x) and refreshes the 6s window. While
@@ -128,6 +139,7 @@ function reset() {
   for (let i = 0; i < 5; i++) toxicPuddles.push({ x: rand(80, WORLD_W - 80), y: rand(80, WORLD_H - 80), r: 36 });
   for (let i = 0; i < 4; i++) spikeStrips.push({ x: rand(80, WORLD_W - 80), y: rand(80, WORLD_H - 80), w: 80 });
   time = 30; deliveries = 0; fuel = 100;
+  intact = 100; intactFlashT = 0;
   cam = { x: pug.x, y: pug.y };
   shakeT = 0; shakeMag = 0; hitFlashT = 0;
   popups = []; exhaust = []; burst = [];
@@ -417,8 +429,11 @@ function tick(dt) {
   }
   // Bonus marker pickup
   if (bonusMarker && Math.hypot(pug.x - bonusMarker.x, pug.y - bonusMarker.y) < 44) {
-    const bonus = 36;
+    // Mystery package: intact still scales the bonus 0.5×..1.5×
+    const intactMul = 0.5 + (intact / 100);
+    const bonus = Math.floor(36 * intactMul);
     time = Math.min(time + bonus, 60);
+    intact = 100; intactFlashT = 0;
     deliveries++;
     sfx.arp([523, 880, 1320, 1760], 'triangle', 0.06, 0.25, 0.35);
     addPopup(bonusMarker.x, bonusMarker.y - 10, `+${bonus}s · BONUS!`, '#b055ff');
@@ -457,6 +472,7 @@ function tick(dt) {
   // Juice timers + ambient
   if (shakeT > 0) { shakeT -= dt; if (shakeT <= 0) shakeMag = 0; }
   if (hitFlashT > 0) hitFlashT = Math.max(0, hitFlashT - dt);
+  if (intactFlashT > 0) intactFlashT = Math.max(0, intactFlashT - dt);
   for (const p of popups) { p.t += dt; p.y -= 28 * dt; }
   popups = popups.filter((p) => p.t < 1.2);
   for (const p of burst) { p.t += dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.92; p.vy *= 0.92; }
@@ -575,10 +591,25 @@ function tick(dt) {
     if (comboT > 0) combo = Math.min(99, combo + 1); else combo = 1;
     comboT = 12;
     const baseBonus = 18 + Math.floor(combo * 0.5);
+    // CARGO FRAGILITY MULTIPLIER — payout scales from 0.5× (0% intact) to
+    // 1.5× (100% intact). Linear: 0.5 + intact/100.
+    const intactMul = 0.5 + (intact / 100);
     // Stunt multiplier from drifts/near-misses scales the delivery time
     // payout, giving Crazy Taxi-style "drive crazy = bigger payday" loop.
-    const bonusTime = Math.floor(baseBonus * stuntMult);
+    const bonusTime = Math.floor(baseBonus * stuntMult * intactMul);
     time = Math.min(time + bonusTime, 60);
+    // "PERFECT" celebration when intact stays above 90%
+    const isPerfect = intact >= 90;
+    if (isPerfect) {
+      addPopup(marker.x, marker.y - 30, '★ PERFECT! ×1.5 ★', '#ffd23f');
+      addBurst(marker.x, marker.y, '#ffd23f', 18);
+      sfx.tone(1320, 'triangle', 0.18, 0.25);
+      try { __deliveryFeed.push(`★ PERFECT DELIVERY ×1.5`, '#ffd23f'); } catch (e) { /* */ }
+    } else if (intact <= 20) {
+      addPopup(marker.x, marker.y - 30, 'CARGO MASHED ×0.5', '#ff5a3a');
+    }
+    // RESET intact for next delivery
+    intact = 100; intactFlashT = 0;
     // Refresh the stunt multiplier window on every delivery so stunts during
     // delivery runs keep the chain alive (separate decay so multi-stunt
     // runs feel rewarding).
@@ -714,6 +745,11 @@ function damage() {
   hitFlashT = 0.18;
   addShake(7, 0.28);
   addBurst(pug.x, pug.y, '#ff3a3a', 14);
+  // CARGO FRAGILITY — every collision drops intact% by 10. Bottom at 0.
+  // Flash the bar so the player sees the hit cost them payout, not just HP.
+  intact = Math.max(0, intact - 10);
+  intactFlashT = 0.4;
+  addPopup(pug.x, pug.y - 12, '-10% INTACT', '#ff8e3c');
   if (pug.hp <= 0) end();
 }
 
@@ -1245,6 +1281,30 @@ function render() {
   ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(W / 2 - 100, 16, 200, 8);
   ctx.fillStyle = time < 8 ? '#ff3a3a' : '#5ef38c';
   ctx.fillRect(W / 2 - 100, 16, 200 * (time / 60), 8);
+  // CARGO FRAGILITY bar — under time bar, with INTACT % label.
+  // Color: 100%=green, 50%=yellow, <30%=red. Flashes briefly on damage so
+  // the player sees the hit cost them payout.
+  const intactColor = intact >= 70 ? '#5ef38c' : (intact >= 40 ? '#ffd23f' : '#ff5a3a');
+  const flashAlpha = intactFlashT > 0 ? Math.min(0.6, intactFlashT * 1.5) : 0;
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  ctx.fillRect(W / 2 - 100, 30, 200, 6);
+  ctx.fillStyle = intactColor;
+  ctx.fillRect(W / 2 - 100, 30, 200 * (intact / 100), 6);
+  if (flashAlpha > 0) {
+    ctx.fillStyle = `rgba(255,255,255,${flashAlpha})`;
+    ctx.fillRect(W / 2 - 100, 30, 200, 6);
+  }
+  // INTACT label + percent
+  ctx.font = "8px 'Press Start 2P', monospace"; ctx.textAlign = 'left';
+  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.fillText('INTACT', W / 2 - 100, 45);
+  ctx.fillStyle = intactColor;
+  ctx.fillText('INTACT', W / 2 - 100, 44);
+  ctx.textAlign = 'right';
+  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.fillText(`${Math.round(intact)}%`, W / 2 + 100, 45);
+  ctx.fillStyle = intactColor;
+  ctx.fillText(`${Math.round(intact)}%`, W / 2 + 100, 44);
   // Speedometer (top-right)
   const spd = Math.hypot(pug.vx, pug.vy);
   const maxSpd = 600;
@@ -1422,6 +1482,8 @@ document.getElementById('start-btn').addEventListener('click', start);
 document.getElementById('end-restart').addEventListener('click', start);
 function start() {
   reset(); running = true;
+  // Wipe stale delivery-feed lines from a previous match.
+  try { __deliveryFeed.clear(); } catch (e) { /* */ }
   document.getElementById('overlay').hidden = true; document.getElementById('overlay').classList.add('is-hidden');
   document.getElementById('end-overlay').hidden = true; document.getElementById('end-overlay').classList.add('is-hidden');
   document.getElementById('hud').hidden = false;
@@ -1440,7 +1502,7 @@ const _startOv = document.getElementById('overlay');
 if (_startOv) {
   const _showOnHide = () => {
     if (_startOv.classList.contains('is-hidden') || _startOv.hidden) {
-      showTip('WASD drive to the green 📍 marker · SHIFT to boost · grab 🔥 powerups', 6000);
+      showTip('WASD drive · SHIFT boost · don\'t crash! INTACT% bar drains on hits — 100% intact = 1.5× payout', 7500);
     }
   };
   new MutationObserver(_showOnHide).observe(_startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });

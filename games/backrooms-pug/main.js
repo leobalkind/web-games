@@ -12,11 +12,17 @@ import { drawIcon } from '../../src/shared/icons.js';
 import { drawPug, drawMonsterPug } from '../../src/shared/pugSprite.js';
 import { createMobileControls } from '../../src/shared/mobileControls.js';
 import { profileKey } from '../../src/shared/profile.js';
+import { createSettingsMenu } from '../../src/shared/settingsMenu.js';
+import { getShakeMul as _shakeMul } from '../../src/shared/screenShake.js';
 
 const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
 const sfx = createSfx({ storageKey: 'backrooms:muted' });
 sfx.applyButton(document.getElementById('mute-btn'));
+const _isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+createSettingsMenu({ gameId: 'backrooms-pug', getControlsHelp: () => _isTouch
+  ? 'JOYSTICK move · SNEAK / TORCH / SMOKE buttons (right) · find 5 cans, reach EXIT. Saved to your profile.'
+  : 'WASD walk · SHIFT sneak · B flashlight · F smoke · find 5 cans, reach the EXIT. Saved to your profile.' });
 
 let W = 0, H = 0, DPR = 1;
 const TILE = 84;
@@ -295,7 +301,7 @@ let noclipSwapped = false;       // true once we've actually swapped to the new 
 let noteCollectibles = [];       // {x, y, id} in-world notes for current level
 let activeNoteText = null;       // string currently shown in the modal, null if closed
 
-function shake(mag, dur) { shakeMag = Math.max(shakeMag, mag); shakeT = Math.max(shakeT, dur); }
+function shake(mag, dur) { const k = _shakeMul(); shakeMag = Math.max(shakeMag, mag * k); shakeT = Math.max(shakeT, dur); }
 function pop(x, y, text, color) {
   if (popups.length > 60) popups.shift();
   popups.push({ x, y, vy: -28, life: 0, max: 0.9, text, color: color || '#5ef38c' });

@@ -1,24 +1,34 @@
 // =============================================================================
 // BORK BATTLE Sfx — WebAudio synth, NO audio files.
 // Mirrors games/pugfort/src/Sfx.js patterns with bork-flavored effects.
+// Routes master gain through src/shared/settingsMenu.js (global SFX slider).
 // =============================================================================
+import { getMasterGain, onSettingsChange } from '../../../src/shared/settingsMenu.js';
 let ctx = null;
 let masterGain = null;
+let musicGainHandle = null; // remembered for live volume updates
 let muted = false;
 let lastShootAt = 0;
+const BASE = 0.45;
+
+function _applySettings() {
+  if (masterGain) masterGain.gain.value = muted ? 0 : BASE * getMasterGain('sfx');
+  if (musicGainHandle) musicGainHandle.gain.value = 0.12 * getMasterGain('music');
+}
 
 function ensureCtx() {
   if (ctx) return ctx;
   try {
     ctx = new (window.AudioContext || window.webkitAudioContext)();
     masterGain = ctx.createGain();
-    masterGain.gain.value = 0.45;
+    masterGain.gain.value = BASE * getMasterGain('sfx');
     masterGain.connect(ctx.destination);
   } catch (e) {
     console.warn('[Sfx] no AudioContext', e);
   }
   return ctx;
 }
+onSettingsChange(_applySettings);
 
 // Resume after first user gesture (autoplay policy)
 const resumeOnGesture = () => {
@@ -341,13 +351,15 @@ export const Sfx = {
         step++;
       }
     };
+    musicGainHandle = musicGain;
+    musicGainHandle.gain.value = 0.12 * getMasterGain('music');
     this._music = { gain: musicGain, timer: setInterval(tick, interval) };
   },
   stopMusic() {
     if (!this._music) return;
     clearInterval(this._music.timer);
     try { this._music.gain.disconnect(); } catch {}
-    this._music = null;
+    this._music = null; musicGainHandle = null;
   },
   setMusicVolume(v) {
     if (this._music) this._music.gain.gain.value = Math.max(0, Math.min(1, v));
@@ -361,7 +373,7 @@ export const Sfx = {
   setMuted(m) {
     muted = !!m;
     ensureCtx();
-    if (masterGain) masterGain.gain.value = muted ? 0 : 0.45;
+    _applySettings();
   },
   toggleMute() {
     this.setMuted(!muted);

@@ -19,6 +19,7 @@ import {
 import { randomSeed, mulberry32 } from './rng.js';
 import { Sfx } from './Sfx.js';
 import { submitRun, loadBest } from '../../../src/persistence/highScores.js';
+import { getShakeMul as _bb_shakeMul } from '../../../src/shared/screenShake.js';
 
 const MAX_BOTS = 11;
 const BORK_MAX_DAMAGE = 60;
@@ -1650,7 +1651,8 @@ export class Game {
   }
 
   _screenShake(magnitude, duration) {
-    this.shakeMag = magnitude;
+    const k = _bb_shakeMul();
+    this.shakeMag = magnitude * k;
     this.shakeT = duration;
   }
 
@@ -2055,30 +2057,104 @@ export class Game {
     const titleEl = overlay.querySelector('.overlay__title');
     const subEl = overlay.querySelector('.overlay__sub');
     if (titleEl) titleEl.textContent = `LEVEL ${this.player.level}!`;
-    if (subEl) subEl.textContent = 'Pick an upgrade. Such growth.';
-    choices.innerHTML = '';
-    // pick 3 random unique upgrades
-    const pool = [...UPGRADES];
-    for (let i = pool.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [pool[i], pool[j]] = [pool[j], pool[i]];
+    if (subEl) subEl.textContent = '★ SHOP — pick 1 free. Lock 🔒 to keep on reroll.';
+    // Brotato-style state: 6 cards, locked subset survives rerolls, reroll cost escalates
+    this._shopRerollCost = 5;
+    this._shopLocked = new Set();          // ids of cards locked
+    this._shopCards = this._rollShopCards(6);
+    this._renderShopMenu();
+    overlay.hidden = false;
+    overlay.classList.remove('is-hidden');
+  }
+
+  // Pick N unique upgrades, preserving any locked slots from previous roll.
+  _rollShopCards(n) {
+    const out = [];
+    // Carry forward any locked card by id
+    if (this._shopCards && this._shopLocked && this._shopLocked.size > 0) {
+      for (const c of this._shopCards) {
+        if (this._shopLocked.has(c.uid)) out.push(c);
+      }
     }
-    const opts = pool.slice(0, 3);
-    for (const u of opts) {
-      const card = document.createElement('div');
-      card.className = 'evolve-card';
-      card.innerHTML = `
+    // Fresh-roll until we have n
+    let safety = 200;
+    while (out.length < n && safety-- > 0) {
+      const u = UPGRADES[Math.floor(Math.random() * UPGRADES.length)];
+      const uid = `${u.id}-${Math.random().toString(36).slice(2, 7)}`;
+      out.push({ uid, def: u });
+    }
+    return out;
+  }
+
+  _renderShopMenu() {
+    const overlay = document.getElementById('evolve-overlay');
+    const choices = document.getElementById('evolve-choices');
+    if (!overlay || !choices) return;
+    choices.innerHTML = '';
+    // Strip stale toolbar if present (from previous renders)
+    const oldBar = overlay.querySelector('.bork-shop-bar');
+    if (oldBar) oldBar.remove();
+    // Cards grid
+    for (const card of this._shopCards) {
+      const u = card.def;
+      const isLocked = this._shopLocked.has(card.uid);
+      const el = document.createElement('div');
+      el.className = 'evolve-card' + (isLocked ? ' evolve-card--locked' : '');
+      el.innerHTML = `
+        <button type="button" class="evolve-card__lock" title="Lock to keep across rerolls">${isLocked ? '🔒' : '🔓'}</button>
         <div class="evolve-card__preview" style="font-size:42px;display:flex;align-items:center;justify-content:center;">
           ${this._upgradeEmoji(u.id)}
         </div>
         <h3 class="evolve-card__name">${u.name}</h3>
         <div class="evolve-card__desc">${u.desc}</div>
       `;
-      card.addEventListener('click', () => this._chooseUpgrade(u));
-      choices.appendChild(card);
+      // Lock pin
+      el.querySelector('.evolve-card__lock').addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (this._shopLocked.has(card.uid)) this._shopLocked.delete(card.uid);
+        else this._shopLocked.add(card.uid);
+        this._renderShopMenu();
+      });
+      // Pick the upgrade
+      el.addEventListener('click', () => this._chooseUpgrade(u));
+      choices.appendChild(el);
     }
-    overlay.hidden = false;
-    overlay.classList.remove('is-hidden');
+    // Reroll toolbar — appended INSIDE the overlay panel (below the cards grid)
+    const panel = overlay.querySelector('.overlay__panel');
+    const bar = document.createElement('div');
+    bar.className = 'bork-shop-bar';
+    const money = Math.floor(this.player.money || 0);
+    const canReroll = money >= this._shopRerollCost;
+    bar.innerHTML = `
+      <div class="bork-shop-bar__money">$<b>${money}</b></div>
+      <button type="button" class="bork-shop-bar__reroll" ${canReroll ? '' : 'disabled'}>
+        ↻ REROLL <span class="bork-shop-bar__cost">$${this._shopRerollCost}</span>
+      </button>
+      <button type="button" class="bork-shop-bar__skip">SKIP</button>
+    `;
+    bar.querySelector('.bork-shop-bar__reroll').addEventListener('click', () => {
+      if ((this.player.money || 0) < this._shopRerollCost) return;
+      this.player.money -= this._shopRerollCost;
+      this._shopRerollCost = Math.ceil(this._shopRerollCost * 1.6) + 1;
+      this._shopCards = this._rollShopCards(6);
+      Sfx.click?.();
+      this._renderShopMenu();
+      this.hud.updateMoney(this.player.money || 0);
+    });
+    bar.querySelector('.bork-shop-bar__skip').addEventListener('click', () => {
+      // Close shop without picking anything (still get the +HP heal from leveling)
+      const ov = document.getElementById('evolve-overlay');
+      ov.hidden = true; ov.classList.add('is-hidden');
+      const t = ov.querySelector('.overlay__title');
+      const s = ov.querySelector('.overlay__sub');
+      if (t) t.textContent = 'EVOLVE!';
+      if (s) s.textContent = 'Pick your next form. Such choice.';
+      this.evolving = false;
+      this.player.hp = Math.min(this.player.hp + 10, this.player.maxHp);
+      this.hud.updatePlayer(this.player);
+      Sfx.levelUp?.();
+    });
+    panel.appendChild(bar);
   }
 
   _upgradeEmoji(id) {
@@ -2096,6 +2172,10 @@ export class Game {
     const overlay = document.getElementById('evolve-overlay');
     overlay.hidden = true;
     overlay.classList.add('is-hidden');
+    // Tear down the Brotato shop toolbar so the next evolve menu opens clean.
+    const bar = overlay.querySelector('.bork-shop-bar');
+    if (bar) bar.remove();
+    this._shopCards = null; this._shopLocked = null; this._shopRerollCost = 0;
     // restore evolve menu title for next time
     const titleEl = overlay.querySelector('.overlay__title');
     const subEl = overlay.querySelector('.overlay__sub');

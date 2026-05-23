@@ -9,6 +9,8 @@ import { drawPug } from '../../src/shared/pugSprite.js';
 import { profileKey } from '../../src/shared/profile.js';
 import { createMobileControls } from '../../src/shared/mobileControls.js';
 import { createKillFeed } from '../../src/shared/killFeed.js';
+import { createSettingsMenu } from '../../src/shared/settingsMenu.js';
+import { getShakeMul as _shakeMul } from '../../src/shared/screenShake.js';
 
 // Scrolling kill feed (top-right) — pushed when buildings are destroyed.
 const __pugzillaFeed = createKillFeed({ maxLines: 5, lifespan: 4500 });
@@ -107,6 +109,10 @@ const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
 const sfx = createSfx({ storageKey: 'pugzilla:muted' });
 sfx.applyButton(document.getElementById('mute-btn'));
+const _isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+createSettingsMenu({ gameId: 'pugzilla', getControlsHelp: () => _isTouch
+  ? 'JOYSTICK walk · TAP building to smash · BORK button = shockwave · 🛒 SHOP top-right. Saved to your profile.'
+  : 'WASD walk · CLICK building to smash · SPACE = shockwave bork · 🛒 SHOP top-right (B). Saved to your profile.' });
 
 let W = 0, H = 0, DPR = 1;
 function resize() {
@@ -161,7 +167,7 @@ let popups = []; // {x, y, text, color, t}
 let smokeColumns = []; // ambient smoke pillars at smash sites: {x, y, t, life}
 let craters = []; // permanent floor scars from smashed buildings
 let distantChoppers = []; // far skyline helicopter silhouettes (decorative)
-function addShake(mag, dur) { shakeMag = Math.max(shakeMag, mag); shakeT = Math.max(shakeT, dur); }
+function addShake(mag, dur) { const k = _shakeMul(); shakeMag = Math.max(shakeMag, mag * k); shakeT = Math.max(shakeT, dur); }
 function addPopup(x, y, text, color) { popups.push({ x, y, text, color: color || '#ffd23f', t: 0 }); if (popups.length > 40) popups.shift(); }
 
 // Building types — each with different score/effect + render style
@@ -1431,6 +1437,8 @@ document.getElementById('start-btn').addEventListener('click', start);
 document.getElementById('end-restart').addEventListener('click', start);
 function start() {
   reset(); running = true;
+  // Wipe stale kill-feed lines from a previous match.
+  try { __pugzillaFeed.clear(); } catch (e) { /* */ }
   document.getElementById('overlay').hidden = true; document.getElementById('overlay').classList.add('is-hidden');
   document.getElementById('end-overlay').hidden = true; document.getElementById('end-overlay').classList.add('is-hidden');
   document.getElementById('hud').hidden = false;
