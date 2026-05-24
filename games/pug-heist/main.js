@@ -1493,21 +1493,44 @@ function render() {
       ctx.restore();
     }
   }
-  // LASERS — pulsing red beams (active = bright, inactive = faint)
+  // LASERS — pulsing red beams (active = bright, inactive = faint).
+  // Now with bright white core + outer haze halo + glowing emitter eyes.
   for (const lz of lasers) {
     const active = Math.sin(lz.phase * (Math.PI * 2 / lz.period)) > 0;
+    // Outer haze halo when active — soft glow around the beam axis.
+    if (active) {
+      ctx.fillStyle = 'rgba(255,40,40,0.18)';
+      if (lz.axis === 'h') ctx.fillRect(lz.x, lz.y - 2, lz.w, lz.h + 4);
+      else ctx.fillRect(lz.x - 2, lz.y, lz.w + 4, lz.h);
+    }
     ctx.fillStyle = active ? 'rgba(255,40,40,0.85)' : 'rgba(255,40,40,0.18)';
     ctx.fillRect(lz.x, lz.y, lz.w, lz.h);
     if (active) {
       ctx.shadowColor = '#ff3a3a'; ctx.shadowBlur = 10;
       ctx.fillStyle = 'rgba(255,180,180,0.9)';
       ctx.fillRect(lz.x + 1, lz.y + 1, lz.w - 2, lz.h - 2);
+      // White hot core down the middle
+      ctx.fillStyle = '#fff';
+      if (lz.axis === 'h') ctx.fillRect(lz.x, lz.y + lz.h / 2 - 0.5, lz.w, 1);
+      else ctx.fillRect(lz.x + lz.w / 2 - 0.5, lz.y, 1, lz.h);
       ctx.shadowBlur = 0;
     }
-    // emitter caps
-    ctx.fillStyle = '#3a1a1a';
-    if (lz.axis === 'h') { ctx.fillRect(lz.x - 4, lz.y - 2, 4, 8); ctx.fillRect(lz.x + lz.w, lz.y - 2, 4, 8); }
-    else { ctx.fillRect(lz.x - 2, lz.y - 4, 8, 4); ctx.fillRect(lz.x - 2, lz.y + lz.h, 8, 4); }
+    // emitter caps — heavy metal housing with red lens glow
+    ctx.fillStyle = '#1a0a0a';
+    if (lz.axis === 'h') {
+      ctx.fillRect(lz.x - 5, lz.y - 3, 5, 10); ctx.fillRect(lz.x + lz.w, lz.y - 3, 5, 10);
+      ctx.fillStyle = '#3a1a1a'; ctx.fillRect(lz.x - 4, lz.y - 2, 4, 8); ctx.fillRect(lz.x + lz.w, lz.y - 2, 4, 8);
+      // emitter lens dot
+      ctx.fillStyle = active ? '#ff3a3a' : '#3a1010';
+      ctx.fillRect(lz.x - 2, lz.y + lz.h / 2 - 1, 2, 2);
+      ctx.fillRect(lz.x + lz.w, lz.y + lz.h / 2 - 1, 2, 2);
+    } else {
+      ctx.fillRect(lz.x - 3, lz.y - 5, 10, 5); ctx.fillRect(lz.x - 3, lz.y + lz.h, 10, 5);
+      ctx.fillStyle = '#3a1a1a'; ctx.fillRect(lz.x - 2, lz.y - 4, 8, 4); ctx.fillRect(lz.x - 2, lz.y + lz.h, 8, 4);
+      ctx.fillStyle = active ? '#ff3a3a' : '#3a1010';
+      ctx.fillRect(lz.x + lz.w / 2 - 1, lz.y - 2, 2, 2);
+      ctx.fillRect(lz.x + lz.w / 2 - 1, lz.y + lz.h, 2, 2);
+    }
   }
   // X-RAY SCANNERS (airport) — wider blue/violet field with scanning lines.
   for (const sc of scanners) {
@@ -1604,14 +1627,37 @@ function render() {
     ctx.lineTo(cam.x + Math.cos(ang + cam.fov) * cam.range, cam.y + Math.sin(ang + cam.fov) * cam.range);
     ctx.stroke();
     ctx.setLineDash([]);
-    // bracket + body
-    ctx.fillStyle = '#2a2a3a'; ctx.fillRect(cam.x - 6, cam.y - 5, 12, 4);
+    // Menacing security camera — wall bracket, dome housing, lens, LED, antenna
+    // Bracket on wall (behind body) with mounting screw heads
+    ctx.fillStyle = '#1a1a22'; ctx.fillRect(cam.x - 7, cam.y - 7, 14, 6);
+    ctx.fillStyle = '#2a2a3a'; ctx.fillRect(cam.x - 6, cam.y - 6, 12, 4);
+    ctx.fillStyle = '#5a5a6a'; ctx.fillRect(cam.x - 5, cam.y - 6, 10, 1);
+    // Screws
+    ctx.fillStyle = '#cacacf';
+    ctx.fillRect(cam.x - 5, cam.y - 5, 1, 1);
+    ctx.fillRect(cam.x + 4, cam.y - 5, 1, 1);
     ctx.save(); ctx.translate(cam.x, cam.y); ctx.rotate(ang);
+    // Camera body — domed top + rectangular barrel
+    ctx.fillStyle = '#0a0a12'; ctx.fillRect(-8, -4, 16, 8);
     ctx.fillStyle = '#1a1a26'; ctx.fillRect(-7, -3, 14, 6);
+    ctx.fillStyle = '#3a3a4a'; ctx.fillRect(-7, -3, 14, 1); // top highlight
+    ctx.fillStyle = '#000'; ctx.fillRect(-7, 3, 14, 1); // bottom shadow
+    // Lens — glossy black circle with bright catch-light
+    ctx.fillStyle = '#000';
+    ctx.beginPath(); ctx.arc(2, 0, 3.5, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#3a3a4a';
+    ctx.beginPath(); ctx.arc(2, 0, 2.5, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#1a1a22';
+    ctx.beginPath(); ctx.arc(2, 0, 1.5, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.beginPath(); ctx.arc(1.2, -0.8, 0.7, 0, Math.PI * 2); ctx.fill();
+    // Antenna stub
+    ctx.fillStyle = '#7a7a8a'; ctx.fillRect(-8, -1, 1, 2);
     // Glowing red LED — pulses with phase
     const ledPulse = 0.5 + 0.5 * Math.sin(cam.phase * 4);
     ctx.shadowColor = '#ff3a3a'; ctx.shadowBlur = 6 + ledPulse * 4;
-    ctx.fillStyle = '#ff3a3a'; ctx.fillRect(4, -1, 4, 2);
+    ctx.fillStyle = '#ff3a3a'; ctx.fillRect(5, -1, 3, 2);
+    ctx.fillStyle = '#ff8a8a'; ctx.fillRect(5, -1, 3, 1);
     ctx.shadowBlur = 0;
     ctx.restore();
   }
@@ -1720,8 +1766,15 @@ function render() {
     ctx.closePath(); ctx.fill();
     // depth3D drop shadow under guard
     _depthShadow(ctx, h.x, h.y + 16, 18, { alpha: 0.4 });
-    // body — high-detail human-pug
-    drawPug(ctx, h.x, h.y, { size: 32, body: '#a89888', mask: '#3a2810' });
+    // Guard body + theme uniform. Each guard receives a stable variant index
+    // (cached on first draw) so they keep the same uniform across frames even
+    // though humans are not labeled. Variants are picked from a theme palette
+    // so e.g. museum gives jacket/cap/blazer/captain looks while office gives
+    // suit/tie/blazer/lanyard looks. Pure cosmetic.
+    if (h._uniformIdx == null) h._uniformIdx = ((h.x | 0) ^ (h.y | 0)) % 4;
+    const _gOut = _heistGuardOutfit(buildingTheme, h._uniformIdx);
+    drawPug(ctx, h.x, h.y, { size: 32, ..._gOut });
+    _drawHeistGuardAccessory(ctx, h.x, h.y, buildingTheme, h._uniformIdx, 32);
     // facing dot
     ctx.fillStyle = '#fff';
     ctx.beginPath(); ctx.arc(h.x + Math.cos(h.ang) * 10, h.y + Math.sin(h.ang) * 10, 3, 0, Math.PI * 2); ctx.fill();
@@ -1821,12 +1874,17 @@ function render() {
     ctx.translate(-pug.x, -pug.y + fall * 6);
     ctx.globalAlpha = 0.6 + 0.4 * (1 - fall);
   }
+  // Theme-based pug outfit. Each building gives the pug a distinct disguise so
+  // returning players can tell what floor they're on at a glance.
+  const _pugOutfit = _heistPugOutfit(buildingTheme);
   if (hitFlashT > 0) {
     ctx.save(); ctx.filter = 'brightness(2.5) saturate(0)';
-    drawPug(ctx, pug.x, pug.y, { size: 30 });
+    drawPug(ctx, pug.x, pug.y, { size: 30, ..._pugOutfit });
+    _drawHeistPugAccessory(ctx, pug.x, pug.y, buildingTheme, 30);
     ctx.filter = 'none'; ctx.restore();
   } else {
-    drawPug(ctx, pug.x, pug.y, { size: 30 });
+    drawPug(ctx, pug.x, pug.y, { size: 30, ..._pugOutfit });
+    _drawHeistPugAccessory(ctx, pug.x, pug.y, buildingTheme, 30);
   }
   if (isKnocked) { ctx.restore(); }
   // restore actual y after jump-lift draw offset
@@ -2054,48 +2112,226 @@ function render() {
   drawGadgetHud();
 }
 
+// Per-theme pug body+mask palette for heist disguise.
+const _HEIST_PUG = {
+  museum:  { body: '#d8a070', mask: '#221008' },
+  bank:    { body: '#b88858', mask: '#1a0d05' },
+  mansion: { body: '#caa080', mask: '#2a1a10' },
+  office:  { body: '#c08858', mask: '#1c0e06' },
+  airport: { body: '#d09060', mask: '#2a1208' },
+};
+function _heistPugOutfit(theme) { return _HEIST_PUG[theme] || { body: '#c8854a', mask: '#1a0d05' }; }
+
+// Per-theme heist disguise accessory layer (bowtie/tie/cap/monocle/scarf).
+function _drawHeistPugAccessory(ctx, x, y, theme, size) {
+  const s = size / 36;
+  ctx.save();
+  if (theme === 'museum') {
+    ctx.fillStyle = '#7a1a2e'; ctx.fillRect(x - 4 * s, y + 8 * s, 8 * s, 3 * s);
+    ctx.fillStyle = '#a02838'; ctx.fillRect(x - 1 * s, y + 8 * s, 2 * s, 3 * s);
+    ctx.fillStyle = '#f0e8d0'; ctx.fillRect(x - 3 * s, y + 12 * s, 4 * s, 3 * s);
+  } else if (theme === 'bank') {
+    ctx.fillStyle = '#1a2848'; ctx.fillRect(x - 5 * s, y + 7 * s, 10 * s, 3 * s);
+    ctx.fillStyle = '#3a5a90'; ctx.fillRect(x - 1 * s, y + 8 * s, 2 * s, 8 * s);
+    ctx.fillStyle = '#5a7ab0'; ctx.fillRect(x - 1 * s, y + 8 * s, 2 * s, 2 * s);
+  } else if (theme === 'mansion') {
+    ctx.fillStyle = '#4a2868'; ctx.fillRect(x - 5 * s, y + 7 * s, 10 * s, 3 * s);
+    ctx.fillStyle = '#caa8d8'; ctx.fillRect(x - 4 * s, y + 8 * s, 8 * s, 1 * s);
+    ctx.strokeStyle = '#ffd23f'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(x + 4 * s, y - 3 * s, 3 * s, 0, Math.PI * 2); ctx.stroke();
+  } else if (theme === 'office') {
+    ctx.fillStyle = '#2a2a3a'; ctx.fillRect(x - 6 * s, y + 8 * s, 12 * s, 4 * s);
+    ctx.fillStyle = '#3a3a4a';
+    ctx.beginPath(); ctx.moveTo(x - 6 * s, y + 8 * s); ctx.lineTo(x, y + 12 * s); ctx.lineTo(x + 6 * s, y + 8 * s); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#c83838'; ctx.fillRect(x - 1 * s, y + 8 * s, 2 * s, 6 * s);
+  } else if (theme === 'airport') {
+    ctx.fillStyle = '#a02828'; ctx.fillRect(x - 7 * s, y - 14 * s, 14 * s, 4 * s);
+    ctx.fillStyle = '#c83838'; ctx.fillRect(x - 6 * s, y - 13 * s, 12 * s, 2 * s);
+    ctx.fillStyle = '#1a1a26'; ctx.fillRect(x - 7 * s, y - 10 * s, 14 * s, 1 * s);
+    ctx.fillStyle = '#5ea0c8'; ctx.fillRect(x - 6 * s, y + 7 * s, 12 * s, 3 * s);
+  }
+  ctx.restore();
+}
+
+// Per-theme guard palette table (4 variants per theme).
+const _HEIST_GUARD = {
+  museum:  [{ body: '#2a3a5a', mask: '#0a1a2a' }, { body: '#8a7858', mask: '#3a2810' }, { body: '#6a6a78', mask: '#2a2a32' }, { body: '#6a4828', mask: '#2a1808' }],
+  bank:    [{ body: '#1a1a22', mask: '#0a0a10' }, { body: '#5a5a6a', mask: '#2a2a32' }, { body: '#2a3a5a', mask: '#0a1a2a' }, { body: '#3a2818', mask: '#1a0d05' }],
+  mansion: [{ body: '#221a1a', mask: '#0a0a10' }, { body: '#7a7a82', mask: '#3a3a42' }, { body: '#d8d0c8', mask: '#5a5040' }, { body: '#7a2828', mask: '#3a1010' }],
+  office:  [{ body: '#3a3a4a', mask: '#1a1a22' }, { body: '#5a8a4a', mask: '#2a4a20' }, { body: '#2a4a78', mask: '#0a2a48' }, { body: '#0a0a12', mask: '#000000' }],
+  airport: [{ body: '#1a2a48', mask: '#0a1020' }, { body: '#3a5aa0', mask: '#1a2a50' }, { body: '#c87030', mask: '#683818' }, { body: '#4a4a5a', mask: '#1a1a22' }],
+};
+function _heistGuardOutfit(theme, variant) {
+  const p = _HEIST_GUARD[theme];
+  return p ? p[variant & 3] : { body: '#a89888', mask: '#3a2810' };
+}
+
+// Per-theme/variant guard accessory (cap/badge/shades/tie/lanyard/etc).
+function _drawHeistGuardAccessory(ctx, x, y, theme, variant, size) {
+  const s = size / 36, v = variant & 3;
+  ctx.save();
+  if (theme === 'museum') {
+    if (v === 0 || v === 3) {
+      ctx.fillStyle = v === 0 ? '#0a1a2a' : '#3a1808';
+      ctx.fillRect(x - 7 * s, y - 14 * s, 14 * s, 3 * s);
+      ctx.fillRect(x - 8 * s, y - 11 * s, 16 * s, 2 * s);
+      ctx.fillStyle = '#ffd23f'; ctx.fillRect(x - 1 * s, y - 13 * s, 2 * s, 1 * s);
+    } else if (v === 1) {
+      ctx.fillStyle = '#ffd23f'; ctx.fillRect(x - 5 * s, y + 6 * s, 2 * s, 3 * s);
+    }
+  } else if (theme === 'bank') {
+    if (v === 0 || v === 2) {
+      ctx.fillStyle = '#0a0a10'; ctx.fillRect(x - 6 * s, y - 4 * s, 12 * s, 2 * s);
+      ctx.fillStyle = '#1a1a22';
+      ctx.fillRect(x - 6 * s, y - 3 * s, 5 * s, 2 * s); ctx.fillRect(x + 1 * s, y - 3 * s, 5 * s, 2 * s);
+    }
+    if (v === 1 || v === 3) {
+      ctx.fillStyle = '#cacacf';
+      ctx.fillRect(x + 6 * s, y - 5 * s, 1 * s, 4 * s); ctx.fillRect(x + 5 * s, y - 1 * s, 2 * s, 1 * s);
+    }
+  } else if (theme === 'mansion') {
+    if (v === 0) {
+      ctx.fillStyle = '#fff'; ctx.fillRect(x - 5 * s, y + 8 * s, 10 * s, 2 * s);
+      ctx.fillStyle = '#000'; ctx.fillRect(x - 1 * s, y + 8 * s, 2 * s, 5 * s);
+    } else if (v === 1) {
+      ctx.fillStyle = '#f0f0f0'; ctx.fillRect(x - 6 * s, y - 14 * s, 12 * s, 3 * s);
+    } else if (v === 2) {
+      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(x, y - 14 * s, 6 * s, 0, Math.PI * 2); ctx.fill();
+    } else if (v === 3) {
+      ctx.fillStyle = '#ffd23f';
+      ctx.fillRect(x - 8 * s, y + 4 * s, 3 * s, 3 * s); ctx.fillRect(x + 5 * s, y + 4 * s, 3 * s, 3 * s);
+    }
+  } else if (theme === 'office') {
+    if (v === 0) {
+      ctx.fillStyle = '#c83838'; ctx.fillRect(x - 1 * s, y + 8 * s, 2 * s, 7 * s);
+    } else if (v === 1) {
+      ctx.fillStyle = '#ffd23f';
+      ctx.fillRect(x - 4 * s, y + 4 * s, 1 * s, 6 * s); ctx.fillRect(x + 3 * s, y + 4 * s, 1 * s, 6 * s);
+      ctx.fillStyle = '#fff'; ctx.fillRect(x - 3 * s, y + 9 * s, 6 * s, 2 * s);
+    } else if (v === 2) {
+      ctx.fillStyle = '#8a6840'; ctx.fillRect(x + 6 * s, y - 8 * s, 2 * s, 14 * s);
+      ctx.fillStyle = '#5a8aac'; ctx.fillRect(x + 4 * s, y + 4 * s, 5 * s, 4 * s);
+    } else if (v === 3) {
+      ctx.fillStyle = '#1a1a26'; ctx.fillRect(x + 5 * s, y + 7 * s, 3 * s, 4 * s);
+      ctx.fillStyle = '#3a3a4a'; ctx.fillRect(x + 5 * s, y + 7 * s, 3 * s, 1 * s);
+    }
+  } else if (theme === 'airport') {
+    if (v === 0) {
+      ctx.fillStyle = '#0a1020'; ctx.fillRect(x - 7 * s, y - 14 * s, 14 * s, 4 * s);
+      ctx.fillStyle = '#ffd23f'; ctx.fillRect(x - 3 * s, y - 12 * s, 6 * s, 1 * s);
+    } else if (v === 1) {
+      ctx.fillStyle = '#1a2a50'; ctx.fillRect(x - 7 * s, y - 14 * s, 14 * s, 3 * s);
+      ctx.fillStyle = '#fff'; ctx.fillRect(x - 1 * s, y - 13 * s, 2 * s, 1 * s);
+    } else if (v === 2) {
+      ctx.fillStyle = '#ff8e3c'; ctx.fillRect(x - 6 * s, y + 5 * s, 12 * s, 4 * s);
+      ctx.fillStyle = '#fff'; ctx.fillRect(x - 6 * s, y + 6 * s, 12 * s, 1 * s);
+    } else if (v === 3) {
+      ctx.fillStyle = '#1a1a22'; ctx.fillRect(x - 8 * s, y - 12 * s, 16 * s, 2 * s);
+      ctx.fillRect(x - 7 * s, y - 14 * s, 14 * s, 3 * s);
+    }
+  }
+  ctx.restore();
+}
+
 // Themed-loot icons — small pixel art for gem/bar/painting/laptop.
 function drawThemedLoot(lt) {
   const x = lt.x, y = lt.y, c = lt.color || '#ffd23f';
   switch (lt.iconName) {
-    case 'gem':
+    case 'gem': {
+      // Cut gem with multi-facet shading + inner sparkle + tip highlight.
       ctx.fillStyle = c;
       ctx.beginPath();
       ctx.moveTo(x, y - 9); ctx.lineTo(x + 7, y - 1); ctx.lineTo(x + 4, y + 8);
       ctx.lineTo(x - 4, y + 8); ctx.lineTo(x - 7, y - 1); ctx.closePath(); ctx.fill();
+      // Right-facet shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.30)';
+      ctx.beginPath();
+      ctx.moveTo(x, y - 9); ctx.lineTo(x + 7, y - 1); ctx.lineTo(x + 4, y + 8);
+      ctx.lineTo(x, y - 2); ctx.closePath(); ctx.fill();
+      // Left main highlight
       ctx.fillStyle = 'rgba(255,255,255,0.55)';
       ctx.beginPath(); ctx.moveTo(x - 3, y - 4); ctx.lineTo(x + 1, y - 6); ctx.lineTo(x - 2, y - 1); ctx.closePath(); ctx.fill();
+      // Inner sparkle dot
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(x - 1, y - 5, 1, 1);
+      ctx.fillRect(x + 3, y - 2, 1, 1);
+      // Crown ridge
+      ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x - 7, y - 1); ctx.lineTo(x + 7, y - 1); ctx.stroke();
       break;
+    }
     case 'urn':
       ctx.fillStyle = '#a06030'; ctx.fillRect(x - 5, y - 4, 10, 9);
       ctx.fillStyle = '#c89c20'; ctx.fillRect(x - 6, y - 5, 12, 2);
       ctx.fillStyle = '#5a3010'; ctx.fillRect(x - 5, y + 4, 10, 2);
       break;
     case 'bar':
+      // Gold bar — beveled edges + stamped serial dots + corner highlights
       ctx.fillStyle = '#ffd23f'; ctx.fillRect(x - 9, y - 4, 18, 8);
       ctx.fillStyle = '#c89c20'; ctx.fillRect(x - 9, y + 2, 18, 2);
+      ctx.fillStyle = '#a07810'; ctx.fillRect(x - 9, y + 3, 18, 1);
       ctx.fillStyle = '#fff4a0'; ctx.fillRect(x - 8, y - 3, 16, 2);
+      ctx.fillStyle = '#fff'; ctx.fillRect(x - 7, y - 3, 12, 1);
+      // engraved serial dots in the centre
+      ctx.fillStyle = '#7a5808';
+      ctx.fillRect(x - 5, y, 1, 1); ctx.fillRect(x - 2, y, 1, 1);
+      ctx.fillRect(x + 1, y, 1, 1); ctx.fillRect(x + 4, y, 1, 1);
+      // stamp circle
+      ctx.strokeStyle = '#7a5808'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(x - 6, y - 1, 1.5, 0, Math.PI * 2); ctx.stroke();
       break;
     case 'stack':
       ctx.fillStyle = '#1a8a40'; ctx.fillRect(x - 8, y - 4, 16, 8);
       ctx.fillStyle = '#5ef38c'; ctx.fillRect(x - 8, y - 4, 16, 1);
       ctx.fillStyle = '#fff'; ctx.fillRect(x - 2, y - 1, 4, 2);
       break;
-    case 'painting':
-      ctx.fillStyle = '#3a2010'; ctx.fillRect(x - 10, y - 7, 20, 14);
-      ctx.fillStyle = '#5ea0c8'; ctx.fillRect(x - 8, y - 5, 16, 10);
-      ctx.fillStyle = '#ffd23f'; ctx.fillRect(x - 3, y - 2, 6, 4);
+    case 'painting': {
+      // Ornate gilded frame + landscape inside (sky band, hills, sun, signature)
+      ctx.fillStyle = '#1a0a04'; ctx.fillRect(x - 10, y - 7, 20, 14); // outer shadow
+      ctx.fillStyle = '#8a6028'; ctx.fillRect(x - 10, y - 7, 20, 14); // frame
+      ctx.fillStyle = '#ffd23f'; ctx.fillRect(x - 9, y - 6, 18, 1);
+      ctx.fillStyle = '#ffd23f'; ctx.fillRect(x - 9, y - 6, 1, 12);
+      ctx.fillStyle = '#5a3008'; ctx.fillRect(x + 8, y - 6, 1, 12);
+      ctx.fillStyle = '#5a3008'; ctx.fillRect(x - 9, y + 5, 18, 1);
+      // canvas — sky / hills / sun
+      ctx.fillStyle = '#a8d0e8'; ctx.fillRect(x - 8, y - 5, 16, 6);
+      ctx.fillStyle = '#5a8050'; ctx.fillRect(x - 8, y - 1, 16, 4);
+      ctx.fillStyle = '#3a6038'; ctx.fillRect(x - 8, y + 1, 16, 2);
+      ctx.fillStyle = '#ffce5e'; ctx.fillRect(x + 3, y - 4, 2, 2); // sun
+      // signature
+      ctx.fillStyle = '#000'; ctx.fillRect(x + 5, y + 3, 2, 1);
       break;
+    }
     case 'chand':
       ctx.fillStyle = '#ffce5e';
       ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = '#fff'; ctx.fillRect(x - 4, y - 5, 2, 3); ctx.fillRect(x + 2, y - 5, 2, 3);
       break;
-    case 'laptop':
-      ctx.fillStyle = '#2a2a3a'; ctx.fillRect(x - 9, y - 6, 18, 10);
+    case 'laptop': {
+      // Laptop — open lid + base keyboard + glowing screen with app icons
+      ctx.fillStyle = '#1a1a22'; ctx.fillRect(x - 9, y - 6, 18, 10);
+      ctx.fillStyle = '#2a2a3a'; ctx.fillRect(x - 9, y - 6, 18, 1);
+      // Glowing screen with backlight bloom
       ctx.fillStyle = '#4cc9f0'; ctx.fillRect(x - 8, y - 5, 16, 8);
+      ctx.shadowColor = '#4cc9f0'; ctx.shadowBlur = 6;
+      ctx.fillStyle = 'rgba(180,240,255,0.55)';
+      ctx.fillRect(x - 8, y - 5, 16, 1);
+      ctx.shadowBlur = 0;
+      // Window bar + app row
+      ctx.fillStyle = '#2a3a78'; ctx.fillRect(x - 7, y - 4, 14, 1);
+      ctx.fillStyle = '#ff6b6b'; ctx.fillRect(x - 7, y - 4, 1, 1);
+      ctx.fillStyle = '#ffd23f'; ctx.fillRect(x - 6, y - 4, 1, 1);
+      ctx.fillStyle = '#5ef38c'; ctx.fillRect(x - 5, y - 4, 1, 1);
+      // Code lines
+      ctx.fillStyle = 'rgba(255,255,255,0.7)';
+      ctx.fillRect(x - 6, y - 1, 6, 1);
+      ctx.fillRect(x - 6, y + 1, 9, 1);
+      ctx.fillRect(x - 6, y + 3, 4, 1);
+      // Keyboard base — slim sliver under the screen, hinged
       ctx.fillStyle = '#3a3a4a'; ctx.fillRect(x - 9, y + 4, 18, 2);
+      ctx.fillStyle = '#cacacf'; ctx.fillRect(x - 4, y + 4, 8, 1); // trackpad
       break;
+    }
     case 'monitor':
       ctx.fillStyle = '#1a1a22'; ctx.fillRect(x - 8, y - 6, 16, 11);
       ctx.fillStyle = '#5ef38c'; ctx.fillRect(x - 7, y - 5, 14, 9);

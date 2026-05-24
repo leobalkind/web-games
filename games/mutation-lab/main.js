@@ -42,6 +42,10 @@ function _pugColorsFor(key) {
     body: _PUG_BODY_PALETTE[h % _PUG_BODY_PALETTE.length],
     mask: _PUG_MASK_PALETTE[(h >>> 8) % _PUG_MASK_PALETTE.length],
     tongueOut: ((h >>> 16) & 1) === 1,
+    // deco bucket — 1 of 10 silhouette-distinguishing features per species.
+    // Adds horns/halo/wings/etc. so each codex pug reads as unique without
+    // relying solely on body color. Derived purely from key, no side-effects.
+    deco: (h >>> 24) % 10,
   };
 }
 function _makeLabPugCanvas(w, h, opts) {
@@ -54,7 +58,131 @@ function _makeLabPugCanvas(w, h, opts) {
   const c = cv.getContext('2d');
   c.setTransform(dpr, 0, 0, dpr, 0, 0);
   drawPug(c, w / 2, h - 4, opts);
+  // Apply tier-decoration if provided. This adds silhouette-distinguishing
+  // accessories (horns/halo/wings/etc.) so each codex species reads as unique
+  // even when only the body/mask palette varies.
+  if (opts && opts.deco != null) {
+    _decorateLabPug(c, w / 2, h - 4, opts.size || 36, opts.deco);
+  }
   return cv;
+}
+
+// Decorate a drawn pug with one of N silhouette features chosen by `deco`
+// (a small integer derived from the species hash). All decorations are pixel-
+// art-style and sit OUTSIDE the basic body silhouette so they read at small
+// canvas sizes (32x34 codex cells). NEVER alters gameplay or stored state.
+function _decorateLabPug(c, cx, cy, size, deco) {
+  const s = size / 36;           // baseline scale
+  const top = cy - size + 2 * s; // approximate head top
+  c.save();
+  switch (((deco % 10) + 10) % 10) {
+    case 0: {
+      // Devil horns (2 small red horns)
+      c.fillStyle = '#c01818';
+      c.fillRect(cx - 6 * s, top - 1, 2 * s, 3 * s);
+      c.fillRect(cx + 4 * s, top - 1, 2 * s, 3 * s);
+      c.fillStyle = '#7a0a0a';
+      c.fillRect(cx - 6 * s, top + 2 * s, 2 * s, 1);
+      c.fillRect(cx + 4 * s, top + 2 * s, 2 * s, 1);
+      break;
+    }
+    case 1: {
+      // Halo ring above head
+      c.strokeStyle = '#ffd23f'; c.lineWidth = 1;
+      c.shadowColor = '#ffd23f'; c.shadowBlur = 4;
+      c.beginPath(); c.ellipse(cx, top - 2 * s, 6 * s, 2 * s, 0, 0, Math.PI * 2); c.stroke();
+      c.shadowBlur = 0;
+      break;
+    }
+    case 2: {
+      // Tiny wings sprouting from shoulders
+      c.fillStyle = '#fff';
+      c.fillRect(cx - 10 * s, top + 8 * s, 4 * s, 2 * s);
+      c.fillRect(cx - 12 * s, top + 9 * s, 2 * s, 2 * s);
+      c.fillRect(cx + 6 * s, top + 8 * s, 4 * s, 2 * s);
+      c.fillRect(cx + 10 * s, top + 9 * s, 2 * s, 2 * s);
+      c.fillStyle = '#c8c8d8';
+      c.fillRect(cx - 10 * s, top + 10 * s, 4 * s, 1);
+      c.fillRect(cx + 6 * s, top + 10 * s, 4 * s, 1);
+      break;
+    }
+    case 3: {
+      // Third eye (forehead, glowing)
+      c.fillStyle = '#b055ff';
+      c.shadowColor = '#b055ff'; c.shadowBlur = 4;
+      c.fillRect(cx - 1, top + 2 * s, 2 * s, 2 * s);
+      c.fillStyle = '#fff';
+      c.fillRect(cx, top + 3 * s, 1, 1);
+      c.shadowBlur = 0;
+      break;
+    }
+    case 4: {
+      // Fin / shark fin on top of head
+      c.fillStyle = '#4cc9f0';
+      c.beginPath();
+      c.moveTo(cx, top - 1);
+      c.lineTo(cx + 4 * s, top + 4 * s);
+      c.lineTo(cx, top + 4 * s);
+      c.closePath();
+      c.fill();
+      break;
+    }
+    case 5: {
+      // Mohawk spike (3 tufts on top)
+      c.fillStyle = '#ff3aa1';
+      c.fillRect(cx - 3 * s, top - 1, 1, 3 * s);
+      c.fillRect(cx, top - 2, 1, 4 * s);
+      c.fillRect(cx + 3 * s, top - 1, 1, 3 * s);
+      break;
+    }
+    case 6: {
+      // Antenna with bulb (alien)
+      c.fillStyle = '#3a3a48';
+      c.fillRect(cx - 0.5 * s, top - 4 * s, 1, 4 * s);
+      c.fillStyle = '#5ef38c';
+      c.shadowColor = '#5ef38c'; c.shadowBlur = 3;
+      c.fillRect(cx - 1, top - 5 * s, 2, 2);
+      c.shadowBlur = 0;
+      break;
+    }
+    case 7: {
+      // Crown band (royal)
+      c.fillStyle = '#ffd23f';
+      c.fillRect(cx - 6 * s, top, 12 * s, 2 * s);
+      c.beginPath();
+      c.moveTo(cx - 4 * s, top); c.lineTo(cx - 3 * s, top - 3 * s); c.lineTo(cx - 2 * s, top); c.closePath();
+      c.moveTo(cx - 0.5 * s, top); c.lineTo(cx + 0.5 * s, top - 4 * s); c.lineTo(cx + 1.5 * s, top); c.closePath();
+      c.moveTo(cx + 3 * s, top); c.lineTo(cx + 4 * s, top - 3 * s); c.lineTo(cx + 5 * s, top); c.closePath();
+      c.fill();
+      // small gem
+      c.fillStyle = '#c01818'; c.fillRect(cx - 1, top + 0.5 * s, 2, 1);
+      break;
+    }
+    case 8: {
+      // Tentacles trailing from belly (eldritch)
+      c.fillStyle = '#3a1a4a';
+      c.fillRect(cx - 4 * s, cy - 1, 1, 4 * s);
+      c.fillRect(cx + 3 * s, cy - 1, 1, 4 * s);
+      c.fillRect(cx - 1, cy + 1, 1, 3 * s);
+      // suckers (pink dots)
+      c.fillStyle = '#ff3aa1';
+      c.fillRect(cx - 4 * s, cy + 1, 1, 1);
+      c.fillRect(cx + 3 * s, cy + 1, 1, 1);
+      break;
+    }
+    case 9: {
+      // Magic sparkle aura (3 stars around head)
+      c.fillStyle = '#ffd23f';
+      c.shadowColor = '#ffd23f'; c.shadowBlur = 3;
+      c.fillRect(cx - 9 * s, top + 1, 1, 1);
+      c.fillRect(cx + 8 * s, top + 2, 1, 1);
+      c.fillRect(cx - 7 * s, top - 2, 1, 1);
+      c.fillRect(cx + 7 * s, top - 1, 1, 1);
+      c.shadowBlur = 0;
+      break;
+    }
+  }
+  c.restore();
 }
 
 // Helper: small wrapper around makeIngredientCanvas with sensible defaults.
@@ -70,30 +198,126 @@ function _polyFill(ctx, pts, s, color) {
   ctx.closePath(); ctx.fill();
 }
 const _NEW_INGREDIENT_DRAWERS = {
+  // PHILOSOPHER STONE — legendary alchemical relic. Now with crystalline
+  // facets, runic chiselled groove, layered glow halo, and inner ember pulse.
   philosopher_stone(ctx, x, y, size) {
     const s = size / 16; ctx.save(); ctx.translate(x, y);
-    ctx.fillStyle = 'rgba(255,210,63,.25)'; ctx.beginPath(); ctx.arc(0, 0, 7 * s, 0, Math.PI * 2); ctx.fill();
-    _polyFill(ctx, [0,-6,5,-2,5,3,0,6,-5,3,-5,-2], s, '#8a0808');
-    _polyFill(ctx, [0,-5,4,-2,0,1], s, '#c81818');
-    ctx.fillStyle = '#ffd23f'; ctx.fillRect(-s, -s, 2 * s, 2 * s);
+    // soft outer aura
+    ctx.fillStyle = 'rgba(255,210,63,.12)';
+    ctx.beginPath(); ctx.arc(0, 0, 9 * s, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(255,210,63,.25)';
+    ctx.beginPath(); ctx.arc(0, 0, 7 * s, 0, Math.PI * 2); ctx.fill();
+    // main hexagonal stone body (darker)
+    _polyFill(ctx, [0,-6,5,-2,5,3,0,6,-5,3,-5,-2], s, '#6a0606');
+    // faceted highlight on left half
+    _polyFill(ctx, [0,-6,5,-2,3,-1,-2,-1,-5,-2], s, '#8a0808');
+    // inner blood-red glow
+    _polyFill(ctx, [0,-5,4,-2,0,1,-4,-2], s, '#c81818');
+    // pulsing inner core (brightest pixel)
+    ctx.fillStyle = '#ff5a3a';
+    ctx.fillRect(-s, -s, 2 * s, 2 * s);
+    ctx.fillStyle = '#ffd23f';
+    ctx.fillRect(-s * 0.5, -s * 0.5, 1 * s, 1 * s);
+    // chiselled rune groove (cross + dot)
+    ctx.fillStyle = 'rgba(40,0,0,0.7)';
+    ctx.fillRect(-2 * s, -3 * s, 4 * s, 1);
+    ctx.fillRect(-0.5 * s, -4 * s, 1, 3 * s);
+    // facet edge highlight (top-right diagonal)
+    ctx.fillStyle = '#ff8a3a';
+    ctx.fillRect(1 * s, -5 * s, 1, 2 * s);
+    ctx.fillRect(3 * s, -3 * s, 1, 1);
+    // corner shadow (bottom-left)
+    ctx.fillStyle = 'rgba(20,0,0,0.6)';
+    ctx.fillRect(-4 * s, 1 * s, 2 * s, 2 * s);
+    // tiny gold flake on top (alchemical residue)
+    ctx.fillStyle = '#ffd23f';
+    ctx.fillRect(2 * s, -6 * s, 1, 1);
+    ctx.fillStyle = '#fff0a8';
+    ctx.fillRect(2 * s, -6 * s, 1, 0.5);
     ctx.restore();
   },
+  // COSMIC DUST — nebula-in-a-bottle. Now with swirling spiral, layered
+  // starfield, central blackhole pinprick, and shimmer sparkles.
   cosmic_dust(ctx, x, y, size) {
     const s = size / 16; ctx.save(); ctx.translate(x, y);
+    // wide outer purple aura
+    ctx.fillStyle = 'rgba(176,85,255,0.18)';
+    ctx.beginPath(); ctx.ellipse(0, 0, 9 * s, 7 * s, 0, 0, Math.PI * 2); ctx.fill();
+    // main nebula gradient body (more saturated)
     const g = ctx.createRadialGradient(0, 0, 1, 0, 0, 7 * s);
-    g.addColorStop(0, '#fff0a0'); g.addColorStop(.4, '#b055ff'); g.addColorStop(1, 'rgba(40,10,80,.1)');
-    ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(0, 0, 7 * s, 5 * s, 0, 0, Math.PI * 2); ctx.fill();
+    g.addColorStop(0, '#fff0a0');
+    g.addColorStop(0.25, '#ff8aab');
+    g.addColorStop(0.5, '#b055ff');
+    g.addColorStop(1, 'rgba(40,10,80,0.1)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.ellipse(0, 0, 7 * s, 5 * s, 0, 0, Math.PI * 2); ctx.fill();
+    // central blackhole/void pinprick
+    ctx.fillStyle = '#0a0014';
+    ctx.fillRect(-0.5 * s, -0.5 * s, 1 * s, 1 * s);
+    // bright accretion ring around the void
+    ctx.fillStyle = '#ffd23f';
+    ctx.fillRect(-1.5 * s, -0.5 * s, 1, 1);
+    ctx.fillRect(0.5 * s, -0.5 * s, 1, 1);
+    // spiral arms (swirling dust streaks)
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.fillRect(-3 * s, -2 * s, 2 * s, 1);
+    ctx.fillRect(1 * s, 1 * s, 2 * s, 1);
+    ctx.fillRect(-2 * s, 2 * s, 1, 1);
+    ctx.fillRect(2 * s, -2 * s, 1, 1);
+    // pixel-art starfield (more dense)
     ctx.fillStyle = '#fff';
-    for (const [px, py] of [[-4,-3],[3,-2],[2,3],[-3,2],[0,-4]]) ctx.fillRect(px * s, py * s, 1, 1);
-    ctx.fillRect(-s, 0, 2 * s, 1); ctx.fillRect(0, -s, 1, 2 * s);
+    for (const [px, py] of [[-4,-3],[3,-2],[2,3],[-3,2],[0,-4],[-5,1],[4,2],[1,-5],[-1,4]])
+      ctx.fillRect(px * s, py * s, 1, 1);
+    // larger bright stars (twinkling crosses)
+    ctx.fillStyle = '#fff0a0';
+    ctx.fillRect(-s, 0, 2 * s, 1);
+    ctx.fillRect(0, -s, 1, 2 * s);
+    // far-corner mini sparkles
+    ctx.fillStyle = '#4cc9f0';
+    ctx.fillRect(-6 * s, -4 * s, 1, 1);
+    ctx.fillRect(5 * s, 3 * s, 1, 1);
     ctx.restore();
   },
+  // MIRROR SHARD — broken silvered glass. Now with internal reflection bands,
+  // crack lines, jagged edge highlight, and rainbow refraction pixel.
   mirror_shard(ctx, x, y, size) {
     const s = size / 16; ctx.save(); ctx.translate(x, y);
-    _polyFill(ctx, [-2,-7,4,-5,5,2,2,7,-3,6,-5,-1], s, '#1a2030');
-    _polyFill(ctx, [-1,-6,3,-4,4,1,1,6,-2,5,-4,0], s, '#b0e8ff');
-    ctx.fillStyle = '#fff'; ctx.fillRect(-2 * s, -5 * s, 1, 4 * s);
-    ctx.fillStyle = '#4cc9f0'; ctx.fillRect(2 * s, 0, 1, 4 * s);
+    // soft cyan glow halo
+    ctx.fillStyle = 'rgba(176,232,255,0.18)';
+    ctx.beginPath(); ctx.arc(0, 0, 8 * s, 0, Math.PI * 2); ctx.fill();
+    // outer dark frame (shadow side of the shard)
+    _polyFill(ctx, [-2,-7,4,-5,5,2,2,7,-3,6,-5,-1], s, '#0a1018');
+    // main silver-blue mirror face
+    _polyFill(ctx, [-1,-6,3,-4,4,1,1,6,-2,5,-4,0], s, '#9ad8ec');
+    // bright reflective panel (lit side)
+    _polyFill(ctx, [-1,-6,3,-4,2,-1,-3,-1], s, '#d8f0ff');
+    // sky reflection band (light blue diagonal)
+    ctx.fillStyle = '#b0e8ff';
+    ctx.fillRect(-1 * s, -3 * s, 3 * s, 1);
+    ctx.fillRect(0, -1 * s, 2 * s, 1);
+    // sharp white edge highlights
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(-2 * s, -5 * s, 1, 4 * s);
+    ctx.fillRect(-1 * s, -6 * s, 2 * s, 1);
+    // crack lines (jagged)
+    ctx.strokeStyle = 'rgba(20,40,60,0.7)';
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(2 * s, -3 * s); ctx.lineTo(0, 1 * s); ctx.lineTo(2 * s, 4 * s); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(-1 * s, -2 * s); ctx.lineTo(1 * s, 0); ctx.stroke();
+    // refraction rainbow pixel (legendary tier flavor)
+    ctx.fillStyle = '#ff3aa1';
+    ctx.fillRect(1 * s, -2 * s, 1, 1);
+    ctx.fillStyle = '#5ef38c';
+    ctx.fillRect(2 * s, -1 * s, 1, 1);
+    ctx.fillStyle = '#ffd23f';
+    ctx.fillRect(1 * s, 0, 1, 1);
+    // bottom-right deep shadow
+    ctx.fillStyle = '#4cc9f0';
+    ctx.fillRect(2 * s, 0, 1, 4 * s);
+    ctx.fillStyle = 'rgba(10,20,40,0.55)';
+    ctx.fillRect(3 * s, 2 * s, 1, 3 * s);
     ctx.restore();
   },
 };
@@ -765,7 +989,10 @@ function showEntryBanner(name, tier) {
 const _assist = document.createElement('div');
 _assist.className = 'lab-assistant';
 // Reuse the lab pug canvas helper — different palette so it reads as "ours"
-const _assistCanvas = _makeLabPugCanvas(56, 60, { size: 50, body: '#eac888', mask: '#5a3a1a', tongueOut: true });
+// Lab assistant — give the pug body a small ambient sparkle deco (magic
+// accent, deco bucket 9) so the assistant feels a bit more magical than a
+// plain pug. Costume hat is layered on separately via _assistHat.
+const _assistCanvas = _makeLabPugCanvas(56, 60, { size: 50, body: '#eac888', mask: '#5a3a1a', tongueOut: true, deco: 9 });
 _assistCanvas.style.imageRendering = 'pixelated';
 _assist.appendChild(_assistCanvas);
 const _assistHat = document.createElement('span');
@@ -2005,6 +2232,25 @@ function updateAssistantCostume() {
   if (chosen.icon) {
     _assistHat.textContent = chosen.icon;
     _assistHat.classList.add('is-show');
+    // Per-costume glow + scale for richer feel (devil = red, crown = gold, etc.)
+    const glowMap = {
+      wizard: { color: 'rgba(176,85,255,0.7)', scale: 1.0 },
+      chef:   { color: 'rgba(255,255,255,0.5)', scale: 1.0 },
+      crown:  { color: 'rgba(255,210,63,0.9)', scale: 1.1 },
+      devil:  { color: 'rgba(255,58,58,0.9)', scale: 1.1 },
+    };
+    const g = glowMap[chosen.id];
+    if (g) {
+      _assistHat.style.textShadow =
+        `0 2px 4px rgba(0,0,0,0.8), 0 0 10px ${g.color}, 0 0 4px ${g.color}`;
+      _assistHat.style.transform = `translateX(-50%) scale(${g.scale})`;
+      // Slow ambient bob (CSS animation already exists at lab-assistant level;
+      // we just nudge the costume's transform-origin so it sways naturally)
+      _assistHat.style.transformOrigin = '50% 100%';
+    } else {
+      _assistHat.style.textShadow = '';
+      _assistHat.style.transform = '';
+    }
   } else {
     _assistHat.classList.remove('is-show');
   }

@@ -274,6 +274,32 @@ export class Zombie {
     body.rect(2, 7, 1, 1).fill(0xeeeeee);
     this.visual.addChild(body);
 
+    // ===== WALKER — slumped hump on back (classic slouchy walker silhouette).
+    // Only on the default walker (no armored / explodes / ranged / summons /
+    // cloaks / ignoresWalls / stealthed / hasShield / ninja / jester).
+    if (this.type === 'walker') {
+      const hump = new Graphics();
+      hump.ellipse(0, 0, 6, 4).fill(skinDark);
+      hump.ellipse(-1, -1, 4, 2).fill({ color: skinDeep, alpha: 0.7 });
+      // small puss-bubble on the hump
+      hump.circle(2, 1, 1.2).fill({ color: 0xfffabb, alpha: 0.85 });
+      hump.circle(2, 1, 0.6).fill(0xffffff);
+      this.visual.addChild(hump);
+    }
+    // ===== RUNNER — visible torn-jacket scraps trailing behind +
+    // exposed ribs for the lean silhouette (no fat hump). Reads as "fast".
+    if (this.type === 'runner') {
+      const scrap = new Graphics();
+      // torn shirt rags trailing
+      scrap.rect(-8, 5, 3, 1).fill({ color: 0x4a3a2a, alpha: 0.85 });
+      scrap.rect(-11, 6, 2, 1).fill({ color: 0x4a3a2a, alpha: 0.75 });
+      scrap.rect(5, 5, 3, 1).fill({ color: 0x4a3a2a, alpha: 0.85 });
+      scrap.rect(8, 6, 2, 1).fill({ color: 0x4a3a2a, alpha: 0.75 });
+      // exposed ribs (gaunt look)
+      scrap.rect(-3, 2, 6, 1).fill({ color: COLORS.pugCream, alpha: 0.6 });
+      scrap.rect(-3, 4, 6, 1).fill({ color: COLORS.pugCream, alpha: 0.5 });
+      this.visual.addChild(scrap);
+    }
     // ===== TANK — spike armor over the pug body (was metal plates) =====
     if (d.armored) {
       const plates = new Graphics();
@@ -448,6 +474,18 @@ export class Zombie {
       throat.rect(-3, 1, 1, 2).fill(0xeeeeee);
       throat.rect(0, 1, 1, 2).fill(0xeeeeee);
       throat.rect(2, 1, 1, 2).fill(0xeeeeee);
+      // ===== SCREAMER-only: gnarled cheek horns (silhouette tell) =====
+      // Two small bony horns curling back from the cheekbones; pink-tinted
+      // base so they read as fleshy growths. Visible at distance.
+      throat.rect(-10, -10, 2, 4).fill(0xeae0c0);
+      throat.rect(-10, -10, 1, 4).fill(0xffffff);
+      throat.rect(-11, -6, 2, 1).fill(0xeae0c0);
+      throat.rect(8, -10, 2, 4).fill(0xeae0c0);
+      throat.rect(9, -10, 1, 4).fill(0xffffff);
+      throat.rect(9, -6, 2, 1).fill(0xeae0c0);
+      // pink growths at horn base
+      throat.rect(-10, -6, 2, 1).fill({ color: 0xff3aa1, alpha: 0.7 });
+      throat.rect(8, -6, 2, 1).fill({ color: 0xff3aa1, alpha: 0.7 });
       this.visual.addChild(throat);
     }
 
@@ -478,6 +516,16 @@ export class Zombie {
       // hood overlay on head
       shimmer.rect(-9, -12, 18, 4).fill({ color: 0x2a1244, alpha: 0.6 });
       shimmer.rect(-9, -12, 18, 1).fill({ color: 0x6a3a8a, alpha: 0.6 });
+      // tattered cloak skirt trailing behind (jagged hem)
+      shimmer.rect(-12, 7, 3, 4).fill({ color: 0x1a0824, alpha: 0.8 });
+      shimmer.rect(-8, 9, 3, 3).fill({ color: 0x1a0824, alpha: 0.7 });
+      shimmer.rect(-4, 8, 3, 4).fill({ color: 0x1a0824, alpha: 0.75 });
+      shimmer.rect(1, 9, 3, 3).fill({ color: 0x1a0824, alpha: 0.7 });
+      shimmer.rect(5, 7, 3, 4).fill({ color: 0x1a0824, alpha: 0.8 });
+      shimmer.rect(9, 9, 3, 3).fill({ color: 0x1a0824, alpha: 0.7 });
+      // shadowy claw under cloak (peeking pixel)
+      shimmer.rect(-2, 12, 1, 2).fill(0x000000);
+      shimmer.rect(2, 12, 1, 2).fill(0x000000);
       this.visual.addChild(shimmer);
     }
 

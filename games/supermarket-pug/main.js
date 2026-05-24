@@ -14,6 +14,112 @@ import { createSettingsMenu } from '../../src/shared/settingsMenu.js';
 import { getShakeMul as _shakeMul } from '../../src/shared/screenShake.js';
 import { drawShadow as _depthShadow } from '../../src/shared/depth3D.js';
 
+// Pug shopper disguise per map: corner=cap+coat, super=scarf+shades, warehouse=biz shirt.
+function _shopperDisguiseForMap(mapId) {
+  if (mapId === 'cornerStore') return { body: '#c8854a', mask: '#1a0d05' };
+  if (mapId === 'supermarket') return { body: '#a88858', mask: '#2a1a10' };
+  if (mapId === 'warehouse')   return { body: '#b89058', mask: '#1c0d04' };
+  return { body: '#c8854a', mask: '#1a0d05' };
+}
+
+function _drawShopperAccessory(ctx, x, y, mapId, size) {
+  const s = size / 36;
+  ctx.save();
+  if (mapId === 'cornerStore') {
+    ctx.fillStyle = '#3a3a4a'; ctx.fillRect(x - 7 * s, y - 13 * s, 14 * s, 3 * s);
+    ctx.fillStyle = '#5a5a6a'; ctx.fillRect(x - 7 * s, y - 12 * s, 14 * s, 1 * s);
+    ctx.fillStyle = '#3a5a78'; ctx.fillRect(x - 6 * s, y + 7 * s, 12 * s, 4 * s);
+    ctx.fillStyle = '#5a7a98'; ctx.fillRect(x - 6 * s, y + 7 * s, 12 * s, 1 * s);
+  } else if (mapId === 'supermarket') {
+    ctx.fillStyle = '#0a0a10'; ctx.fillRect(x - 6 * s, y - 4 * s, 12 * s, 2 * s);
+    ctx.fillStyle = '#1a1a26';
+    ctx.fillRect(x - 6 * s, y - 3 * s, 5 * s, 2 * s); ctx.fillRect(x + 1 * s, y - 3 * s, 5 * s, 2 * s);
+    ctx.fillStyle = '#a02828'; ctx.fillRect(x - 6 * s, y + 7 * s, 12 * s, 3 * s);
+    ctx.fillStyle = '#c83838'; ctx.fillRect(x - 6 * s, y + 7 * s, 12 * s, 1 * s);
+    ctx.fillStyle = '#a02828'; ctx.fillRect(x + 4 * s, y + 10 * s, 3 * s, 4 * s);
+  } else if (mapId === 'warehouse') {
+    ctx.fillStyle = '#fff'; ctx.fillRect(x - 6 * s, y + 7 * s, 12 * s, 5 * s);
+    ctx.fillStyle = '#cacacf'; ctx.fillRect(x - 6 * s, y + 7 * s, 12 * s, 1 * s);
+    ctx.fillStyle = '#2a3a78'; ctx.fillRect(x - 1 * s, y + 7 * s, 2 * s, 6 * s);
+    ctx.fillStyle = '#5a7ab0'; ctx.fillRect(x - 1 * s, y + 7 * s, 2 * s, 1 * s);
+  }
+  ctx.restore();
+}
+
+// Guard uniforms keyed by guard.kind.
+function _guardUniform(kind, frozen) {
+  if (frozen) return { body: '#8a8aac', mask: '#3a3a52', hatColor: '#5a5a7a' };
+  if (kind === 'walker')  return { body: '#5ea0c8', mask: '#1a3a55', hatColor: '#0a1a2a' };
+  if (kind === 'patrol')  return { body: '#4cc9f0', mask: '#1a2a55', hatColor: '#082040' };
+  if (kind === 'chaser')  return { body: '#ff5a5a', mask: '#3a0808', hatColor: '#1a0202' };
+  if (kind === 'manager') return { body: '#ffd23f', mask: '#5a3808', hatColor: '#3a2806' };
+  return { body: '#4cc9f0', mask: '#1a3a55', hatColor: '#0a1a2a' };
+}
+
+function _drawGuardAccessory(ctx, x, y, kind, size) {
+  const s = size / 36;
+  ctx.save();
+  if (kind === 'walker') {
+    ctx.fillStyle = '#ffd23f'; ctx.fillRect(x - 5 * s, y + 6 * s, 3 * s, 4 * s);
+    ctx.fillStyle = '#7a5a08'; ctx.fillRect(x - 5 * s, y + 6 * s, 3 * s, 1 * s);
+  } else if (kind === 'patrol') {
+    ctx.fillStyle = '#1a1a22'; ctx.fillRect(x + 5 * s, y + 4 * s, 3 * s, 6 * s);
+    ctx.fillStyle = '#3a3a4a'; ctx.fillRect(x + 5 * s, y + 4 * s, 3 * s, 1 * s);
+    ctx.fillStyle = '#ff3a3a'; ctx.fillRect(x + 6 * s, y + 5 * s, 1 * s, 1 * s);
+    ctx.fillStyle = '#cacacf'; ctx.fillRect(x + 7 * s, y + 1 * s, 1 * s, 4 * s);
+  } else if (kind === 'chaser') {
+    ctx.fillStyle = '#1a1a22'; ctx.fillRect(x + 7 * s, y - 1 * s, 5 * s, 1 * s); ctx.fillRect(x + 7 * s, y, 5 * s, 1 * s);
+    ctx.fillStyle = '#3a3a4a'; ctx.fillRect(x + 7 * s, y - 1 * s, 1 * s, 2 * s);
+    ctx.fillStyle = '#000'; ctx.fillRect(x + 6 * s, y + 1 * s, 3 * s, 3 * s);
+  } else if (kind === 'manager') {
+    ctx.fillStyle = '#a87a4a'; ctx.fillRect(x - 9 * s, y + 1 * s, 5 * s, 7 * s);
+    ctx.fillStyle = '#fff'; ctx.fillRect(x - 8 * s, y + 2 * s, 3 * s, 5 * s);
+    ctx.fillStyle = '#3a3a3a'; ctx.fillRect(x - 7 * s, y + 3 * s, 1 * s, 1 * s); ctx.fillRect(x - 7 * s, y + 5 * s, 2 * s, 1 * s);
+    ctx.fillStyle = '#a02838'; ctx.fillRect(x - 4 * s, y + 8 * s, 8 * s, 3 * s);
+    ctx.fillStyle = '#7a1818'; ctx.fillRect(x - 1 * s, y + 8 * s, 2 * s, 3 * s);
+  }
+  ctx.restore();
+}
+
+// 5 civilian types (kid/elder/biz/tourist/parent) — distinct sizes + accessories.
+function _civSizeForType(type) {
+  if (type === 'kid') return 16;
+  if (type === 'elder') return 20;
+  if (type === 'biz' || type === 'parent') return 24;
+  return 22;
+}
+function _drawCivilianAccessory(ctx, x, y, type, size) {
+  const s = size / 36;
+  ctx.save();
+  if (type === 'kid') {
+    ctx.fillStyle = '#a06030'; ctx.fillRect(x + 6 * s, y - 18 * s, 1 * s, 14 * s);
+    ctx.fillStyle = '#ff3aa1'; ctx.beginPath(); ctx.arc(x + 6 * s, y - 22 * s, 4 * s, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ff80c0'; ctx.beginPath(); ctx.arc(x + 5 * s, y - 23 * s, 1.5 * s, 0, Math.PI * 2); ctx.fill();
+  } else if (type === 'elder') {
+    ctx.fillStyle = '#5a5a6a'; ctx.fillRect(x - 7 * s, y - 14 * s, 14 * s, 4 * s);
+    ctx.fillStyle = '#8a8aac'; ctx.fillRect(x - 7 * s, y - 13 * s, 14 * s, 1 * s);
+    ctx.fillStyle = '#a87a4a'; ctx.fillRect(x + 7 * s, y - 1 * s, 1 * s, 12 * s); ctx.fillRect(x + 6 * s, y + 10 * s, 3 * s, 1 * s);
+  } else if (type === 'biz') {
+    ctx.fillStyle = '#3a2810'; ctx.fillRect(x + 7 * s, y + 4 * s, 4 * s, 5 * s);
+    ctx.fillStyle = '#5a3018'; ctx.fillRect(x + 7 * s, y + 4 * s, 4 * s, 1 * s);
+    ctx.fillStyle = '#ffd23f'; ctx.fillRect(x + 8 * s, y + 6 * s, 2 * s, 1 * s);
+    ctx.fillStyle = '#1a1a22'; ctx.fillRect(x - 1 * s, y + 7 * s, 2 * s, 6 * s);
+  } else if (type === 'tourist') {
+    ctx.fillStyle = '#ffd23f'; ctx.fillRect(x - 9 * s, y - 11 * s, 18 * s, 1 * s);
+    ctx.fillStyle = '#ffce5e'; ctx.fillRect(x - 6 * s, y - 14 * s, 12 * s, 3 * s);
+    ctx.fillStyle = '#1a1a22'; ctx.fillRect(x - 3 * s, y + 4 * s, 6 * s, 4 * s);
+    ctx.fillStyle = '#4cc9f0'; ctx.fillRect(x - 1 * s, y + 5 * s, 2 * s, 2 * s);
+    ctx.fillStyle = '#5a3010'; ctx.fillRect(x - 5 * s, y - 1 * s, 1 * s, 6 * s); ctx.fillRect(x + 4 * s, y - 1 * s, 1 * s, 6 * s);
+  } else if (type === 'parent') {
+    ctx.fillStyle = '#a02838'; ctx.fillRect(x - 11 * s, y + 4 * s, 4 * s, 5 * s);
+    ctx.fillStyle = '#c83a4a'; ctx.fillRect(x - 11 * s, y + 4 * s, 4 * s, 1 * s);
+    ctx.fillStyle = '#fff'; ctx.fillRect(x - 10 * s, y + 6 * s, 2 * s, 1 * s);
+    ctx.fillStyle = '#f8d8b8'; ctx.beginPath(); ctx.arc(x + 8 * s, y + 6 * s, 2 * s, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#000'; ctx.fillRect(x + 7 * s, y + 5 * s, 1 * s, 1 * s); ctx.fillRect(x + 9 * s, y + 5 * s, 1 * s, 1 * s);
+  }
+  ctx.restore();
+}
+
 // --- Custom item icons for ones not in the shared library ---------------------
 // Chicken drumstick — beige leg + brown bone tip
 function drawChicken(ctx, x, y, size) {
@@ -922,6 +1028,17 @@ function tick(dt) {
 // Generic shape-based drawer for section items without explicit icon fns.
 function drawSectionItem(it) {
   const x = it.x, y = it.y, c = it.item.color || '#fff';
+  const name = it.item.name;
+  // Per-item painters — each grocery gets a distinct silhouette+details so the
+  // shelf isn't a sea of colored circles. Fallback uses the generic shape.
+  if (_drawGroceryByName(name, x, y, c)) {
+    // Trap badge (small "?" on trap items)
+    if (it.item.trap) {
+      ctx.fillStyle = '#ff3a3a'; ctx.font = "6px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+      ctx.fillText('?', x, y + 10);
+    }
+    return;
+  }
   switch (it.item.shape) {
     case 'round':
       ctx.fillStyle = c;
@@ -973,6 +1090,216 @@ function drawSectionItem(it) {
     ctx.fillStyle = '#ff3a3a'; ctx.font = "6px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
     ctx.fillText('?', x, y + 10);
   }
+}
+
+// Distinct icons per grocery name. Returns true on draw; false to use fallback.
+// Compact helpers reduce code size while keeping art.
+function _drawGroceryByName(name, x, y, c) {
+  const fs = (col) => ctx.fillStyle = col;
+  const r = (rx, ry, rw, rh) => ctx.fillRect(rx, ry, rw, rh);
+  const a = (ax, ay, ar) => { ctx.beginPath(); ctx.arc(ax, ay, ar, 0, Math.PI * 2); ctx.fill(); };
+  const e = (ax, ay, rw, rh, rot) => { ctx.beginPath(); ctx.ellipse(ax, ay, rw, rh, rot || 0, 0, Math.PI * 2); ctx.fill(); };
+  switch (name) {
+    case 'apple':
+      fs('#a02030'); a(x, y, 7);
+      fs('#ff5a3a'); a(x - 1, y - 1, 6);
+      fs('#ffb090'); a(x - 3, y - 3, 2);
+      fs('#5a3010'); r(x - 1, y - 9, 2, 3);
+      fs('#5ef38c'); r(x + 1, y - 8, 3, 2);
+      return true;
+    case 'orange':
+      fs('#c85020'); a(x, y, 7);
+      fs('#ff8e3c'); a(x, y, 6);
+      ctx.strokeStyle = 'rgba(0,0,0,0.20)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI); ctx.stroke();
+      fs('#3a6028'); r(x - 1, y - 8, 2, 2);
+      return true;
+    case 'banana':
+      fs('#a07a20'); e(x, y, 9, 3, -0.4);
+      fs('#ffd23f'); e(x, y - 1, 8, 2.5, -0.4);
+      fs('#1a0d05'); r(x - 8, y - 1, 2, 2);
+      fs('#5a3a10'); r(x + 7, y + 1, 2, 1);
+      return true;
+    case 'lettuce':
+      fs('#3a8030'); a(x, y, 7);
+      fs('#5ef38c');
+      for (let i = 0; i < 5; i++) { const an = i * 1.257; a(x + Math.cos(an) * 3, y + Math.sin(an) * 3, 3); }
+      fs('#a8f0b8'); a(x - 1, y - 1, 2);
+      return true;
+    case 'carrot':
+      fs('#a04a10'); ctx.beginPath(); ctx.moveTo(x - 4, y + 5); ctx.lineTo(x + 4, y + 5); ctx.lineTo(x, y - 5); ctx.closePath(); ctx.fill();
+      fs('#ff8e3c'); ctx.beginPath(); ctx.moveTo(x - 3, y + 4); ctx.lineTo(x + 3, y + 4); ctx.lineTo(x, y - 4); ctx.closePath(); ctx.fill();
+      fs('#5ef38c'); r(x - 1, y - 8, 1, 3); r(x + 1, y - 9, 1, 4); r(x - 2, y - 7, 1, 2);
+      return true;
+    case 'tomato':
+      fs('#7a1010'); a(x, y, 7);
+      fs('#ff3a3a'); a(x, y, 6);
+      fs('#ff8080'); a(x - 2, y - 2, 2);
+      fs('#3a8028'); r(x - 2, y - 8, 4, 2);
+      fs('#5ef38c'); r(x - 1, y - 9, 2, 1);
+      return true;
+    case 'grape':
+      fs('#7028a0');
+      for (let i = 0; i < 7; i++) { const ox = (i % 3) * 3 - 3, oy = Math.floor(i / 3) * 3 - 3; a(x + ox, y + oy, 2); }
+      fs('#b055ff');
+      for (let i = 0; i < 7; i++) { const ox = (i % 3) * 3 - 3, oy = Math.floor(i / 3) * 3 - 3; a(x + ox - 0.5, y + oy - 0.5, 1.5); }
+      fs('#5a8030'); r(x, y - 7, 2, 2);
+      return true;
+    case 'icecream':
+      fs('#a87a4a'); ctx.beginPath(); ctx.moveTo(x - 4, y); ctx.lineTo(x + 4, y); ctx.lineTo(x, y + 7); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x - 3, y + 2); ctx.lineTo(x + 1, y + 6); ctx.moveTo(x + 3, y + 2); ctx.lineTo(x - 1, y + 6); ctx.stroke();
+      fs('#ffe0e8'); a(x, y - 2, 5);
+      fs('#a02060'); a(x - 2, y - 1, 1); a(x + 2, y - 4, 1);
+      return true;
+    case 'frozenPizza':
+      fs('#3a2010'); r(x - 8, y - 6, 16, 12);
+      fs('#ff8e3c'); r(x - 7, y - 5, 14, 10);
+      fs('#fff'); r(x - 5, y - 3, 10, 5);
+      fs('#a02020'); r(x - 4, y - 2, 2, 2); r(x, y - 1, 2, 2); r(x + 2, y - 2, 1, 1);
+      fs('#5ef38c'); r(x - 3, y, 1, 1); r(x + 1, y - 3, 1, 1);
+      fs('#b0d0e8'); r(x - 7, y - 6, 14, 1);
+      return true;
+    case 'peas':
+      fs('#1a4020'); r(x - 7, y - 6, 14, 12);
+      fs('#5ef38c'); r(x - 6, y - 5, 12, 10);
+      fs('#3a8028'); a(x - 3, y - 1, 1.5); a(x, y, 1.5); a(x + 3, y + 2, 1.5);
+      fs('#a8f0b8'); r(x - 6, y - 5, 12, 1);
+      return true;
+    case 'frozenFish':
+      fs('#5078a8'); e(x, y, 9, 4);
+      ctx.beginPath(); ctx.moveTo(x + 8, y); ctx.lineTo(x + 13, y - 3); ctx.lineTo(x + 13, y + 3); ctx.closePath(); ctx.fill();
+      fs('#8ab8d8'); e(x - 1, y - 1, 7, 2);
+      fs('#fff'); a(x - 5, y - 1, 1);
+      fs('#000'); r(x - 5, y - 1, 1, 1);
+      fs('rgba(220,240,255,0.7)'); r(x - 3, y - 3, 1, 1); r(x + 1, y + 2, 1, 1);
+      return true;
+    case 'icecake':
+      fs('#fff'); r(x - 7, y - 5, 14, 10);
+      fs('#ffd0e0'); r(x - 7, y - 5, 14, 3);
+      fs('#a02060'); r(x - 1, y - 8, 2, 3);
+      fs('#ffd23f'); r(x - 1, y - 10, 1, 2);
+      fs('rgba(0,0,0,0.3)'); r(x - 7, y + 4, 14, 1);
+      return true;
+    case 'phone':
+      fs('#0a0a12'); r(x - 4, y - 7, 8, 14);
+      fs('#1a1a22'); r(x - 4, y - 7, 8, 1);
+      fs('#4cc9f0'); r(x - 3, y - 5, 6, 10);
+      fs('rgba(255,255,255,0.4)'); r(x - 3, y - 5, 6, 1);
+      fs('#fff'); r(x - 1, y + 6, 2, 1);
+      return true;
+    case 'headphones':
+      ctx.strokeStyle = '#3a3a4a'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(x, y, 6, Math.PI, Math.PI * 2); ctx.stroke();
+      fs('#4cc9f0'); r(x - 7, y - 1, 3, 5); r(x + 4, y - 1, 3, 5);
+      fs('#0a1a22'); r(x - 6, y + 1, 1, 2); r(x + 5, y + 1, 1, 2);
+      return true;
+    case 'tablet':
+      fs('#0a0a12'); r(x - 7, y - 6, 14, 12);
+      fs('#3a3a4a'); r(x - 7, y - 6, 14, 1);
+      fs('#4cc9f0'); r(x - 6, y - 5, 12, 10);
+      fs('rgba(255,255,255,0.4)'); r(x - 6, y - 5, 12, 1);
+      fs('#ffd23f'); r(x - 5, y - 3, 1, 1);
+      fs('#5ef38c'); r(x - 3, y - 3, 1, 1);
+      fs('#ff5a3a'); r(x - 1, y - 3, 1, 1);
+      return true;
+    case 'watch':
+      fs('#3a2810'); r(x - 1, y - 9, 2, 4); r(x - 1, y + 5, 2, 4);
+      fs('#ffd23f'); a(x, y, 5);
+      fs('#fff4a0'); a(x - 1, y - 1, 4);
+      ctx.strokeStyle = '#000'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y - 3); ctx.moveTo(x, y); ctx.lineTo(x + 2, y); ctx.stroke();
+      return true;
+    case 'salami':
+      fs('#601818'); r(x - 7, y - 3, 14, 6);
+      fs('#a04030'); r(x - 6, y - 2, 12, 4);
+      fs('#3a2010');
+      for (let i = -5; i <= 5; i += 3) r(x + i, y - 3, 1, 6);
+      fs('#ffd8b0'); r(x - 3, y - 1, 1, 1); r(x + 1, y, 1, 1);
+      return true;
+    case 'cheeseWheel':
+      fs('#b08028'); a(x, y, 7);
+      fs('#ffce5e'); a(x, y, 6);
+      fs('#fff4a0'); ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 6, y - 3); ctx.lineTo(x + 6, y + 1); ctx.closePath(); ctx.fill();
+      fs('#a07020'); r(x - 3, y - 1, 1, 1); r(x - 1, y + 2, 1, 1);
+      return true;
+    case 'sausage':
+      fs('#6a3010'); e(x, y, 7, 3);
+      fs('#a06030'); e(x, y - 1, 6, 2);
+      fs('#3a1808'); r(x - 7, y - 1, 1, 2); r(x + 6, y - 1, 1, 2);
+      return true;
+    case 'pickle':
+      fs('#3a8020'); e(x, y, 7, 2.5, 0.2);
+      fs('#5ef38c'); e(x, y - 0.5, 6, 2, 0.2);
+      fs('#2a5018'); r(x - 4, y, 1, 1); r(x - 1, y + 1, 1, 1); r(x + 3, y - 1, 1, 1);
+      return true;
+    case 'oliveJar':
+      fs('#a8d0c8'); r(x - 5, y - 5, 10, 11);
+      fs('#5a8a3a'); r(x - 4, y - 4, 8, 9);
+      fs('#3a4a1a'); a(x - 2, y - 1, 1.5); a(x + 1, y + 1, 1.5); a(x - 1, y + 3, 1.5);
+      fs('#3a3a3a'); r(x - 5, y - 7, 10, 2);
+      fs('#5a5a5a'); r(x - 5, y - 7, 10, 1);
+      return true;
+    case 'oldBread':
+      fs('#5a3018'); r(x - 7, y - 4, 14, 9);
+      fs('#a87a4a'); r(x - 6, y - 3, 12, 7);
+      fs('#3a6028'); r(x - 4, y - 2, 1, 1); r(x + 3, y, 1, 1); r(x - 1, y + 1, 1, 1);
+      return true;
+    case 'dentedCan':
+      fs('#5a5a6a'); r(x - 5, y - 6, 10, 12);
+      fs('#8a8aac'); r(x - 5, y - 5, 10, 10);
+      fs('#3a3a4a'); r(x - 5, y - 6, 10, 1); r(x - 5, y + 5, 10, 1); r(x - 2, y - 1, 3, 2);
+      fs('#a02020'); r(x - 5, y - 2, 10, 4);
+      fs('#fff'); r(x - 3, y, 1, 1); r(x + 2, y, 1, 1);
+      return true;
+    case 'discBox':
+      fs('#7a1860'); r(x - 7, y - 6, 14, 12);
+      fs('#ff3aa1'); r(x - 7, y - 6, 14, 4);
+      fs('#fff'); r(x - 5, y, 10, 4);
+      fs('#000'); a(x, y + 2, 2);
+      return true;
+    case 'lastSeason':
+      fs('#2a4868'); r(x - 7, y - 6, 14, 12);
+      fs('#5ea0c8'); r(x - 6, y - 5, 12, 10);
+      fs('#ff3a3a'); r(x - 4, y - 3, 8, 4);
+      fs('#fff'); ctx.font = "5px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+      ctx.fillText('OFF', x, y);
+      return true;
+    case 'croissant':
+      fs('#8a5020'); e(x, y, 8, 4, -0.3);
+      fs('#d8a06a'); e(x, y - 1, 7, 3, -0.3);
+      ctx.strokeStyle = '#5a3010'; ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x - 5, y - 1); ctx.lineTo(x - 3, y + 1);
+      ctx.moveTo(x - 1, y - 2); ctx.lineTo(x + 1, y);
+      ctx.moveTo(x + 3, y - 1); ctx.lineTo(x + 5, y + 1); ctx.stroke();
+      return true;
+    case 'hotLoaf':
+      fs('#5a3018'); e(x, y, 8, 5);
+      fs('#a87a4a'); e(x, y - 1, 7, 4);
+      ctx.strokeStyle = '#3a2010'; ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x - 4, y - 3); ctx.lineTo(x - 2, y);
+      ctx.moveTo(x, y - 3); ctx.lineTo(x + 2, y);
+      ctx.moveTo(x + 3, y - 3); ctx.lineTo(x + 5, y); ctx.stroke();
+      fs('rgba(255,255,255,0.45)'); r(x - 3, y - 8, 1, 2); r(x + 1, y - 9, 1, 2);
+      return true;
+    case 'cake':
+      fs('#a06078'); r(x - 7, y - 4, 14, 9);
+      fs('#ffe0e8'); r(x - 7, y - 4, 14, 5);
+      fs('#ff3aa1'); r(x - 5, y - 3, 1, 1); r(x - 1, y - 3, 1, 1); r(x + 3, y - 3, 1, 1);
+      fs('#5ea0c8'); r(x - 2, y - 7, 1, 3); r(x + 1, y - 7, 1, 3);
+      fs('#ffd23f'); r(x - 2, y - 8, 1, 1); r(x + 1, y - 8, 1, 1);
+      return true;
+    case 'pretzel':
+      ctx.strokeStyle = '#5a3010'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(x - 2, y, 3, 0, Math.PI * 2); ctx.arc(x + 2, y, 3, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = '#a06030'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(x - 2, y, 3, 0, Math.PI * 2); ctx.arc(x + 2, y, 3, 0, Math.PI * 2); ctx.stroke();
+      fs('#fff'); r(x - 4, y - 2, 1, 1); r(x + 3, y - 2, 1, 1); r(x, y + 3, 1, 1);
+      return true;
+  }
+  return false;
 }
 // MINI-MAP — small radar top-right with shelves/guards/customers/pug/exit.
 // Section rows are tinted with the same colour key as the in-world floor so
@@ -1317,6 +1644,12 @@ function render() {
       c._gait = Math.floor(Math.random() * 4);
       c._gaitPhase = Math.random() * Math.PI * 2;
     }
+    // Civilian archetype — picks a stable type per customer (kid/elder/biz/
+    // tourist/parent) so the crowd visibly varies. Cached on first draw.
+    if (c._civType == null) {
+      const types = ['kid', 'elder', 'biz', 'tourist', 'parent'];
+      c._civType = types[Math.floor(Math.random() * types.length)];
+    }
     // Bob amount scales with current movement magnitude
     const moving = Math.hypot(c.vx, c.vy) > 5;
     const freq = [4, 6, 5, 7][c._gait]; // gait 0=slow, 1=quick, 2=normal, 3=jittery
@@ -1328,7 +1661,10 @@ function render() {
     ctx.save();
     ctx.translate(c.x, c.y + bob);
     ctx.rotate(tilt);
-    drawPug(ctx, 0, 0, { size: 22, body: c.color, mask: '#3a2810' });
+    // Civilian sprite size + accent color per archetype.
+    const civSize = _civSizeForType(c._civType);
+    drawPug(ctx, 0, 0, { size: civSize, body: c.color, mask: '#3a2810' });
+    _drawCivilianAccessory(ctx, 0, 0, c._civType, civSize);
     // Tiny shopping bag if gait 1 (quick shopper)
     if (c._gait === 1) {
       ctx.fillStyle = '#a87a4a'; ctx.fillRect(8, -2, 4, 6);
@@ -1402,11 +1738,11 @@ function render() {
       ctx.setLineDash([]);
     }
     _depthShadow(ctx, g.x, g.y + 18, 20, { alpha: 0.4 });
-    // Body color hints at guard kind (chaser=red, manager=gold, patrol=cyan, walker=teal)
-    const kindColor = frozen ? '#8a8aac' : ({
-      chaser: '#ff5a5a', manager: '#ffd23f', patrol: '#4cc9f0', walker: '#5ea0c8',
-    }[g.kind] || '#4cc9f0');
-    drawPug(ctx, g.x, g.y, { size: 34, body: kindColor, mask: '#1a3a55', hat: true, hatColor: '#0a1a2a' });
+    // Body color hints at guard kind (chaser=red, manager=gold, patrol=cyan, walker=teal).
+    // Each kind also gets a distinct hat/uniform-accent so silhouettes read at speed.
+    const _gu = _guardUniform(g.kind, frozen);
+    drawPug(ctx, g.x, g.y, { size: 34, body: _gu.body, mask: _gu.mask, hat: true, hatColor: _gu.hatColor });
+    if (!frozen) _drawGuardAccessory(ctx, g.x, g.y, g.kind, 34);
     // Tiny kind label above
     if (!frozen) {
       ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.font = "5px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
@@ -1492,7 +1828,11 @@ function render() {
   // depth3D drop shadow under the pug (and cart if any)
   _depthShadow(ctx, pug.x, pug.y + 14, inCart ? 22 : 16, { alpha: 0.45 });
   if (inCart) drawCart(pug.x, pug.y + 4 + wobbleY, 0);
-  drawPug(ctx, pug.x, pug.y - (inCart ? 6 : 0) + wobbleY, { size: 28 });
+  // Pug shopper with rotating disguise — cycles by map for a "different store
+  // different cover" feel. Stays cosmetic (does not change gameplay).
+  const _shopperDisguise = _shopperDisguiseForMap(currentMap.id);
+  drawPug(ctx, pug.x, pug.y - (inCart ? 6 : 0) + wobbleY, { size: 28, ..._shopperDisguise });
+  _drawShopperAccessory(ctx, pug.x, pug.y - (inCart ? 6 : 0) + wobbleY, currentMap.id, 28);
   if (totalAng !== 0) ctx.restore();
   // Score popups
   for (const p of popups) {

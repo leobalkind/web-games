@@ -544,6 +544,221 @@ function drawVault(x, y, biome, tNow, flashT) {
   }
 }
 
+// Per-tower accessory overlay — unique silhouette per type + per-path flair.
+function _drawTowerAccessory(ctx, x, y, type, path, size) {
+  const s = size / 36;
+  ctx.save();
+  if (type === 'basic') {
+    ctx.fillStyle = '#1a3a5a'; ctx.fillRect(x - 7 * s, y - 14 * s, 14 * s, 3 * s);
+    ctx.fillStyle = '#2a4a78'; ctx.fillRect(x - 7 * s, y - 13 * s, 14 * s, 1 * s);
+    ctx.fillStyle = '#1a1a22'; ctx.fillRect(x + 6 * s, y - 2 * s, 5 * s, 2 * s); ctx.fillRect(x + 6 * s, y, 3 * s, 3 * s);
+    if (path === 'A') { ctx.fillStyle = '#ffd23f'; ctx.fillRect(x + 6 * s, y - 2 * s, 5 * s, 1 * s); }
+    else if (path === 'B') { ctx.fillStyle = '#4cc9f0'; ctx.fillRect(x + 10 * s, y - 1 * s, 4 * s, 1 * s); }
+  } else if (type === 'sniper') {
+    // Sniper glasses + scope rifle
+    ctx.fillStyle = '#0a0a10';
+    ctx.fillRect(x - 6 * s, y - 4 * s, 12 * s, 2 * s);
+    ctx.fillStyle = '#1a1a26';
+    ctx.fillRect(x - 6 * s, y - 3 * s, 5 * s, 2 * s);
+    ctx.fillRect(x + 1 * s, y - 3 * s, 5 * s, 2 * s);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(x - 4 * s, y - 3 * s, 1 * s, 1 * s);
+    ctx.fillRect(x + 3 * s, y - 3 * s, 1 * s, 1 * s);
+    // long rifle barrel
+    ctx.fillStyle = '#3a3a4a';
+    ctx.fillRect(x + 6 * s, y - 1 * s, 9 * s, 2 * s);
+    ctx.fillStyle = '#1a1a22';
+    ctx.fillRect(x + 8 * s, y - 3 * s, 3 * s, 2 * s);
+    if (path === 'A') {
+      ctx.fillStyle = '#ff8e3c';
+      ctx.fillRect(x + 14 * s, y - 1 * s, 2 * s, 1 * s);
+    }
+  } else if (type === 'gatling') {
+    // Ear-protection / over-ear cans + spin-up barrels
+    ctx.fillStyle = '#ff8e3c';
+    ctx.fillRect(x - 9 * s, y - 5 * s, 2 * s, 7 * s);
+    ctx.fillRect(x + 7 * s, y - 5 * s, 2 * s, 7 * s);
+    ctx.fillStyle = '#c86028';
+    ctx.fillRect(x - 9 * s, y - 5 * s, 2 * s, 1 * s);
+    ctx.fillRect(x + 7 * s, y - 5 * s, 2 * s, 1 * s);
+    // Spinning barrels (rendered as three stripes near front)
+    ctx.fillStyle = '#3a3a4a';
+    ctx.fillRect(x + 6 * s, y - 2 * s, 6 * s, 1 * s);
+    ctx.fillRect(x + 6 * s, y, 6 * s, 1 * s);
+    ctx.fillRect(x + 6 * s, y + 2 * s, 6 * s, 1 * s);
+  } else if (type === 'cannon') {
+    // Helmet + giant cannon barrel
+    ctx.fillStyle = '#5a3018';
+    ctx.fillRect(x - 8 * s, y - 14 * s, 16 * s, 4 * s);
+    ctx.fillStyle = '#a04830';
+    ctx.fillRect(x - 8 * s, y - 13 * s, 16 * s, 1 * s);
+    ctx.fillStyle = '#3a2818';
+    ctx.fillRect(x + 5 * s, y - 4 * s, 8 * s, 6 * s); // barrel
+    ctx.fillStyle = '#1a0808';
+    ctx.fillRect(x + 11 * s, y - 4 * s, 2 * s, 6 * s); // muzzle
+    if (path === 'A') { // NAPALM red glow
+      ctx.fillStyle = 'rgba(255,90,40,0.7)';
+      ctx.fillRect(x + 12 * s, y - 3 * s, 1 * s, 4 * s);
+    }
+  } else if (type === 'frost') {
+    ctx.fillStyle = '#5078a8'; ctx.fillRect(x - 6 * s, y - 14 * s, 12 * s, 4 * s);
+    ctx.fillStyle = '#b0e8ff';
+    ctx.fillRect(x - 5 * s, y - 16 * s, 2 * s, 3 * s); ctx.fillRect(x - 1 * s, y - 17 * s, 2 * s, 4 * s); ctx.fillRect(x + 3 * s, y - 16 * s, 2 * s, 3 * s);
+    ctx.fillStyle = '#8a8aac'; ctx.fillRect(x + 7 * s, y - 8 * s, 1 * s, 14 * s);
+    ctx.fillStyle = '#b0e8ff'; ctx.fillRect(x + 6 * s, y - 10 * s, 3 * s, 3 * s);
+  } else if (type === 'buff') {
+    ctx.fillStyle = '#5a1010'; ctx.fillRect(x - 7 * s, y - 14 * s, 14 * s, 4 * s);
+    ctx.fillStyle = '#ffd23f'; ctx.fillRect(x - 1 * s, y - 12 * s, 2 * s, 1 * s);
+    ctx.fillStyle = '#b055ff'; ctx.fillRect(x - 9 * s, y - 2 * s, 18 * s, 9 * s);
+    ctx.fillStyle = '#7028a0'; ctx.fillRect(x - 9 * s, y + 6 * s, 18 * s, 1 * s);
+  } else if (type === 'bone') {
+    ctx.fillStyle = '#eae0c0'; ctx.fillRect(x - 8 * s, y + 1 * s, 16 * s, 3 * s);
+    ctx.fillStyle = '#a8a098'; ctx.fillRect(x - 9 * s, y, 3 * s, 5 * s); ctx.fillRect(x + 6 * s, y, 3 * s, 5 * s);
+  } else if (type === 'tar') {
+    ctx.fillStyle = '#1a3a18'; ctx.fillRect(x - 8 * s, y - 14 * s, 16 * s, 6 * s);
+    ctx.fillStyle = '#3a5a30'; ctx.fillRect(x - 8 * s, y - 14 * s, 16 * s, 1 * s);
+    ctx.fillStyle = '#0a0a12'; ctx.fillRect(x + 6 * s, y + 2 * s, 5 * s, 6 * s);
+    ctx.fillStyle = '#3a3a4a'; ctx.fillRect(x + 6 * s, y + 2 * s, 5 * s, 1 * s);
+  } else if (type === 'teleport') {
+    ctx.fillStyle = '#3a0a4a'; ctx.fillRect(x - 6 * s, y - 14 * s, 12 * s, 5 * s);
+    ctx.fillStyle = '#b055ff'; ctx.fillRect(x - 2 * s, y - 18 * s, 4 * s, 5 * s);
+    ctx.strokeStyle = '#b055ff'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(x, y + 14 * s, 9 * s, 0, Math.PI * 2); ctx.stroke();
+  } else if (type === 'banner') {
+    ctx.fillStyle = '#5a3018'; ctx.fillRect(x + 6 * s, y - 18 * s, 1 * s, 24 * s);
+    ctx.fillStyle = '#ff8ac8'; ctx.fillRect(x + 7 * s, y - 18 * s, 8 * s, 8 * s);
+    ctx.fillStyle = '#c050a0'; ctx.fillRect(x + 7 * s, y - 18 * s, 8 * s, 1 * s);
+    ctx.fillStyle = '#ffd23f'; ctx.fillRect(x + 10 * s, y - 15 * s, 2 * s, 2 * s);
+  }
+  ctx.restore();
+}
+
+// Detailed enemy sprites.
+function _drawEnemySprite(ctx, x, y, e) {
+  const t = e.type;
+  const fs = (col) => ctx.fillStyle = col;
+  const r = (rx, ry, rw, rh) => ctx.fillRect(rx, ry, rw, rh);
+  const a = (ax, ay, ar) => { ctx.beginPath(); ctx.arc(ax, ay, ar, 0, Math.PI * 2); ctx.fill(); };
+  const el = (ax, ay, rw, rh, rot) => { ctx.beginPath(); ctx.ellipse(ax, ay, rw, rh, rot || 0, 0, Math.PI * 2); ctx.fill(); };
+  if (t === 'squirrel') {
+    fs('#5a3018'); el(x + 8, y - 4, 5, 7, -0.4);
+    fs('#a06030'); a(x, y, 9);
+    fs('#d8a888'); el(x, y + 3, 5, 4);
+    fs('#a06030'); a(x - 4, y - 4, 5);
+    fs('#5a3018'); r(x - 7, y - 9, 2, 2); r(x - 3, y - 10, 2, 2);
+    fs('#000'); r(x - 5, y - 4, 1, 1);
+    fs('#8a5028'); r(x - 1, y - 2, 2, 2);
+  } else if (t === 'cat') {
+    fs('#0a0a12'); a(x, y, 11);
+    fs('#222'); a(x - 1, y - 1, 10);
+    fs('#000');
+    ctx.beginPath(); ctx.moveTo(x - 7, y - 8); ctx.lineTo(x - 10, y - 14); ctx.lineTo(x - 4, y - 11); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(x + 7, y - 8); ctx.lineTo(x + 10, y - 14); ctx.lineTo(x + 4, y - 11); ctx.closePath(); ctx.fill();
+    fs('#a02060'); r(x - 8, y - 12, 1, 1); r(x + 7, y - 12, 1, 1);
+    fs('#ffd23f'); r(x - 5, y - 3, 2, 3); r(x + 3, y - 3, 2, 3);
+    fs('#000'); r(x - 4, y - 3, 1, 3); r(x + 4, y - 3, 1, 3);
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x - 10, y + 2); ctx.lineTo(x - 3, y + 1);
+    ctx.moveTo(x - 10, y + 4); ctx.lineTo(x - 3, y + 3);
+    ctx.moveTo(x + 10, y + 2); ctx.lineTo(x + 3, y + 1);
+    ctx.moveTo(x + 10, y + 4); ctx.lineTo(x + 3, y + 3);
+    ctx.stroke();
+    fs('#000'); el(x + 12, y, 5, 2, 0.3);
+  } else if (t === 'tank') {
+    fs('#1a0d05'); a(x, y, 17);
+    fs('#5a3a14'); a(x, y, 16);
+    fs('#3a2a10'); r(x - 12, y - 2, 24, 10);
+    fs('#7a5a24'); r(x - 12, y - 2, 24, 1);
+    fs('#222230'); r(x - 12, y - 16, 24, 7);
+    fs('#3a3a4a'); r(x - 12, y - 16, 24, 1);
+    fs('#cacacf'); r(x - 9, y - 22, 3, 7); r(x - 1, y - 24, 3, 9); r(x + 6, y - 22, 3, 7);
+    fs('#ff3a3a'); r(x - 5, y - 11, 10, 2);
+    fs('#cacacf'); r(x - 11, y - 13, 1, 1); r(x + 10, y - 13, 1, 1); r(x - 11, y + 7, 1, 1); r(x + 10, y + 7, 1, 1);
+  } else if (t === 'bird') {
+    fs('#1a4020'); el(x, y, 12, 8);
+    fs('#5ef38c'); el(x, y - 1, 11, 7);
+    fs('#a8f0b8'); r(x - 6, y + 1, 12, 4);
+    fs('#5ef38c'); a(x - 8, y - 4, 5);
+    fs('#ff8e3c');
+    ctx.beginPath(); ctx.moveTo(x - 13, y - 4); ctx.lineTo(x - 18, y - 3); ctx.lineTo(x - 13, y - 1); ctx.closePath(); ctx.fill();
+    fs('#000'); r(x - 9, y - 5, 1, 1);
+    fs('#fff'); r(x - 9, y - 6, 1, 1);
+    fs('#1a4020'); r(x + 9, y - 4, 4, 2); r(x + 9, y + 2, 4, 2);
+  } else if (t === 'elite') {
+    drawPug(ctx, x, y + 4, { size: 32, body: '#c8854a', mask: '#3a1808' });
+    fs('#7a5a24'); r(x - 14, y - 2, 5, 4); r(x + 9, y - 2, 5, 4);
+    fs('#ffd23f'); r(x - 14, y - 2, 5, 1); r(x + 9, y - 2, 5, 1);
+    ctx.strokeStyle = '#a02828'; ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x + 1, y - 10); ctx.lineTo(x + 7, y - 4);
+    ctx.moveTo(x + 7, y - 10); ctx.lineTo(x + 1, y - 4);
+    ctx.stroke();
+  } else {
+    fs(e.def.color); a(x, y, e.def.size);
+  }
+}
+
+// Detailed projectile render — dispatched by source tower type.
+function _drawProjectile(ctx, p) {
+  const t = p.sourceType, c = p.color || '#4cc9f0';
+  let ang = 0;
+  if (p.target && p.target.x != null) ang = Math.atan2((p.target.y * TILE + gridOffsetY()) - p.y, (p.target.x * TILE + gridOffsetX()) - p.x);
+  const arc = (ax, ay, ar) => { ctx.beginPath(); ctx.arc(ax, ay, ar, 0, Math.PI * 2); ctx.fill(); };
+  if (t === 'sniper') {
+    ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(ang);
+    ctx.shadowColor = c; ctx.shadowBlur = 8;
+    ctx.fillStyle = c; ctx.fillRect(-12, -1, 14, 2);
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, -1, 4, 2);
+    ctx.shadowBlur = 0; ctx.restore();
+  } else if (t === 'cannon') {
+    ctx.fillStyle = '#000'; arc(p.x + 1, p.y + 1, 7);
+    ctx.fillStyle = '#1a0808'; arc(p.x, p.y, 6);
+    ctx.fillStyle = '#5a1818'; arc(p.x - 2, p.y - 2, 3);
+    ctx.fillStyle = 'rgba(180,180,200,0.45)'; arc(p.x - Math.cos(ang) * 5, p.y - Math.sin(ang) * 5, 3);
+  } else if (t === 'frost') {
+    ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(performance.now() * 0.01);
+    ctx.shadowColor = c; ctx.shadowBlur = 8;
+    ctx.fillStyle = c;
+    ctx.beginPath(); ctx.moveTo(0, -6); ctx.lineTo(4, 0); ctx.lineTo(0, 6); ctx.lineTo(-4, 0); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.moveTo(0, -3); ctx.lineTo(2, 0); ctx.lineTo(0, 3); ctx.lineTo(-2, 0); ctx.closePath(); ctx.fill();
+    ctx.shadowBlur = 0; ctx.restore();
+  } else if (t === 'bone') {
+    ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(performance.now() * 0.025);
+    ctx.fillStyle = '#a8a098'; ctx.fillRect(-7, -2, 14, 4);
+    arc(-7, 0, 3); arc(7, 0, 3);
+    ctx.fillStyle = '#eae0c0'; ctx.fillRect(-7, -2, 14, 2);
+    arc(-7, -1, 2); arc(7, -1, 2);
+    ctx.restore();
+  } else if (t === 'tar') {
+    ctx.fillStyle = '#000'; arc(p.x, p.y, 5);
+    ctx.fillStyle = '#222'; arc(p.x - 1, p.y - 1, 3);
+    ctx.fillStyle = '#000'; ctx.fillRect(p.x - 1, p.y + 4, 2, 3);
+  } else if (t === 'gatling') {
+    ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(ang);
+    ctx.fillStyle = '#ffce5e'; ctx.fillRect(-4, -1, 6, 2);
+    ctx.fillStyle = c; ctx.fillRect(-4, -1, 3, 2);
+    ctx.restore();
+  } else if (t === 'teleport') {
+    ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(performance.now() * 0.015);
+    ctx.shadowColor = c; ctx.shadowBlur = 10;
+    ctx.fillStyle = c; arc(0, 0, 6);
+    ctx.fillStyle = '#ff3aa1'; ctx.fillRect(-4, -1, 8, 2); ctx.fillRect(-1, -4, 2, 8);
+    ctx.shadowBlur = 0; ctx.restore();
+  } else if (t === 'basic') {
+    ctx.shadowColor = c; ctx.shadowBlur = 6;
+    ctx.fillStyle = c; arc(p.x, p.y, 5);
+    ctx.fillStyle = '#fff'; arc(p.x - 1, p.y - 1, 2);
+    if (p.sourcePath === 'A') { ctx.fillStyle = 'rgba(255,210,63,0.5)'; arc(p.x - Math.cos(ang) * 5, p.y - Math.sin(ang) * 5, 2); }
+    ctx.shadowBlur = 0;
+  } else {
+    ctx.shadowColor = c; ctx.shadowBlur = 6;
+    ctx.fillStyle = c; arc(p.x, p.y, 5);
+    ctx.shadowBlur = 0;
+  }
+}
+
 // === Ambient particle render (called inside render) ===
 function drawAmbientParticles() {
   for (const p of mapParticles) {
@@ -1408,6 +1623,8 @@ function tick(dt) {
       warpAmt: path && path.warpAmt ? path.warpAmt : 3,
       warpChaos: !!(path && path.warpChaos),
       crit: isCrit,
+      sourceType: tw.type,
+      sourcePath: tw.path,
       speed: 800, dead: false,
       origX: (tw.col + 0.5) * TILE + gridOffsetX(),
       origY: (tw.row + 0.5) * TILE + gridOffsetY(),
@@ -1795,15 +2012,21 @@ function render() {
         _placeY = (1 - ek) * -10;
       }
     }
+    // Per-tower body color: use path tint if committed, else def.color. Use
+    // distinctive body colors per tower kind so each tower has a unique look.
+    const _bodyCol = tPath ? tPath.badge : (def.color || '#c8854a');
     if (_scaleX !== 1 || _scaleY !== 1) {
       ctx.save();
       ctx.translate(x, bobY + 4);
       ctx.scale(_scaleX, _scaleY);
-      drawPug(ctx, 0, _placeY, { size: 30, body: tPath ? tPath.badge : (def.color || '#c8854a') });
+      drawPug(ctx, 0, _placeY, { size: 30, body: _bodyCol });
       ctx.restore();
     } else {
-      drawPug(ctx, x, bobY + 4, { size: 30, body: tPath ? tPath.badge : (def.color || '#c8854a') });
+      drawPug(ctx, x, bobY + 4, { size: 30, body: _bodyCol });
     }
+    // Per-tower-kind accessory: gunner cap, sniper glasses+rifle silhouette,
+    // ear-protection, beret, scope, etc. Layered on top of the pug body.
+    _drawTowerAccessory(ctx, x, bobY + 4, tw.type, tw.path, 30);
     // Tower-type icon overlay above the pug head (small badge).
     if (def.iconName && drawIcon[def.iconName]) {
       drawIcon[def.iconName](ctx, x, bobY - 22, 12);
@@ -1847,13 +2070,33 @@ function render() {
     if (e.type === 'boss') {
       // Mega-pug villain — purple body, dark mask. drawPug handles its own shadow.
       drawPug(ctx, x, y + 6, { size: 44, body: '#b055ff', mask: '#3a1a4a' });
+      // Boss crown spikes + glowing eyes
+      ctx.fillStyle = '#3a0a4a';
+      ctx.fillRect(x - 14, y - 22, 4, 6);
+      ctx.fillRect(x - 5, y - 26, 4, 8);
+      ctx.fillRect(x + 4, y - 26, 4, 8);
+      ctx.fillRect(x + 11, y - 22, 4, 6);
+      ctx.fillStyle = '#ff3aa1';
+      ctx.fillRect(x - 14, y - 18, 4, 2);
+      ctx.fillRect(x - 5, y - 20, 4, 2);
+      ctx.fillRect(x + 4, y - 20, 4, 2);
+      ctx.fillRect(x + 11, y - 18, 4, 2);
     } else {
-      ctx.fillStyle = e.def.color;
-      ctx.beginPath(); ctx.arc(x, y, e.def.size, 0, Math.PI * 2); ctx.fill();
+      _drawEnemySprite(ctx, x, y, e);
     }
     if (e.def.air) {
-      ctx.fillStyle = 'rgba(255,255,255,0.5)';
-      ctx.fillRect(x - 14, y - 2, 6, 2); ctx.fillRect(x + 8, y - 2, 6, 2);
+      // Detailed wings: bone strut + feathery edge that flaps slightly.
+      const wf = Math.sin(performance.now() * 0.02 + e.x * 1.7) * 2;
+      ctx.fillStyle = 'rgba(60,90,40,0.9)';
+      ctx.fillRect(x - 16, y - 3 + wf, 8, 3);
+      ctx.fillRect(x + 8, y - 3 - wf, 8, 3);
+      ctx.fillStyle = 'rgba(140,200,120,0.7)';
+      ctx.fillRect(x - 16, y - 3 + wf, 8, 1);
+      ctx.fillRect(x + 8, y - 3 - wf, 8, 1);
+      // wing tip feather flick
+      ctx.fillStyle = 'rgba(94,243,140,0.85)';
+      ctx.fillRect(x - 17, y - 4 + wf, 2, 5);
+      ctx.fillRect(x + 15, y - 4 - wf, 2, 5);
     }
     if (e.slowT > 0) {
       ctx.fillStyle = '#b0e8ff';
@@ -1876,10 +2119,11 @@ function render() {
     ctx.fillStyle = e.hp > e.maxHp * 0.5 ? '#5ef38c' : (e.hp > e.maxHp * 0.25 ? '#ffd23f' : '#ff3a3a');
     ctx.fillRect(x - barW / 2, y - e.def.size - 10, barW * e.hp / e.maxHp, 4);
   }
-  // Projectiles
+  // Projectiles — per source-tower visual: bullet / sniper-tracer / cannonball /
+  // ice-crystal / bone-boomerang / missile / tar-glob. Falls back to a glowing
+  // dot if a projectile lacks a `sourceType` tag.
   for (const p of projectiles) {
-    ctx.fillStyle = p.color;
-    ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, Math.PI * 2); ctx.fill();
+    _drawProjectile(ctx, p);
   }
   // Particles
   for (const p of particles) {

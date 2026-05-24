@@ -187,7 +187,36 @@ export class Pug {
     gun.rect(15, -2, 2, 1).fill(0x666672);
     // muzzle hole
     gun.rect(20, 0, 1, 1).fill(0x000000);
+    // trigger guard ring (tiny)
+    gun.rect(12, 2, 2, 1).fill(0x444450);
     this.visual.addChild(gun);
+
+    // TACTICAL ACCESSORIES — mounted flashlight (always visible) +
+    // ammo bandolier across chest + smoke-can on belt + dog tag at neck.
+    // Subtle layer that reads as "this pug is geared up".
+    const gear = new Graphics();
+    // mounted flashlight on top of pistol (cyan lens, dark body)
+    gear.rect(13, -3, 4, 2).fill(0x222228);
+    gear.rect(13, -3, 4, 1).fill(0x666672);
+    gear.rect(16, -3, 1, 2).fill(COLORS.neonCyan);
+    gear.rect(16, -2, 1, 1).fill(0xffffff); // bright lens
+    // tiny lens-glow pixel ahead of mounted flashlight
+    gear.rect(17, -3, 1, 1).fill({ color: COLORS.neonCyan, alpha: 0.5 });
+    // ammo bandolier across body — 3 brass shells
+    gear.rect(-7, 6, 3, 1).fill(0x8a5a14);  // strap
+    gear.rect(-3, 5, 3, 1).fill(0x8a5a14);
+    gear.rect(1, 4, 3, 1).fill(0x8a5a14);
+    gear.rect(-7, 5, 1, 1).fill(COLORS.neonYellow); // brass shell
+    gear.rect(-3, 4, 1, 1).fill(COLORS.neonYellow);
+    gear.rect(1, 3, 1, 1).fill(COLORS.neonYellow);
+    // belt-mounted smoke canister (left hip)
+    gear.rect(-12, 6, 2, 3).fill(0x4cc9f0);
+    gear.rect(-12, 6, 2, 1).fill(0x9ae0ff);
+    gear.rect(-12, 9, 2, 1).fill(0x1a6a80);
+    // dog tag chain at neck (tiny silver square)
+    gear.rect(-1, -2, 2, 1).fill(0xc8c8d0);
+    gear.rect(0, -1, 1, 1).fill(0xeaeaea);
+    this.visual.addChild(gear);
   }
 
   _drawAimMarker() {

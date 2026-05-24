@@ -19,9 +19,18 @@ function drawPlushToy(ctx, x, y, size) {
   // teddy bear silhouette - body
   ctx.fillStyle = '#a0683a';
   ctx.fillRect(-4 * s, -2 * s, 8 * s, 6 * s);
+  // body highlight + bottom shade for sphere shading
+  ctx.fillStyle = '#c08858';
+  ctx.fillRect(-4 * s, -2 * s, 8 * s, 1 * s);
+  ctx.fillStyle = '#704818';
+  ctx.fillRect(-4 * s,  3 * s, 8 * s, 1 * s);
   // head
+  ctx.fillStyle = '#a0683a';
   ctx.fillRect(-3 * s, -6 * s, 6 * s, 4 * s);
+  ctx.fillStyle = '#c08858';
+  ctx.fillRect(-3 * s, -6 * s, 6 * s, 1 * s);  // head highlight
   // ears
+  ctx.fillStyle = '#a0683a';
   ctx.fillRect(-4 * s, -7 * s, 2 * s, 2 * s);
   ctx.fillRect( 2 * s, -7 * s, 2 * s, 2 * s);
   // arms
@@ -30,17 +39,44 @@ function drawPlushToy(ctx, x, y, size) {
   // legs
   ctx.fillRect(-3 * s,  4 * s, 2 * s, 2 * s);
   ctx.fillRect( 1 * s,  4 * s, 2 * s, 2 * s);
+  // paw pads on legs
+  ctx.fillStyle = '#704818';
+  ctx.fillRect(-3 * s,  5 * s, 2 * s, 1 * s);
+  ctx.fillRect( 1 * s,  5 * s, 2 * s, 1 * s);
   // ear inner & belly tan
   ctx.fillStyle = '#d8a06a';
   ctx.fillRect(-3 * s, -6 * s, 1 * s, 1 * s);
   ctx.fillRect( 2 * s, -6 * s, 1 * s, 1 * s);
   ctx.fillRect(-2 * s,  0 * s, 4 * s, 3 * s);
-  // eyes
+  // stitched seam down the middle of belly
+  ctx.fillStyle = '#704818';
+  ctx.fillRect(-0.5 * s, -1 * s, 1 * s, 4 * s);
+  // tiny stitches on seam (4 hash marks)
+  ctx.fillStyle = '#3a2010';
+  ctx.fillRect(-1 * s, 0 * s, 2 * s, 1);
+  ctx.fillRect(-1 * s, 2 * s, 2 * s, 1);
+  // eyes (now with white sclera under for cuter look)
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(-2 * s, -5 * s, 1.5 * s, 1.5 * s);
+  ctx.fillRect( 1 * s, -5 * s, 1.5 * s, 1.5 * s);
   ctx.fillStyle = '#000';
   ctx.fillRect(-2 * s, -5 * s, 1 * s, 1 * s);
   ctx.fillRect( 1 * s, -5 * s, 1 * s, 1 * s);
-  // nose
+  // nose (heart-shape)
+  ctx.fillStyle = '#1a0d05';
   ctx.fillRect(-1 * s, -3 * s, 2 * s, 1 * s);
+  ctx.fillRect(-0.5 * s, -2.5 * s, 1 * s, 0.5 * s);
+  // tiny smile
+  ctx.fillStyle = '#3a2010';
+  ctx.fillRect(-1 * s, -2 * s, 1 * s, 0.5 * s);
+  ctx.fillRect( 0.5 * s, -2 * s, 0.5 * s, 0.5 * s);
+  // red bow tie at neck
+  ctx.fillStyle = '#c01818';
+  ctx.fillRect(-2 * s, -2.5 * s, 4 * s, 1.5 * s);
+  ctx.fillStyle = '#ff5a5a';
+  ctx.fillRect(-2 * s, -2.5 * s, 4 * s, 0.5 * s);  // bow highlight
+  ctx.fillStyle = '#7a0a0a';
+  ctx.fillRect(-0.5 * s, -2.5 * s, 1 * s, 1.5 * s);  // bow knot
   ctx.restore();
 }
 
@@ -1701,6 +1737,25 @@ function render() {
     // depth3D shadow underneath
     _depthShadow(ctx, sx, sy + 14 + bob, 16, { alpha: 0.45 });
     drawPug(ctx, sx, sy + bob, { size: 26, body: '#c8a06a', hat: true, hatColor: '#5ef38c' });
+    // shopkeeper apron — beige apron with pocket (in front of body)
+    ctx.fillStyle = '#e8d8a0';
+    ctx.fillRect(sx - 8, sy + 2 + bob, 16, 8);
+    ctx.fillStyle = '#c8b888';
+    ctx.fillRect(sx - 8, sy + 9 + bob, 16, 1);
+    // apron pocket
+    ctx.fillStyle = '#a89868';
+    ctx.fillRect(sx - 6, sy + 4 + bob, 5, 4);
+    ctx.fillRect(sx + 1, sy + 4 + bob, 5, 4);
+    // dollar pouch — gold coins peeking
+    ctx.fillStyle = '#ffd23f';
+    ctx.fillRect(sx - 5, sy + 5 + bob, 1, 1);
+    ctx.fillRect(sx + 3, sy + 5 + bob, 1, 1);
+    // friendly smile bump (white teeth dot under snout)
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(sx - 1, sy - 4 + bob, 2, 1);
+    // green hat highlight band
+    ctx.fillStyle = '#a8f8c0';
+    ctx.fillRect(sx - 8, sy - 12 + bob, 16, 1);
     // "$" sign hovering above
     ctx.fillStyle = '#ffd23f';
     ctx.font = "bold 12px 'Press Start 2P', monospace";
@@ -1730,15 +1785,72 @@ function render() {
     ctx.beginPath(); ctx.arc(rh.x, rh.y, 50, 0, Math.PI * 2); ctx.fill();
     // depth3D shadow underneath the raged hunter
     _depthShadow(ctx, rh.x, rh.y + 14, 18, { alpha: 0.5 });
-    // body
+    // DARK CLOAK silhouette behind/over the body (jagged hem)
+    ctx.fillStyle = '#0a0006';
+    ctx.fillRect(rh.x - 14, rh.y - 8, 28, 20);
+    // jagged cloak bottom hem
+    for (let cx = -14; cx < 14; cx += 4) {
+      ctx.beginPath();
+      ctx.moveTo(rh.x + cx, rh.y + 12);
+      ctx.lineTo(rh.x + cx + 2, rh.y + 18);
+      ctx.lineTo(rh.x + cx + 4, rh.y + 12);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // dark hood overhead
+    ctx.fillStyle = '#0a0006';
+    ctx.fillRect(rh.x - 12, rh.y - 18, 24, 10);
+    // hood opening (dark slit)
+    ctx.fillStyle = '#000';
+    ctx.fillRect(rh.x - 8, rh.y - 10, 16, 4);
+    // body (rendered AFTER cloak so head is visible through hood opening)
     drawPug(ctx, rh.x, rh.y, { size: 30, body: '#5a1a1a' });
-    // glowing red eyes (override the pug face)
+    // SCYTHE held to the side — long handle + curved blade
+    ctx.save();
+    ctx.translate(rh.x + 14, rh.y);
+    // handle (dark wood, slightly angled)
+    ctx.fillStyle = '#3a2010';
+    ctx.fillRect(0, -22, 2, 36);
+    ctx.fillStyle = '#5a3a1c';
+    ctx.fillRect(0, -22, 1, 36);  // highlight
+    // curved blade (drawn via filled triangles)
+    ctx.fillStyle = '#c8c8d0';
+    ctx.beginPath();
+    ctx.moveTo(2, -22);
+    ctx.lineTo(12, -28);
+    ctx.lineTo(14, -24);
+    ctx.lineTo(8, -16);
+    ctx.lineTo(2, -16);
+    ctx.closePath();
+    ctx.fill();
+    // blade highlight
+    ctx.fillStyle = '#eaeaea';
+    ctx.beginPath();
+    ctx.moveTo(2, -22);
+    ctx.lineTo(12, -28);
+    ctx.lineTo(13, -26);
+    ctx.lineTo(4, -21);
+    ctx.closePath();
+    ctx.fill();
+    // blood drip on blade
+    ctx.fillStyle = '#c01818';
+    ctx.fillRect(8, -16, 1, 4);
+    ctx.fillRect(10, -16, 1, 3);
+    ctx.restore();
+    // glowing red eyes (override the pug face) — now BIGGER + halo
+    ctx.fillStyle = `rgba(255,58,58,${0.3 + pulse * 0.3})`;
+    ctx.beginPath(); ctx.arc(rh.x - 4, rh.y - 1, 7, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(rh.x + 4, rh.y - 1, 7, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = `rgba(255,58,58,${0.8 + pulse * 0.2})`;
     ctx.fillRect(rh.x - 6, rh.y - 3, 4, 4);
     ctx.fillRect(rh.x + 2, rh.y - 3, 4, 4);
     ctx.fillStyle = '#fff';
     ctx.fillRect(rh.x - 5, rh.y - 2, 2, 2);
     ctx.fillRect(rh.x + 3, rh.y - 2, 2, 2);
+    // fangs showing
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(rh.x - 3, rh.y + 5, 1, 2);
+    ctx.fillRect(rh.x + 2, rh.y + 5, 1, 2);
     // exclamation above
     ctx.fillStyle = '#ff3a3a';
     ctx.font = "bold 14px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
@@ -1783,16 +1895,49 @@ function render() {
       ctx.fillStyle = '#fff';
       ctx.fillRect(pet.x + lookDir * 3, pet.y - 4, 2, 2);
     }
-    // War dog armor plate
+    // War dog armor plate + battle scars + spiked collar
     if (_petEvolved) {
+      // chest armor with bevel
       ctx.fillStyle = '#cacacf';
       ctx.fillRect(pet.x - 8, pet.y - 2, 16, 4);
+      ctx.fillStyle = '#eaeaea';
+      ctx.fillRect(pet.x - 8, pet.y - 2, 16, 1);  // bright highlight
       ctx.fillStyle = '#888898';
       ctx.fillRect(pet.x - 8, pet.y + 2, 16, 1);
-      // shoulder pads
+      // chest emblem (red skull dot)
+      ctx.fillStyle = '#c01818';
+      ctx.fillRect(pet.x - 1, pet.y, 2, 2);
+      // shoulder pads with spike rivets
       ctx.fillStyle = '#5a5a5a';
       ctx.fillRect(pet.x - 10, pet.y - 6, 4, 4);
       ctx.fillRect(pet.x + 6, pet.y - 6, 4, 4);
+      ctx.fillStyle = '#cacacf';
+      ctx.fillRect(pet.x - 9, pet.y - 7, 1, 1);   // shoulder spike
+      ctx.fillRect(pet.x + 8, pet.y - 7, 1, 1);
+      // spiked collar at neck
+      ctx.fillStyle = '#3a3a48';
+      ctx.fillRect(pet.x - 6, pet.y - 9, 12, 2);
+      ctx.fillStyle = '#cacacf';
+      ctx.fillRect(pet.x - 5, pet.y - 11, 1, 2);
+      ctx.fillRect(pet.x - 2, pet.y - 11, 1, 2);
+      ctx.fillRect(pet.x + 1, pet.y - 11, 1, 2);
+      ctx.fillRect(pet.x + 4, pet.y - 11, 1, 2);
+      // battle scar (X across the face)
+      ctx.strokeStyle = 'rgba(160,40,40,0.7)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(pet.x - 6, pet.y - 11); ctx.lineTo(pet.x - 2, pet.y - 7); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(pet.x - 2, pet.y - 11); ctx.lineTo(pet.x - 6, pet.y - 7); ctx.stroke();
+      // glowing red eye glints
+      ctx.fillStyle = '#ff5a3a';
+      ctx.shadowColor = '#ff5a3a'; ctx.shadowBlur = 4;
+      ctx.fillRect(pet.x - 5, pet.y - 8, 1, 1);
+      ctx.fillRect(pet.x + 4, pet.y - 8, 1, 1);
+      ctx.shadowBlur = 0;
+    } else {
+      // PUPPY phase — tiny pink bow + cute floppy ear position indicator
+      ctx.fillStyle = '#ff8aa8';
+      ctx.fillRect(pet.x + 5, pet.y - 14, 3, 2);
+      ctx.fillStyle = '#ff5a82';
+      ctx.fillRect(pet.x + 6, pet.y - 13, 1, 1);
     }
     ctx.fillStyle = '#ff3aa1'; ctx.fillRect(pet.x - 5, pet.y - 14, 10, 4);
   }
@@ -1810,15 +1955,47 @@ function render() {
     ctx.fillRect(sx - 14, sy + 14, 28, 4);
     ctx.fillStyle = '#7a3a5a';
     ctx.fillRect(sx - 12, sy - 16, 24, 4);
-    // eyes
+    // chunky stone facet highlights (3D rocky look)
+    ctx.fillStyle = '#8a4a6a';
+    ctx.fillRect(sx - 14, sy - 14, 4, 4);
+    ctx.fillRect(sx + 10, sy + 4, 4, 4);
+    ctx.fillStyle = '#3a1a2a';
+    ctx.fillRect(sx - 14, sy + 8, 4, 4);
+    ctx.fillRect(sx + 10, sy - 14, 4, 4);
+    // shoulder boulders (jutting up + asymmetric)
+    ctx.fillStyle = '#5a2a4a';
+    ctx.fillRect(sx - 16, sy - 22, 6, 8);
+    ctx.fillRect(sx + 10, sy - 20, 6, 6);
+    ctx.fillStyle = '#7a3a5a';
+    ctx.fillRect(sx - 16, sy - 22, 6, 1);
+    ctx.fillRect(sx + 10, sy - 20, 6, 1);
+    // eyes (now in a deep socket — black behind glow)
     const eyePulse = 0.5 + 0.5 * Math.sin(rg.t * 4);
+    ctx.fillStyle = '#000';
+    ctx.fillRect(sx - 8, sy - 9, 7, 7);
+    ctx.fillRect(sx + 1, sy - 9, 7, 7);
     ctx.fillStyle = `rgba(255,80,150,${0.7 + eyePulse * 0.3})`;
     ctx.fillRect(sx - 7, sy - 8, 5, 5);
     ctx.fillRect(sx + 2, sy - 8, 5, 5);
-    // crack-rune lines
-    ctx.strokeStyle = 'rgba(255,200,255,0.4)';
+    // bright pupil cores
+    ctx.fillStyle = '#ffe0f0';
+    ctx.fillRect(sx - 5, sy - 6, 2, 2);
+    ctx.fillRect(sx + 4, sy - 6, 2, 2);
+    // crack-rune lines (now glowing + branching)
+    ctx.strokeStyle = `rgba(255,200,255,${0.4 + eyePulse * 0.3})`;
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(sx - 10, sy + 4); ctx.lineTo(sx - 4, sy + 8); ctx.lineTo(sx, sy + 4); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(sx + 6, sy + 0); ctx.lineTo(sx + 10, sy + 6); ctx.stroke();
+    // small glowing rune symbol on chest (3 dots in a triangle)
+    ctx.fillStyle = `rgba(255,150,220,${0.6 + eyePulse * 0.3})`;
+    ctx.fillRect(sx - 1, sy + 2, 2, 2);
+    ctx.fillRect(sx - 5, sy + 6, 2, 2);
+    ctx.fillRect(sx + 3, sy + 6, 2, 2);
+    // crumbling pebble bits at base
+    ctx.fillStyle = '#3a1a2a';
+    ctx.fillRect(sx - 18, sy + 18, 2, 2);
+    ctx.fillRect(sx + 16, sy + 17, 2, 2);
+    ctx.fillRect(sx - 6, sy + 19, 2, 1);
     // HP bar
     ctx.fillStyle = 'rgba(0,0,0,0.7)';
     ctx.fillRect(sx - 16, sy - 28, 32, 5);
@@ -1875,13 +2052,109 @@ function render() {
       }
     }
     drawPug(ctx, boss.x, boss.y, { size: 72, body: '#5a1a1a', mask: '#1a0d05' });
+    // Outer halo glow behind the boss
+    ctx.save();
+    ctx.fillStyle = `rgba(255,58,58,${0.18 + tp * 0.15})`;
+    ctx.beginPath(); ctx.arc(boss.x, boss.y - 8, 50, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    // Heavy chains draped over the boss (iron links across body)
+    ctx.save();
+    ctx.fillStyle = '#3a3a48';
+    for (let cx = -28; cx <= 28; cx += 6) {
+      ctx.beginPath(); ctx.arc(boss.x + cx, boss.y + 18, 2.5, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.fillStyle = '#6a6a72';
+    for (let cx = -28; cx <= 28; cx += 6) {
+      ctx.fillRect(boss.x + cx - 1, boss.y + 17, 1, 1);
+    }
+    // dangling padlock on the chain
+    ctx.fillStyle = '#8a6a10';
+    ctx.fillRect(boss.x - 4, boss.y + 24, 8, 6);
+    ctx.fillStyle = '#c8a830';
+    ctx.fillRect(boss.x - 4, boss.y + 24, 8, 1);
+    ctx.fillStyle = '#000';
+    ctx.fillRect(boss.x - 1, boss.y + 27, 2, 1);
+    ctx.restore();
+    // Battle scars across the snout (3 claw-rake scars)
+    ctx.strokeStyle = 'rgba(200,30,30,0.7)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(boss.x - 16, boss.y - 14); ctx.lineTo(boss.x - 6, boss.y - 4); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(boss.x - 12, boss.y - 16); ctx.lineTo(boss.x - 2, boss.y - 6); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(boss.x - 8, boss.y - 18); ctx.lineTo(boss.x + 2, boss.y - 8); ctx.stroke();
+    // Spiked crown on top (jagged red-iron crown)
+    ctx.fillStyle = '#2a1010';
+    ctx.fillRect(boss.x - 16, boss.y - 30, 32, 5);
+    ctx.fillStyle = '#5a2020';
+    ctx.fillRect(boss.x - 16, boss.y - 30, 32, 1);
+    // crown spikes
+    ctx.beginPath();
+    ctx.moveTo(boss.x - 14, boss.y - 30); ctx.lineTo(boss.x - 12, boss.y - 38); ctx.lineTo(boss.x - 10, boss.y - 30); ctx.closePath();
+    ctx.moveTo(boss.x - 6, boss.y - 30); ctx.lineTo(boss.x - 4, boss.y - 42); ctx.lineTo(boss.x - 2, boss.y - 30); ctx.closePath();
+    ctx.moveTo(boss.x + 2, boss.y - 30); ctx.lineTo(boss.x + 4, boss.y - 38); ctx.lineTo(boss.x + 6, boss.y - 30); ctx.closePath();
+    ctx.moveTo(boss.x + 10, boss.y - 30); ctx.lineTo(boss.x + 12, boss.y - 40); ctx.lineTo(boss.x + 14, boss.y - 30); ctx.closePath();
+    ctx.fillStyle = '#3a1010';
+    ctx.fill();
+    // crown gems (red + center yellow)
+    ctx.fillStyle = '#ff3a3a';
+    ctx.fillRect(boss.x - 11, boss.y - 28, 2, 2);
+    ctx.fillRect(boss.x + 9, boss.y - 28, 2, 2);
+    ctx.fillStyle = '#ffd23f';
+    ctx.fillRect(boss.x - 1, boss.y - 28, 2, 2);
+    // Glowing eyes (override with brighter pulsing red — larger + halo)
+    ctx.fillStyle = `rgba(255,58,58,${0.4 + tp * 0.3})`;
+    ctx.beginPath(); ctx.arc(boss.x - 10, boss.y - 4, 10, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(boss.x + 10, boss.y - 4, 10, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = `rgba(255,58,58,${0.7 + tp * 0.3})`;
     ctx.fillRect(boss.x - 14, boss.y - 8, 8, 8); ctx.fillRect(boss.x + 6, boss.y - 8, 8, 8);
     ctx.fillStyle = '#fff';
     ctx.fillRect(boss.x - 12, boss.y - 6, 4, 4); ctx.fillRect(boss.x + 8, boss.y - 6, 4, 4);
+    // tiny hot-white pupil core
+    ctx.fillStyle = `rgba(255,255,255,${0.7 + tp * 0.3})`;
+    ctx.fillRect(boss.x - 11, boss.y - 5, 1, 1);
+    ctx.fillRect(boss.x + 9, boss.y - 5, 1, 1);
+    // drool dripping from mouth
+    ctx.fillStyle = 'rgba(200,30,30,0.7)';
+    ctx.fillRect(boss.x - 3, boss.y + 8, 1, 4);
+    ctx.fillRect(boss.x + 2, boss.y + 8, 1, 3);
   }
   // Pug — high-detail digger with yellow hard hat
   drawPug(ctx, pug.x, pug.y, { size: 30, hat: true, hatColor: '#ffd23f' });
+  // === DIGGER PUG GEAR OVERLAY ===
+  // Pickaxe slung over shoulder (visible accessory) + helmet-mounted lamp ring
+  // + sweat drops when low stamina. Cosmetic only.
+  ctx.save();
+  // pickaxe on back-right
+  ctx.fillStyle = '#5a3a1c';
+  ctx.fillRect(pug.x + 8, pug.y - 16, 2, 14);  // handle
+  ctx.fillStyle = '#c8c8d0';
+  ctx.fillRect(pug.x + 4, pug.y - 17, 10, 3);   // head
+  ctx.fillStyle = '#eaeaea';
+  ctx.fillRect(pug.x + 4, pug.y - 17, 10, 1);   // shine
+  ctx.fillStyle = '#3a3a48';
+  ctx.fillRect(pug.x + 4, pug.y - 14, 2, 1);    // socket
+  // helmet lamp socket + lens glow
+  ctx.fillStyle = '#3a3a48';
+  ctx.fillRect(pug.x - 4, pug.y - 19, 8, 3);
+  ctx.fillStyle = '#fff8c0';
+  ctx.fillRect(pug.x - 2, pug.y - 19, 4, 2);
+  // chest strap (dark band across the body)
+  ctx.fillStyle = 'rgba(40,20,8,0.7)';
+  ctx.fillRect(pug.x - 8, pug.y - 4, 16, 1);
+  // tool-belt pouch on hip
+  ctx.fillStyle = '#5a3a1c';
+  ctx.fillRect(pug.x - 10, pug.y + 0, 4, 4);
+  ctx.fillStyle = '#7a4a2a';
+  ctx.fillRect(pug.x - 10, pug.y + 0, 4, 1);
+  // sweat drops when low stam (animated bob)
+  if (stam / maxStam < 0.3) {
+    const bobS = Math.sin(performance.now() * 0.012) * 1.5;
+    ctx.fillStyle = '#9ec8d8';
+    ctx.fillRect(pug.x - 6, pug.y - 26 + bobS, 1, 2);
+    ctx.fillRect(pug.x + 5, pug.y - 25 + bobS, 1, 2);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(pug.x - 6, pug.y - 26 + bobS, 1, 1);
+    ctx.fillRect(pug.x + 5, pug.y - 25 + bobS, 1, 1);
+  }
+  ctx.restore();
   // Helmet headlamp glow when underground (battery-aware — drains over time)
   if (pug.row > 2) {
     const batt = lanternBattery / (100 * (1 + 0.25 * (skillTree.batt || 0)));

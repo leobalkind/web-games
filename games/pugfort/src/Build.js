@@ -50,6 +50,16 @@ function createWallGraphic() {
   }
   g.rect(22, 8, 6, 1).fill({ color: 0x000000, alpha: 0.5 });
   g.rect(44, 13, 4, 1).fill({ color: 0x000000, alpha: 0.5 });
+  // Extra detail: knothole + small board splinters for character
+  g.circle(34, 10, 2).fill(shade(WOOD_DARK, 0.5));
+  g.circle(34, 10, 1).fill({ color: 0x000000, alpha: 0.55 });
+  g.rect(11, 4, 2, 1).fill({ color: 0x000000, alpha: 0.45 }); // gouge
+  g.rect(54, 7, 2, 1).fill({ color: 0x000000, alpha: 0.45 });
+  // bracket reinforcement plates at corners (small metal squares)
+  g.rect(2, 2, 1, 1).fill(METAL_HI);
+  g.rect(WALL_W - 3, 2, 1, 1).fill(METAL_HI);
+  g.rect(2, WALL_H - 3, 1, 1).fill(METAL_HI);
+  g.rect(WALL_W - 3, WALL_H - 3, 1, 1).fill(METAL_HI);
   c.addChild(g);
   // outlined glow — keeps build visible against floor
   const glow = new Graphics();
@@ -74,6 +84,13 @@ function createSandbagGraphic() {
     g.rect(offsetX + 4, y, 1, 6).fill(0x6a5a3a);
     g.rect(offsetX + SAND_W - 12, y, 1, 6).fill(0x6a5a3a);
     g.rect(offsetX, y + 2, SAND_W - 4, 1).fill({ color: 0x000000, alpha: 0.2 });
+    // tied-off twine knot in middle
+    g.rect(offsetX + (SAND_W - 4) / 2 - 1, y + 1, 2, 2).fill(0x5a4a2a);
+    g.rect(offsetX + (SAND_W - 4) / 2, y + 1, 1, 1).fill(0x9a8a5a);
+    // small fabric-weave hashes per bag
+    g.rect(offsetX + 8, y + 3, 1, 1).fill({ color: 0x4a3a1a, alpha: 0.5 });
+    g.rect(offsetX + 18, y + 4, 1, 1).fill({ color: 0x4a3a1a, alpha: 0.5 });
+    g.rect(offsetX + 28, y + 3, 1, 1).fill({ color: 0x4a3a1a, alpha: 0.5 });
   }
   c.addChild(g);
   // outlined glow — keeps build visible against floor
@@ -124,15 +141,23 @@ function createMineGraphic() {
   g.circle(MINE_W / 2, MINE_H / 2, 10).fill(0x3a3a42);
   g.circle(MINE_W / 2, MINE_H / 2, 10).stroke({ color: 0x6a6a72, width: 1 });
   g.circle(MINE_W / 2, MINE_H / 2, 8).fill(0x2a2a32);
-  // hazard stripes
+  // top-light highlight crescent (sphere shading)
+  g.circle(MINE_W / 2 - 2, MINE_H / 2 - 2, 5).fill({ color: 0x666672, alpha: 0.45 });
+  // hazard stripes (now diagonal hash for extra readability)
   g.rect(2, MINE_H / 2 - 1, MINE_W - 4, 2).fill({ color: COLORS.neonYellow, alpha: 0.4 });
+  g.rect(MINE_W / 2 - 1, 4, 2, MINE_H - 8).fill({ color: COLORS.neonYellow, alpha: 0.18 });
   // central blinking red light
   g.circle(MINE_W / 2, MINE_H / 2, 4).fill(COLORS.bloodRed);
   g.circle(MINE_W / 2, MINE_H / 2, 2).fill(0xffd0d0);
   g.circle(MINE_W / 2, MINE_H / 2, 1).fill(0xffffff);
   // antenna/trigger
   g.rect(MINE_W / 2 - 1, 1, 2, 4).fill(0x6a6a72);
+  g.rect(MINE_W / 2 - 1, 1, 1, 4).fill(0x9a9aa8); // antenna highlight
   g.circle(MINE_W / 2, 1, 1).fill(COLORS.bloodRed);
+  // tiny spider prongs (4 trip-wire arms — silhouette tell)
+  g.rect(2, MINE_H / 2 - 1, 2, 1).fill(0x666672);
+  g.rect(MINE_W - 4, MINE_H / 2 - 1, 2, 1).fill(0x666672);
+  g.rect(MINE_W / 2 - 1, MINE_H - 4, 1, 2).fill(0x666672);
   // bolt rivets
   g.circle(4, 4, 0.8).fill(0x222228);
   g.circle(MINE_W - 4, 4, 0.8).fill(0x222228);
@@ -188,6 +213,13 @@ function createTurretGraphic() {
   barrel.circle(cx + 9, cy, 0.6).fill(0x000000);
   barrel.circle(cx + 12, cy, 0.6).fill(0x000000);
   barrel.circle(cx + 15, cy, 0.6).fill(0x000000);
+  // small belt-fed ammo box clipped to side of body
+  barrel.rect(cx - 13, cy + 1, 4, 5).fill(0x4a3a2a);
+  barrel.rect(cx - 13, cy + 1, 4, 1).fill(0x6a5a4a);
+  barrel.rect(cx - 12, cy + 3, 2, 1).fill(COLORS.neonYellow); // brass round peeking
+  // antenna on top
+  barrel.rect(cx - 5, cy - 11, 1, 4).fill(0x6a6a72);
+  barrel.circle(cx - 5, cy - 12, 0.8).fill(COLORS.neonCyan);
   c.addChild(barrel);
   // outlined glow — keeps build visible against floor
   const glow = new Graphics();
@@ -291,6 +323,12 @@ function createAcidTurretGraphic() {
   body.circle(cx, cy - 12, 5).fill(0x6aaa3a);
   body.circle(cx - 2, cy - 14, 1.5).fill(0x9af09a);
   body.circle(cx + 1, cy - 11, 1).fill(0xffffff);
+  // extra bubbles for "actively brewing" effect + meniscus rim
+  body.circle(cx + 3, cy - 13, 0.8).fill({ color: 0xddffdd, alpha: 0.85 });
+  body.circle(cx - 3, cy - 11, 0.6).fill({ color: 0xddffdd, alpha: 0.7 });
+  body.circle(cx, cy - 12, 5).stroke({ color: 0x9af09a, width: 0.6, alpha: 0.5 });
+  // bio-hazard symbol etched on tank (3-spoke)
+  body.circle(cx, cy - 12, 1.2).fill({ color: 0x2a4a2a, alpha: 0.7 });
   // rivets
   body.circle(cx - 6, cy - 5, 1).fill(NAIL);
   body.circle(cx + 4, cy - 5, 1).fill(NAIL);

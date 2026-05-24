@@ -44,6 +44,10 @@ try {
   const audioMod = await import('./audio.js').catch(() => null);
   audio = audioMod?.createAudio ? audioMod.createAudio() : null;
 } catch { audio = null; }
+// audio.js exposes: playFlashlightClick, playForestAmbience, playItemPickup,
+// playWin (no playEscape/playPickup/playAmbience/playFlashlight). The wrappers
+// below try the legacy name first (for forward-compat with renamed APIs) and
+// fall back to the actual exported names so audio fires correctly.
 const playFootstep    = (s)    => { try { audio?.playFootstep?.(s); } catch {} };
 const playTwigSnap    = ()     => { try { audio?.playTwigSnap?.(); } catch {} };
 const playClownLaugh  = (p, d) => { try { audio?.playClownLaugh?.(p, d); } catch {} };
@@ -52,12 +56,13 @@ const playHuntMusic   = ()     => { try { audio?.playHuntMusic?.(); } catch {} }
 const playChaseMusic  = ()     => { try { audio?.playChaseMusic?.(); } catch {} };
 const playStalkMusic  = ()     => { try { audio?.playStalkMusic?.(); } catch {} };
 const playKill        = ()     => { try { audio?.playKill?.(); } catch {} };
-const playEscape      = ()     => { try { audio?.playEscape?.(); } catch {} };
-const playPickup      = ()     => { try { audio?.playPickup?.(); } catch {} };
+const playEscape      = ()     => { try { (audio?.playEscape || audio?.playWin)?.call(audio); } catch {} };
+const playPickup      = ()     => { try { (audio?.playPickup || audio?.playItemPickup)?.call(audio); } catch {} };
 const playLightning   = ()     => { try { audio?.playLightning?.(); } catch {} };
-const playFlashlight  = (on)   => { try { audio?.playFlashlight?.(on); } catch {} };
+const playFlashlight  = (on)   => { try { (audio?.playFlashlight || audio?.playFlashlightClick)?.call(audio, on); } catch {} };
 const playOwl         = ()     => { try { audio?.playOwl?.(); } catch {} };
-const playAmbience    = (v)    => { try { audio?.playAmbience?.(v); } catch {} };
+const playAmbience    = (v)    => { try { (audio?.playAmbience || audio?.playForestAmbience)?.call(audio, v); } catch {} };
+const stopAllMusic    = ()     => { try { audio?.stopAllMusic?.(); } catch {} };
 const startAudio      = ()     => { try { audio?.start?.(); } catch {} };
 const stopAudio       = ()     => { try { audio?.stop?.(); } catch {} };
 const updateClownDist = (d)    => { try { audio?.updateClownDistance?.(d); } catch {} };
@@ -880,6 +885,11 @@ const world = {
   paths: [],
   hiddenDetails: [],
 };
+// Expose for cross-agent reads. resetItemsForRun(), resetTapesForRun(), and
+// pickDeathLandmark() all consult `window.world.landmarks` — if this isn't
+// set, items fall back to ring positions and death subtitles lose landmark
+// flavor ("Caught at the cabin." → "Caught by the east clearing.").
+try { if (typeof window !== 'undefined') window.world = world; } catch {}
 
 // Plan 6 landmark positions across angular sectors so the player encounters
 // them naturally while exploring outward. Reject overlaps.
@@ -3369,6 +3379,13 @@ function startGame() {
   clownState.ambushUntil = 0;
   clownState.ambushNextTickAt = 0;
   clownState.searchInterest = 0;
+  // Stale event/circle state from a previous run would otherwise carry over
+  // for the first frames of a new run if the player restarts very quickly.
+  clownState.circleEndAt = 0;
+  clownState.circlePhase = 0;
+  clownState.lightningRevealUntil = 0;
+  clownState.lastPlayerCheckPos = null;
+  clownState.visibleStartedAt = 0;
   nextRandomEventAt = now() + 60 + Math.random() * 60;
   // Pick a far hiding spot.
   const ang0 = Math.random() * Math.PI * 2;
@@ -3409,8 +3426,11 @@ function startGame() {
   if (!_isTouch) {
     renderer.domElement.requestPointerLock();
   }
-  // First user gesture — start audio + start stalk-phase music.
+  // First user gesture — start audio + start stalk-phase music. Stop any
+  // music left over from a previous run (the audio module retains layer
+  // refs across restart so chase loops would otherwise keep playing).
   startAudio();
+  stopAllMusic();
   playAmbience(0.55);
   playStalkMusic();
 
@@ -3418,6 +3438,7 @@ function startGame() {
   // Wipe all popup/objective/warning state from the previous run.
   _activePopups.forEach((p) => p.el?.remove());
   _activePopups.length = 0;
+  if (subtitleEl)  { subtitleEl.classList.remove('is-shown');  subtitleClearTo = 0; }
   if (objectiveEl) { objectiveEl.classList.remove('is-shown'); objectiveClearTo = 0; }
   if (warningEl)   { warningEl.classList.remove('is-shown');   warningClearTo  = 0; }
   if (pauseHintEl) { pauseHintEl.classList.remove('is-shown'); pauseHintClearTo = 0; }
@@ -3425,8 +3446,19 @@ function startGame() {
   if (crosshairEl) crosshairEl.classList.remove('is-shown');
   if (vfxStamCrit) vfxStamCrit.classList.remove('is-on');
   if (vfxBatStatic) vfxBatStatic.classList.remove('is-on');
+  if (vfxHitFlash)  vfxHitFlash.classList.remove('is-on');
   if (vfxThrob)   vfxThrob.style.setProperty('--throb-alpha', '0');
   if (vfxHeartBreath) vfxHeartBreath.style.setProperty('--breath-alpha', '0');
+  if (itemsBadge) itemsBadge.classList.remove('is-shown');
+  if (itemsN)     itemsN.textContent = '0';
+  itemsBadgeHideTo = 0;
+  // Heart-rate state is module-scope and persists across runs without this.
+  heartRate = 0.9; heartPhase = 0;
+  for (let i = 0; i < heartBuf.length; i++) heartBuf[i] = HEART_H / 2;
+  // HUD delta-trackers — force a repaint on the first frame of the new run.
+  lastStamPct = -1; lastBatPct = -1;
+  _batStaticFlickerTo = 0; _batWarningNextAt = 0;
+  _sanityLowState = false;
   document.body.classList.remove('is-sanity-low');
 
   // First-visit tutorial — non-blocking, four-second auto-advance per step.
@@ -3996,9 +4028,18 @@ function triggerItemPersonality(label) {
     }
     case 'locket': {
       if (flashEl) {
-        const prev = flashEl.className;
-        flashEl.className = 'is-lightning-dim';
-        setTimeout(() => { flashEl.className = prev || ''; }, 90);
+        // Skip the dim-strobe during a cinematic (is-black/is-white/is-sunrise)
+        // — that overlay owns flashEl and we'd clobber the gradient. Otherwise
+        // capture+restore the previous class so a cutout coming back next frame
+        // continues uninterrupted.
+        const cin = flashEl.classList.contains('is-black')
+          || flashEl.classList.contains('is-white')
+          || flashEl.classList.contains('is-sunrise');
+        if (!cin) {
+          const prev = flashEl.className;
+          flashEl.className = 'is-lightning-dim';
+          setTimeout(() => { flashEl.className = prev || ''; }, 90);
+        }
       }
       showSubtitle('A face...', 2);
       break;
@@ -4439,6 +4480,13 @@ function moveClownToward(tx, tz, speed, dt) {
 // to silhouette the clown by ensuring its sprite is visible for the duration.
 // =============================================================================
 function triggerLightning() {
+  // Skip the flash entirely during win/death cinematics — flashEl is owned
+  // by them in those windows and a lightning strobe would clobber the
+  // sunrise gradient / death black-out / white wash.
+  const cinematicActive = flashEl.classList.contains('is-black')
+    || flashEl.classList.contains('is-white')
+    || flashEl.classList.contains('is-sunrise');
+  if (cinematicActive) { playLightning(); return; }
   // First bright strobe.
   flashEl.className = 'is-lightning';
   setTimeout(() => { flashEl.className = ''; }, 90);
@@ -4461,12 +4509,18 @@ function triggerLightning() {
   // Second dim re-strobe at 40-80ms.
   const reStrobeDelay = 40 + Math.random() * 40;
   setTimeout(() => {
+    if (flashEl.classList.contains('is-black')
+      || flashEl.classList.contains('is-white')
+      || flashEl.classList.contains('is-sunrise')) return;
     flashEl.className = 'is-lightning-dim';
     setTimeout(() => { flashEl.className = ''; }, 60);
   }, reStrobeDelay);
   // Lingering brighter quarter-second at 200-400ms.
   const lingerDelay = 200 + Math.random() * 200;
   setTimeout(() => {
+    if (flashEl.classList.contains('is-black')
+      || flashEl.classList.contains('is-white')
+      || flashEl.classList.contains('is-sunrise')) return;
     flashEl.className = 'is-lightning';
     setTimeout(() => {
       flashEl.className = '';

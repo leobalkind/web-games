@@ -1811,15 +1811,15 @@ function render() {
   }
   // depth3D drop shadow under the pug-vehicle — keeps the world axis aligned.
   _depthShadow(ctx, pug.x, pug.y + 14, 22, { alpha: 0.45 });
-  // Pug-vehicle — vehicle chassis + high-detail pug rider
+  // Pug-vehicle — vehicle chassis + high-detail pug rider. Chassis art is
+  // dispatched per vehicle.name so each ride looks distinct.
   ctx.save();
   ctx.translate(pug.x, pug.y);
   // crashSpin overrides facing direction — spin around fast for "out of control" feel
   ctx.rotate(pug.ang + Math.PI / 2 + (crashSpinT > 0 ? crashSpinAng : 0));
-  ctx.fillStyle = vehicle.color;
-  ctx.fillRect(-18, -10, 36, 20);
-  // pug rider centered on chassis
-  drawPug(ctx, 0, 0, { size: 26, helmet: true, helmetColor: '#ff3a3a' });
+  _drawVehicleChassis(ctx, vehicle);
+  // pug rider centered on chassis (helmet color varies per vehicle)
+  drawPug(ctx, 0, 0, { size: 26, helmet: true, helmetColor: _riderHelmetColor(vehicle) });
   // damage flash
   if (invuln > 0) {
     ctx.fillStyle = `rgba(255,58,58,${invuln})`;
@@ -1860,18 +1860,15 @@ function render() {
     ctx.fillRect(bx - 6, by - 6, 12, 12);
     ctx.fillStyle = 'rgba(0,0,0,0.4)';
     ctx.fillRect(bx - 6, by - 6, 12, 2);
+    // box side shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.2)';
+    ctx.fillRect(bx + 5, by - 6, 1, 12);
     // tape cross
     ctx.fillStyle = '#fff';
     ctx.fillRect(bx - 1, by - 6, 2, 12);
     ctx.fillRect(bx - 6, by - 1, 12, 2);
-    // For PET CARRIER, draw a tiny pug head in the box
-    if (currentDeliveryType === 'pet') {
-      ctx.fillStyle = '#c8854a';
-      ctx.fillRect(bx - 4, by - 4, 8, 6);
-      ctx.fillStyle = '#1a0d05';
-      ctx.fillRect(bx - 3, by - 3, 2, 1);
-      ctx.fillRect(bx + 1, by - 3, 2, 1);
-    }
+    // Per-delivery-type accessory on the box.
+    _drawCargoAccessory(ctx, bx, by, currentDeliveryType);
     // damage cracks if intact < 70
     if (intact < 70) {
       ctx.strokeStyle = 'rgba(0,0,0,0.8)'; ctx.lineWidth = 1;
@@ -2298,40 +2295,346 @@ function render() {
 
 function drawObstacle(o) {
   if (o.type === 'raccoon') {
-    ctx.fillStyle = '#5a5a5a'; ctx.beginPath(); ctx.arc(o.x, o.y, 9, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#222'; ctx.fillRect(o.x - 7, o.y - 3, 5, 3); ctx.fillRect(o.x + 2, o.y - 3, 5, 3);
-    ctx.fillStyle = '#fff'; ctx.fillRect(o.x - 4, o.y - 2, 2, 2); ctx.fillRect(o.x + 2, o.y - 2, 2, 2);
-    ctx.fillStyle = '#000'; ctx.fillRect(o.x - 3, o.y - 1, 1, 1); ctx.fillRect(o.x + 3, o.y - 1, 1, 1);
-    // tail
+    // Raccoon — striped body + bandit mask + ringed tail. More detail.
+    // body
+    ctx.fillStyle = '#3a3a3a';
+    ctx.beginPath(); ctx.arc(o.x, o.y, 9, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#5a5a5a';
+    ctx.beginPath(); ctx.arc(o.x, o.y - 1, 8, 0, Math.PI * 2); ctx.fill();
+    // back stripes
+    ctx.fillStyle = '#2a2a2a';
+    ctx.fillRect(o.x - 4, o.y - 6, 8, 1);
+    ctx.fillRect(o.x - 5, o.y - 3, 10, 1);
+    ctx.fillRect(o.x - 5, o.y, 10, 1);
+    // ears (small)
+    ctx.fillStyle = '#3a3a3a';
+    ctx.fillRect(o.x - 7, o.y - 8, 2, 2); ctx.fillRect(o.x + 5, o.y - 8, 2, 2);
+    // bandit mask
+    ctx.fillStyle = '#0a0a0a'; ctx.fillRect(o.x - 7, o.y - 3, 5, 3); ctx.fillRect(o.x + 2, o.y - 3, 5, 3);
+    // eye whites + pupils
+    ctx.fillStyle = '#fff'; ctx.fillRect(o.x - 5, o.y - 2, 2, 2); ctx.fillRect(o.x + 3, o.y - 2, 2, 2);
+    ctx.fillStyle = '#000'; ctx.fillRect(o.x - 4, o.y - 1, 1, 1); ctx.fillRect(o.x + 4, o.y - 1, 1, 1);
+    // nose
+    ctx.fillStyle = '#000';
+    ctx.fillRect(o.x - 1, o.y + 2, 2, 1);
+    // ringed tail
     ctx.fillStyle = '#5a5a5a'; ctx.fillRect(o.x + 7, o.y - 2, 8, 4);
     ctx.fillStyle = '#222'; ctx.fillRect(o.x + 10, o.y - 2, 2, 4);
+    ctx.fillStyle = '#222'; ctx.fillRect(o.x + 13, o.y - 2, 2, 4);
   } else if (o.type === 'drone') {
-    // Glowing drone with shadow
+    // Glowing drone with shadow + four propellers + payload
     ctx.fillStyle = 'rgba(0,0,0,0.4)';
     ctx.beginPath(); ctx.ellipse(o.x, o.y + 18, 12, 4, 0, 0, Math.PI * 2); ctx.fill();
     ctx.shadowColor = '#ff3a3a'; ctx.shadowBlur = 12;
-    ctx.fillStyle = '#3a3a4a'; ctx.beginPath(); ctx.arc(o.x, o.y, 11, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#ff3a3a'; ctx.beginPath(); ctx.arc(o.x, o.y, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#1a1a22';
+    ctx.beginPath(); ctx.arc(o.x, o.y, 11, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#3a3a4a';
+    ctx.beginPath(); ctx.arc(o.x, o.y, 10, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ff3a3a';
+    ctx.beginPath(); ctx.arc(o.x, o.y, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(o.x, o.y, 1, 0, Math.PI * 2); ctx.fill();
     ctx.shadowBlur = 0;
+    // Four arms + propeller discs
     ctx.fillStyle = '#222';
     ctx.fillRect(o.x - 14, o.y - 1, 6, 2); ctx.fillRect(o.x + 8, o.y - 1, 6, 2);
+    ctx.fillRect(o.x - 1, o.y - 14, 2, 6); ctx.fillRect(o.x - 1, o.y + 8, 2, 6);
+    // spinning rotor blur
+    ctx.fillStyle = 'rgba(180,180,200,0.4)';
+    ctx.beginPath(); ctx.arc(o.x - 14, o.y, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(o.x + 14, o.y, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(o.x, o.y - 14, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(o.x, o.y + 14, 3, 0, Math.PI * 2); ctx.fill();
+    // camera dome
+    ctx.fillStyle = '#0a0a12';
+    ctx.beginPath(); ctx.arc(o.x, o.y + 4, 2, 0, Math.PI * 2); ctx.fill();
   } else if (o.type === 'zombie') {
-    ctx.fillStyle = '#4a7a4a'; ctx.fillRect(o.x - 10, o.y - 12, 20, 18);
-    ctx.fillStyle = '#2a4a2a'; ctx.fillRect(o.x - 8, o.y - 8, 16, 8);
-    ctx.fillStyle = '#ff3a3a'; ctx.fillRect(o.x - 5, o.y - 6, 3, 3); ctx.fillRect(o.x + 2, o.y - 6, 3, 3);
-    ctx.fillStyle = '#5ef38c'; ctx.fillRect(o.x - 1, o.y + 4, 2, 4); // drool
+    // Zombie variant picked stably from id. 5 types: rotting / child / runner /
+    // tank / exploder. Each has distinct silhouette + accents.
+    if (o._zombieKind == null) {
+      const kinds = ['rotting', 'child', 'runner', 'tank', 'exploder'];
+      o._zombieKind = kinds[((o.x | 0) ^ (o.y | 0)) % kinds.length];
+    }
+    _drawZombieByKind(o);
   } else if (o.type === 'cat') {
-    ctx.fillStyle = '#222'; ctx.beginPath(); ctx.arc(o.x, o.y, 10, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#222'; ctx.fillRect(o.x - 8, o.y - 14, 4, 6); ctx.fillRect(o.x + 4, o.y - 14, 4, 6);
-    ctx.fillStyle = '#ff3a3a'; ctx.fillRect(o.x - 4, o.y - 3, 3, 3); ctx.fillRect(o.x + 1, o.y - 3, 3, 3);
-    ctx.fillStyle = '#ff3a3a'; ctx.fillRect(o.x - 8, o.y - 1, 2, 2); // glowing 3rd eye
+    // Black cat — angular ears + tail flicker + slit eyes + arched back
+    ctx.fillStyle = '#0a0a0a'; ctx.beginPath(); ctx.arc(o.x, o.y, 11, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#222'; ctx.beginPath(); ctx.arc(o.x, o.y - 1, 10, 0, Math.PI * 2); ctx.fill();
+    // Spike fur along back (arched)
+    ctx.fillStyle = '#000';
+    for (let i = -2; i <= 2; i++) ctx.fillRect(o.x + i * 3 - 1, o.y - 11, 2, 3);
+    // Ears (pointy triangles)
+    ctx.fillStyle = '#000';
+    ctx.beginPath(); ctx.moveTo(o.x - 7, o.y - 8); ctx.lineTo(o.x - 10, o.y - 16); ctx.lineTo(o.x - 4, o.y - 12); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(o.x + 7, o.y - 8); ctx.lineTo(o.x + 10, o.y - 16); ctx.lineTo(o.x + 4, o.y - 12); ctx.closePath(); ctx.fill();
+    // Ear pink interior
+    ctx.fillStyle = '#a02060';
+    ctx.fillRect(o.x - 8, o.y - 14, 1, 1); ctx.fillRect(o.x + 7, o.y - 14, 1, 1);
+    // Slit yellow eyes
+    ctx.fillStyle = '#ffd23f';
+    ctx.fillRect(o.x - 4, o.y - 3, 3, 3); ctx.fillRect(o.x + 1, o.y - 3, 3, 3);
+    ctx.fillStyle = '#000';
+    ctx.fillRect(o.x - 3, o.y - 3, 1, 3); ctx.fillRect(o.x + 2, o.y - 3, 1, 3);
+    // glowing 3rd eye (kept from original — red)
+    ctx.fillStyle = '#ff3a3a'; ctx.fillRect(o.x - 8, o.y - 1, 2, 2);
+    // Whiskers
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(o.x - 10, o.y + 1); ctx.lineTo(o.x - 4, o.y);
+    ctx.moveTo(o.x - 10, o.y + 3); ctx.lineTo(o.x - 4, o.y + 2);
+    ctx.moveTo(o.x + 10, o.y + 1); ctx.lineTo(o.x + 4, o.y);
+    ctx.moveTo(o.x + 10, o.y + 3); ctx.lineTo(o.x + 4, o.y + 2);
+    ctx.stroke();
+    // Flick tail (small lash) — angle by jumpT phase
+    ctx.fillStyle = '#0a0a0a';
+    ctx.fillRect(o.x + 10, o.y - 4, 6, 2);
+    ctx.fillRect(o.x + 14, o.y - 6, 2, 4);
   } else if (o.type === 'mailbox') {
     const danger = o.fuse > 0;
+    // post
+    ctx.fillStyle = '#3a2010';
+    ctx.fillRect(o.x - 2, o.y + 12, 4, 8);
+    ctx.fillStyle = '#5a3018';
+    ctx.fillRect(o.x - 2, o.y + 12, 4, 1);
+    // mailbox body
     ctx.fillStyle = danger ? (Math.floor(o.fuse * 10) % 2 === 0 ? '#ff3a3a' : '#fff') : '#4cc9f0';
     ctx.fillRect(o.x - 12, o.y - 12, 24, 24);
-    ctx.fillStyle = '#1a0d05'; ctx.fillRect(o.x - 8, o.y - 4, 16, 6);
-    ctx.fillStyle = '#ffd23f'; ctx.fillRect(o.x + 8, o.y - 6, 4, 12);
+    ctx.fillStyle = danger ? (Math.floor(o.fuse * 10) % 2 === 0 ? '#a02020' : '#cacacf') : '#2a78a8';
+    ctx.fillRect(o.x - 12, o.y - 12, 24, 2);
+    // slot
+    ctx.fillStyle = '#1a0d05';
+    ctx.fillRect(o.x - 8, o.y - 4, 16, 6);
+    ctx.fillStyle = '#000';
+    ctx.fillRect(o.x - 7, o.y - 3, 14, 4);
+    // flag
+    ctx.fillStyle = '#ffd23f';
+    ctx.fillRect(o.x + 8, o.y - 6, 4, 12);
+    ctx.fillStyle = '#a07810';
+    ctx.fillRect(o.x + 11, o.y - 6, 1, 12);
+    // address label
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(o.x - 6, o.y + 4, 12, 4);
+    ctx.fillStyle = '#000';
+    ctx.fillRect(o.x - 5, o.y + 5, 2, 1); ctx.fillRect(o.x - 2, o.y + 5, 2, 1); ctx.fillRect(o.x + 1, o.y + 5, 2, 1);
+    if (danger) {
+      // burning fuse + sparks
+      ctx.fillStyle = '#ff8e3c';
+      ctx.fillRect(o.x, o.y - 18, 1, 6);
+      ctx.fillStyle = '#ffd23f';
+      ctx.beginPath(); ctx.arc(o.x, o.y - 18, 2, 0, Math.PI * 2); ctx.fill();
+    }
   }
+}
+
+// === ZOMBIE VARIANTS — 5 distinct kinds ===
+function _drawZombieByKind(o) {
+  const x = o.x, y = o.y, k = o._zombieKind;
+  const arc = (ax, ay, ar) => { ctx.beginPath(); ctx.arc(ax, ay, ar, 0, Math.PI * 2); ctx.fill(); };
+  if (k === 'rotting') {
+    ctx.fillStyle = '#2a4a2a'; ctx.fillRect(x - 11, y - 13, 22, 19);
+    ctx.fillStyle = '#4a7a4a'; ctx.fillRect(x - 10, y - 12, 20, 18);
+    ctx.fillStyle = '#2a4a2a'; ctx.fillRect(x - 8, y - 8, 16, 8);
+    ctx.fillStyle = '#1a3a1a'; ctx.fillRect(x - 5, y - 4, 2, 2); ctx.fillRect(x + 3, y - 2, 2, 2);
+    ctx.fillStyle = '#ff3a3a'; ctx.fillRect(x - 5, y - 6, 3, 3); ctx.fillRect(x + 2, y - 6, 3, 3);
+    ctx.fillStyle = '#5ef38c'; ctx.fillRect(x - 1, y + 4, 2, 4);
+    ctx.fillStyle = '#4a7a4a'; ctx.fillRect(x + 10, y - 4, 6, 3);
+    ctx.fillStyle = '#1a3a1a'; ctx.fillRect(x + 15, y - 4, 2, 3);
+  } else if (k === 'child') {
+    ctx.fillStyle = '#3a5a3a'; ctx.fillRect(x - 7, y - 8, 14, 14);
+    ctx.fillStyle = '#5a8a5a'; ctx.fillRect(x - 7, y - 8, 14, 13);
+    ctx.fillStyle = '#7aaa7a'; arc(x, y - 12, 8);
+    ctx.fillStyle = '#1a0d05'; ctx.fillRect(x - 3, y - 10, 6, 2);
+    ctx.fillStyle = '#fff'; ctx.fillRect(x - 2, y - 10, 1, 1); ctx.fillRect(x + 1, y - 10, 1, 1);
+    ctx.fillStyle = '#000'; ctx.fillRect(x - 3, y - 14, 2, 2); ctx.fillRect(x + 1, y - 14, 2, 2);
+    ctx.fillStyle = '#a06030'; ctx.fillRect(x + 6, y - 2, 4, 5);
+    ctx.fillStyle = '#5a3010'; ctx.fillRect(x + 6, y - 4, 4, 2);
+  } else if (k === 'runner') {
+    ctx.fillStyle = '#1a3a1a'; ctx.fillRect(x - 12, y - 10, 22, 14);
+    ctx.fillStyle = '#3a5a2a'; ctx.fillRect(x - 11, y - 9, 20, 13);
+    ctx.fillStyle = '#7a9a4a'; arc(x + 8, y - 10, 6);
+    ctx.fillStyle = '#ff3a3a'; ctx.fillRect(x + 6, y - 12, 2, 2); ctx.fillRect(x + 10, y - 12, 2, 2);
+    ctx.fillStyle = '#3a5a2a'; ctx.fillRect(x - 11, y + 4, 4, 8); ctx.fillRect(x + 6, y + 4, 4, 6);
+    ctx.fillStyle = 'rgba(94,243,140,0.3)'; ctx.fillRect(x - 18, y - 8, 4, 12);
+  } else if (k === 'tank') {
+    ctx.fillStyle = '#0a1a0a'; ctx.fillRect(x - 16, y - 16, 32, 24);
+    ctx.fillStyle = '#2a5a1a'; ctx.fillRect(x - 15, y - 15, 30, 22);
+    ctx.fillStyle = '#1a3a0a'; ctx.fillRect(x - 12, y - 12, 24, 6);
+    ctx.fillStyle = '#5a8a4a'; ctx.fillRect(x - 12, y - 12, 24, 1);
+    ctx.fillStyle = '#2a5a1a'; ctx.fillRect(x - 18, y - 6, 6, 6); ctx.fillRect(x + 12, y - 6, 6, 6);
+    ctx.fillStyle = '#5a8a3a'; arc(x, y - 16, 5);
+    ctx.fillStyle = '#ff3a3a'; ctx.fillRect(x - 2, y - 17, 4, 3);
+    ctx.fillStyle = '#000'; ctx.fillRect(x - 1, y - 16, 2, 2);
+    ctx.fillStyle = '#5a5a5a';
+    ctx.fillRect(x - 10, y - 2, 1, 6); ctx.fillRect(x - 7, y - 2, 1, 6);
+    ctx.fillRect(x + 6, y - 2, 1, 6); ctx.fillRect(x + 9, y - 2, 1, 6);
+  } else if (k === 'exploder') {
+    const pulse = 0.7 + Math.sin(performance.now() / 120) * 0.3;
+    ctx.fillStyle = '#3a4a1a'; arc(x, y, 13 * pulse);
+    ctx.fillStyle = '#5a7a2a'; arc(x, y, 12);
+    ctx.fillStyle = `rgba(255,90,40,${pulse * 0.7})`; arc(x, y + 1, 6);
+    ctx.fillStyle = '#3a5a1a'; ctx.fillRect(x - 14, y - 2, 4, 3); ctx.fillRect(x + 10, y - 2, 4, 3);
+    ctx.fillStyle = '#7a9a4a'; arc(x, y - 12, 4);
+    ctx.fillStyle = '#ff3a3a'; ctx.fillRect(x - 2, y - 13, 1, 1); ctx.fillRect(x + 1, y - 13, 1, 1);
+    if (pulse > 0.9) {
+      ctx.fillStyle = '#ffd23f';
+      ctx.fillRect(x - 10, y - 8, 1, 1); ctx.fillRect(x + 9, y - 6, 1, 1); ctx.fillRect(x + 5, y + 12, 1, 1);
+    }
+  }
+}
+
+// Detailed vehicle chassis — dispatched by vehicle.name. Pug rider sits on top.
+function _drawVehicleChassis(ctx, v) {
+  const name = v.name || 'skateboard', col = v.color || '#fff';
+  const arc = (ax, ay, ar) => { ctx.beginPath(); ctx.arc(ax, ay, ar, 0, Math.PI * 2); ctx.fill(); };
+  if (name === 'skateboard' || name === 'hoverboard') {
+    ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.fillRect(-18, 10, 36, 3);
+    ctx.fillStyle = col; ctx.fillRect(-18, -4, 36, 7);
+    ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.fillRect(-18, -4, 36, 1);
+    ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(-18, 2, 36, 1);
+    ctx.fillStyle = '#1a1a22'; ctx.fillRect(-15, -3, 30, 5);
+    ctx.fillStyle = '#3a3a3a'; ctx.fillRect(-15, -3, 30, 1);
+    if (name === 'hoverboard') {
+      ctx.fillStyle = 'rgba(176,85,255,0.5)'; ctx.fillRect(-16, 4, 32, 4);
+      ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.fillRect(-16, 4, 32, 1);
+    } else {
+      ctx.fillStyle = '#0a0a0a'; ctx.fillRect(-14, 4, 5, 5); ctx.fillRect(9, 4, 5, 5);
+      ctx.fillStyle = '#5a5a5a'; ctx.fillRect(-14, 4, 5, 1); ctx.fillRect(9, 4, 5, 1);
+    }
+  } else if (name === 'motorbike' || name === 'scooter') {
+    ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.fillRect(-18, 12, 36, 3);
+    ctx.fillStyle = col; ctx.fillRect(-16, -8, 32, 14);
+    ctx.fillStyle = 'rgba(255,255,255,0.3)'; ctx.fillRect(-16, -8, 32, 2);
+    ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.fillRect(-16, 4, 32, 2);
+    ctx.fillStyle = '#5a5a5a'; ctx.fillRect(-18, 0, 4, 3);
+    ctx.fillStyle = '#3a3a3a'; ctx.fillRect(-18, 0, 1, 3);
+    ctx.fillStyle = '#0a0a0a'; arc(-14, 8, 6); arc(14, 8, 6);
+    ctx.fillStyle = '#3a3a3a'; arc(-14, 8, 3); arc(14, 8, 3);
+    ctx.fillStyle = '#5a5a5a'; ctx.fillRect(-15, 8, 2, 1); ctx.fillRect(13, 8, 2, 1);
+    ctx.fillStyle = '#1a1a22'; ctx.fillRect(8, -10, 8, 2);
+  } else if (name === 'van' || name === 'pizza truck' || name === 'cargo van') {
+    ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(-20, 12, 40, 3);
+    ctx.fillStyle = col; ctx.fillRect(-20, -12, 40, 22);
+    ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.fillRect(-20, -12, 40, 1);
+    ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.fillRect(-20, 8, 40, 2);
+    ctx.fillStyle = '#0a1a2a'; ctx.fillRect(-18, -10, 16, 8);
+    ctx.fillStyle = 'rgba(140,200,255,0.55)'; ctx.fillRect(-18, -10, 16, 5);
+    ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(2, -10, 16, 18);
+    ctx.fillStyle = '#cacacf'; ctx.fillRect(8, -2, 2, 4); ctx.fillRect(12, -2, 2, 4);
+    ctx.fillStyle = '#0a0a0a'; ctx.fillRect(-18, 8, 6, 5); ctx.fillRect(12, 8, 6, 5);
+    ctx.fillStyle = '#3a3a3a'; ctx.fillRect(-18, 8, 6, 1); ctx.fillRect(12, 8, 6, 1);
+    ctx.fillStyle = '#fff'; ctx.fillRect(-15, -2, 14, 5);
+    ctx.fillStyle = '#000';
+    ctx.fillRect(-14, -1, 2, 1); ctx.fillRect(-11, -1, 2, 1); ctx.fillRect(-8, -1, 2, 1);
+  } else if (name === 'tiny tank') {
+    ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.fillRect(-18, 11, 36, 3);
+    ctx.fillStyle = col; ctx.fillRect(-16, -10, 32, 18);
+    ctx.fillStyle = '#3a5a2a'; ctx.fillRect(-16, -10, 32, 1);
+    ctx.fillStyle = '#0a0a0a'; ctx.fillRect(-18, -10, 4, 20); ctx.fillRect(14, -10, 4, 20);
+    ctx.fillStyle = '#3a3a3a';
+    for (let i = 0; i < 4; i++) { ctx.fillRect(-18, -8 + i * 5, 4, 2); ctx.fillRect(14, -8 + i * 5, 4, 2); }
+    ctx.fillStyle = '#2a4a1a'; arc(0, -2, 7);
+    ctx.fillStyle = '#5a8a3a'; arc(-1, -3, 4);
+  } else if (name === 'shop cart') {
+    ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.fillRect(-18, 11, 36, 3);
+    ctx.fillStyle = col; ctx.fillRect(-18, -10, 36, 20);
+    ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 1;
+    for (let i = -16; i <= 16; i += 4) { ctx.beginPath(); ctx.moveTo(i, -10); ctx.lineTo(i, 6); ctx.stroke(); }
+    for (let j = -8; j <= 4; j += 4) { ctx.beginPath(); ctx.moveTo(-18, j); ctx.lineTo(18, j); ctx.stroke(); }
+    ctx.fillStyle = '#1a1a22'; ctx.fillRect(-16, 6, 4, 5); ctx.fillRect(12, 6, 4, 5);
+    ctx.fillRect(-4, 8, 4, 3); ctx.fillRect(0, 8, 4, 3);
+  } else if (name === 'rocket sled') {
+    ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(-20, 8, 40, 3);
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.moveTo(-18, -8); ctx.lineTo(18, -10); ctx.lineTo(20, 0); ctx.lineTo(18, 8); ctx.lineTo(-18, 6); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.fillRect(-15, -8, 30, 2);
+    ctx.fillStyle = '#1a1a22'; ctx.fillRect(-22, -3, 4, 6);
+    ctx.fillStyle = '#ff8e3c'; ctx.fillRect(-26, -2, 4, 4);
+    ctx.fillStyle = '#ffd23f'; ctx.fillRect(-28, -1, 2, 2);
+  } else if (name === 'bone chopper') {
+    ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.fillRect(-18, 12, 36, 3);
+    ctx.fillStyle = col; ctx.fillRect(-16, -8, 32, 14);
+    ctx.fillStyle = '#fff'; arc(0, -2, 4);
+    ctx.fillStyle = '#000';
+    ctx.fillRect(-2, -3, 1, 2); ctx.fillRect(1, -3, 1, 2); ctx.fillRect(-1, 0, 2, 1);
+    ctx.fillStyle = '#0a0a0a'; arc(-14, 8, 6); arc(14, 8, 6);
+  } else {
+    ctx.fillStyle = col; ctx.fillRect(-18, -10, 36, 20);
+    ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(-18, 8, 36, 2);
+    ctx.fillStyle = '#0a0a0a'; ctx.fillRect(-14, 8, 4, 3); ctx.fillRect(10, 8, 4, 3);
+  }
+}
+
+const _HELMET_MAP = {
+  'skateboard': '#ff8e3c', 'motorbike': '#ff3a3a', 'scooter': '#ffd23f',
+  'cargo van': '#4cc9f0', 'van': '#4cc9f0', 'pizza truck': '#a02828',
+  'tiny tank': '#5ef38c', 'shop cart': '#b055ff', 'hoverboard': '#b055ff',
+  'rocket sled': '#ff5a3a', 'bone chopper': '#eae0c0',
+};
+function _riderHelmetColor(v) { return _HELMET_MAP[v.name] || '#ff3a3a'; }
+
+// CARGO BOX ACCESSORY — small icon stuck on top of the box per delivery type
+// so players can read at-a-glance what they're carrying.
+function _drawCargoAccessory(ctx, bx, by, type) {
+  if (type === 'pet') {
+    // Pet ears + tiny pug face peeking from box
+    ctx.fillStyle = '#c8854a';
+    ctx.fillRect(bx - 4, by - 4, 8, 6);
+    ctx.fillStyle = '#a06530';
+    ctx.fillRect(bx - 5, by - 5, 2, 3); ctx.fillRect(bx + 3, by - 5, 2, 3); // ears
+    ctx.fillStyle = '#1a0d05';
+    ctx.fillRect(bx - 3, by - 3, 2, 1);
+    ctx.fillRect(bx + 1, by - 3, 2, 1);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(bx - 3, by - 3, 1, 1);
+    // breathing hole
+    ctx.fillStyle = '#3a3a4a';
+    ctx.fillRect(bx - 5, by + 2, 2, 1); ctx.fillRect(bx + 3, by + 2, 2, 1);
+  } else if (type === 'fragile') {
+    // Glass goblet symbol + caution stripes
+    ctx.fillStyle = '#ff3a3a';
+    ctx.fillRect(bx - 6, by + 4, 12, 1);
+    ctx.fillRect(bx - 6, by - 6, 12, 1);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(bx - 2, by - 4, 4, 4); // goblet bowl
+    ctx.fillRect(bx - 1, by, 2, 2); // stem
+    ctx.fillRect(bx - 3, by + 2, 6, 1); // foot
+  } else if (type === 'urgent') {
+    // Lightning bolt
+    ctx.fillStyle = '#ffd23f';
+    ctx.beginPath();
+    ctx.moveTo(bx - 2, by - 5); ctx.lineTo(bx + 1, by - 5);
+    ctx.lineTo(bx - 1, by); ctx.lineTo(bx + 2, by);
+    ctx.lineTo(bx - 2, by + 5); ctx.lineTo(bx, by + 1);
+    ctx.lineTo(bx - 2, by + 1); ctx.closePath(); ctx.fill();
+  } else if (type === 'vip') {
+    // Crown
+    ctx.fillStyle = '#ffd23f';
+    ctx.fillRect(bx - 4, by - 1, 8, 3);
+    ctx.fillRect(bx - 4, by - 4, 2, 3);
+    ctx.fillRect(bx - 1, by - 5, 2, 4);
+    ctx.fillRect(bx + 2, by - 4, 2, 3);
+    ctx.fillStyle = '#ff3aa1';
+    ctx.fillRect(bx - 1, by, 2, 2);
+  } else if (type === 'multi') {
+    // Stacked boxes icon
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(bx - 4, by - 3, 5, 3);
+    ctx.fillRect(bx - 1, by, 5, 3);
+    ctx.fillStyle = '#000';
+    ctx.fillRect(bx - 4, by - 3, 5, 1);
+    ctx.fillRect(bx - 1, by, 5, 1);
+  } else if (type === 'radio') {
+    // Radio antenna + reception bars
+    ctx.fillStyle = '#cacacf';
+    ctx.fillRect(bx, by - 8, 1, 6);
+    ctx.fillStyle = '#ff3a3a';
+    ctx.fillRect(bx - 1, by - 9, 3, 2);
+    // signal arcs
+    ctx.strokeStyle = '#5ef38c'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(bx + 1, by - 7, 3, -Math.PI * 0.6, -Math.PI * 0.1); ctx.stroke();
+  }
+  // 'standard' → no extra icon (plain box)
 }
 
 function end() {

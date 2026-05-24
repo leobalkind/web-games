@@ -100,7 +100,44 @@ export class Generator {
     vents.rect(26, -16, 4, 6).fill(0x222228);
     vents.rect(-30, -16, 4, 1).fill(COLORS.neonOrange);
     vents.rect(26, -16, 4, 1).fill(COLORS.neonOrange);
+    // visible vent grille lines + steam puff hints
+    vents.rect(-30, -14, 4, 1).fill({ color: 0x6a4020, alpha: 0.6 });
+    vents.rect(-30, -12, 4, 1).fill({ color: 0x6a4020, alpha: 0.6 });
+    vents.rect(26, -14, 4, 1).fill({ color: 0x6a4020, alpha: 0.6 });
+    vents.rect(26, -12, 4, 1).fill({ color: 0x6a4020, alpha: 0.6 });
     this.container.addChild(vents);
+
+    // Heavy cabling running from the base plinth out to the sandbag perimeter.
+    // Cosmetic detail layer — three thick rubberized cables with pixel highlights.
+    const cabling = new Graphics();
+    const cableCol = 0x1a1a1c;
+    const cableHi = 0x4a4a55;
+    // bottom-left cable (curves out toward 9 o'clock sandbag)
+    cabling.rect(-26, 26, 3, 1).fill(cableCol);
+    cabling.rect(-32, 26, 6, 1).fill(cableCol);
+    cabling.rect(-38, 27, 6, 1).fill(cableCol);
+    cabling.rect(-44, 29, 6, 1).fill(cableCol);
+    cabling.rect(-26, 26, 1, 1).fill(cableHi);  // highlight
+    cabling.rect(-38, 27, 1, 1).fill(cableHi);
+    // jack/coupler at far end
+    cabling.rect(-46, 28, 3, 2).fill(0x666672);
+    cabling.rect(-46, 28, 3, 1).fill(0x9a9aa8);
+    // bottom-right cable
+    cabling.rect(23, 24, 3, 1).fill(cableCol);
+    cabling.rect(26, 25, 6, 1).fill(cableCol);
+    cabling.rect(32, 27, 6, 1).fill(cableCol);
+    cabling.rect(38, 29, 6, 1).fill(cableCol);
+    cabling.rect(23, 24, 1, 1).fill(cableHi);
+    cabling.rect(32, 27, 1, 1).fill(cableHi);
+    cabling.rect(43, 28, 3, 2).fill(0x666672);
+    cabling.rect(43, 28, 3, 1).fill(0x9a9aa8);
+    // back cable (rear, faded — pokes up behind base)
+    cabling.rect(-4, 24, 1, 3).fill({ color: cableCol, alpha: 0.85 });
+    cabling.rect(4, 24, 1, 3).fill({ color: cableCol, alpha: 0.85 });
+    // central yellow caution band on chest
+    cabling.rect(-22, 18, 44, 1).fill({ color: COLORS.neonYellow, alpha: 0.4 });
+    this.container.addChild(cabling);
+    this.cabling = cabling; // ref kept for future live-update of cable accents
 
     // Top FAN (rotates)
     this.fan = new Graphics();

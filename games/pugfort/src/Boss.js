@@ -125,27 +125,42 @@ export class Boss {
 
     // BIGGER, GAUDIER crown of bones + gold + spikes (was tiny — now POPS)
     const crown = new Graphics();
-    // gold base band (wider)
-    crown.rect(-20, -30, 40, 6).fill(0xffd23f);
-    crown.rect(-20, -30, 40, 2).fill(0xfff0a8);
-    crown.rect(-20, -25, 40, 1).fill(0x8a5a10);
+    // gold base band (wider) with bevelled lip
+    crown.rect(-22, -30, 44, 6).fill(0xffd23f);
+    crown.rect(-22, -30, 44, 2).fill(0xfff0a8);
+    crown.rect(-22, -25, 44, 1).fill(0x8a5a10);
+    crown.rect(-22, -24, 44, 1).fill({ color: 0x000000, alpha: 0.45 });
     // taller spikes (5 of them, alternating bone + gold)
     crown.rect(-18, -38, 4, 8).fill(0xfde0b8);
     crown.rect(-18, -38, 1, 8).fill(0xffffff);
     crown.rect(-10, -42, 4, 12).fill(0xffd23f);
     crown.rect(-10, -42, 1, 12).fill(0xfff0a8);
-    crown.rect(-2, -46, 4, 16).fill(0xfde0b8);     // centerpiece — TALLEST
-    crown.rect(-2, -46, 1, 16).fill(0xffffff);
+    crown.rect(-2, -48, 4, 18).fill(0xfde0b8);     // centerpiece — TALLER (was -46)
+    crown.rect(-2, -48, 1, 18).fill(0xffffff);
     crown.rect(6, -42, 4, 12).fill(0xffd23f);
     crown.rect(6, -42, 1, 12).fill(0xfff0a8);
     crown.rect(14, -38, 4, 8).fill(0xfde0b8);
     crown.rect(14, -38, 1, 8).fill(0xffffff);
-    // 3 inset gems (red/cyan/red)
-    crown.circle(-10, -27, 1.5).fill(COLORS.bloodRed);
-    crown.circle(0, -27, 1.5).fill(COLORS.neonCyan);
-    crown.circle(10, -27, 1.5).fill(COLORS.bloodRed);
-    // crown apex blood drip (centerpiece looks bloody)
-    crown.rect(-1, -32, 2, 4).fill(COLORS.bloodRed);
+    // tiny secondary skull spikes between primaries
+    crown.rect(-14, -34, 2, 4).fill(0xfde0b8);
+    crown.rect(-6, -36, 2, 6).fill(0xffd23f);
+    crown.rect(2, -36, 2, 6).fill(0xffd23f);
+    crown.rect(10, -34, 2, 4).fill(0xfde0b8);
+    // 5 inset gems (red/cyan/red/cyan/red — larger + brighter)
+    crown.circle(-14, -27, 1.8).fill(COLORS.bloodRed);
+    crown.circle(-14, -27, 0.7).fill(0xffd0d0);
+    crown.circle(-7, -27, 1.5).fill(COLORS.neonCyan);
+    crown.circle(0, -27, 2).fill(COLORS.bloodRed);
+    crown.circle(0, -27, 1).fill(0xffd0d0);
+    crown.circle(7, -27, 1.5).fill(COLORS.neonCyan);
+    crown.circle(14, -27, 1.8).fill(COLORS.bloodRed);
+    crown.circle(14, -27, 0.7).fill(0xffd0d0);
+    // crown apex blood drip (centerpiece looks bloody — bigger)
+    crown.rect(-1, -34, 2, 6).fill(COLORS.bloodRed);
+    crown.circle(0, -28, 1.5).fill(COLORS.bloodRed);
+    // tiny halo glow above the centerpiece
+    crown.circle(0, -48, 4).stroke({ color: COLORS.neonYellow, width: 1, alpha: 0.55 });
+    crown.circle(0, -48, 2).fill({ color: 0xfff0a8, alpha: 0.45 });
     this.visual.addChild(crown);
 
     // ===== CHAINS — heavy iron chains draped across body =====
@@ -181,20 +196,30 @@ export class Boss {
     chains.circle(27, 28, 1.5).fill(chainColor);
     this.visual.addChild(chains);
 
-    // MULTIPLE GLOWING EYES (4 of them)
+    // MULTIPLE GLOWING EYES (4 of them) — now with halo glow + bright pupils
     const eyes = new Graphics();
+    // outer halo
+    eyes.circle(-8, -10, 8).fill({ color: COLORS.zombieEye, alpha: 0.18 });
+    eyes.circle(8, -10, 8).fill({ color: COLORS.zombieEye, alpha: 0.18 });
     // main pair
     eyes.circle(-8, -10, 4).fill(COLORS.zombieEye);
     eyes.circle(8, -10, 4).fill(COLORS.zombieEye);
-    eyes.circle(-8, -10, 2).fill(0xffd0d0);
-    eyes.circle(8, -10, 2).fill(0xffd0d0);
+    eyes.circle(-8, -10, 2.5).fill(0xffd0d0);
+    eyes.circle(8, -10, 2.5).fill(0xffd0d0);
+    eyes.circle(-8, -10, 1).fill(0xffffff);  // hot-white core
+    eyes.circle(8, -10, 1).fill(0xffffff);
     eyes.circle(-8, -10, 6).fill({ color: COLORS.zombieEye, alpha: 0.3 });
     eyes.circle(8, -10, 6).fill({ color: COLORS.zombieEye, alpha: 0.3 });
-    // smaller secondary pair
+    // smaller secondary pair (lower cheeks)
+    eyes.circle(-14, -4, 2.5).fill({ color: COLORS.zombieEye, alpha: 0.5 });
+    eyes.circle(14, -4, 2.5).fill({ color: COLORS.zombieEye, alpha: 0.5 });
     eyes.circle(-14, -4, 2).fill(COLORS.zombieEye);
     eyes.circle(14, -4, 2).fill(COLORS.zombieEye);
     eyes.circle(-14, -4, 1).fill(0xffffff);
     eyes.circle(14, -4, 1).fill(0xffffff);
+    // third pair — tiny forehead third-eye row
+    eyes.circle(0, -16, 1.5).fill(COLORS.zombieEye);
+    eyes.circle(0, -16, 0.7).fill(0xffd0d0);
     this.visual.addChild(eyes);
 
     // drippy maw with teeth

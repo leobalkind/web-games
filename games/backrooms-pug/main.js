@@ -3923,16 +3923,46 @@ function render() {
       }
     }
   }
-  // Scratch/blood marks near monster spawn — render once
+  // Scratch/blood marks near monster spawn — claw furrows on the floor.
+  // Three jagged parallel claw rakes (signature for the main Monster Pug),
+  // each with darker shadow + brighter blood highlight pixels.
   if (monster && monster.spawnX) {
-    ctx.strokeStyle = 'rgba(80,8,8,0.4)'; ctx.lineWidth = 2;
+    const sx = monster.spawnX, sy = monster.spawnY;
+    ctx.save();
+    // shadow layer (darker behind)
+    ctx.strokeStyle = 'rgba(20,2,2,0.55)'; ctx.lineWidth = 3;
     for (let k = 0; k < 5; k++) {
       const a = k * 0.7;
       ctx.beginPath();
-      ctx.moveTo(monster.spawnX - 18 + k * 8, monster.spawnY + 18 + Math.sin(a) * 6);
-      ctx.lineTo(monster.spawnX - 4 + k * 8, monster.spawnY + 28 + Math.sin(a) * 4);
+      ctx.moveTo(sx - 17 + k * 8, sy + 19 + Math.sin(a) * 6);
+      ctx.lineTo(sx - 3 + k * 8, sy + 29 + Math.sin(a) * 4);
       ctx.stroke();
     }
+    // main blood layer
+    ctx.strokeStyle = 'rgba(80,8,8,0.55)'; ctx.lineWidth = 2;
+    for (let k = 0; k < 5; k++) {
+      const a = k * 0.7;
+      ctx.beginPath();
+      ctx.moveTo(sx - 18 + k * 8, sy + 18 + Math.sin(a) * 6);
+      ctx.lineTo(sx - 4 + k * 8, sy + 28 + Math.sin(a) * 4);
+      ctx.stroke();
+    }
+    // bright crimson highlight on the deepest part of each gouge
+    ctx.strokeStyle = 'rgba(180,30,30,0.55)'; ctx.lineWidth = 1;
+    for (let k = 0; k < 5; k++) {
+      const a = k * 0.7;
+      ctx.beginPath();
+      ctx.moveTo(sx - 15 + k * 8, sy + 21 + Math.sin(a) * 5);
+      ctx.lineTo(sx - 9 + k * 8, sy + 25 + Math.sin(a) * 4);
+      ctx.stroke();
+    }
+    // blood splash droplets at the end of each rake
+    ctx.fillStyle = 'rgba(100,8,8,0.5)';
+    for (let k = 0; k < 5; k++) {
+      const dx = sx - 4 + k * 8, dy = sy + 28;
+      ctx.beginPath(); ctx.arc(dx, dy, 1.2, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
   }
   // Doorway frames — darker rect outline around open tiles that connect rooms.
   ctx.strokeStyle = 'rgba(10,8,6,0.55)';
@@ -5338,9 +5368,29 @@ function renderPartygoers() {
     ctx.fillRect(p.x - 6, p.y - 12 + wob, 3, 3);
     ctx.fillRect(p.x + 3, p.y - 12 + wob, 3, 3);
     ctx.shadowBlur = 0;
-    // Snout
+    // Snout (now with nostril detail)
     ctx.fillStyle = '#3a1810';
     ctx.fillRect(p.x - 3, p.y - 6 + wob, 6, 3);
+    ctx.fillStyle = '#000';
+    ctx.fillRect(p.x - 2, p.y - 5 + wob, 1, 1);
+    ctx.fillRect(p.x + 1, p.y - 5 + wob, 1, 1);
+    // Tongue (party = open mouth)
+    if (partyAlertedT <= 0) {
+      ctx.fillStyle = '#ff5a82';
+      ctx.fillRect(p.x - 2, p.y - 3 + wob, 4, 2);
+      ctx.fillStyle = '#ff8aab';
+      ctx.fillRect(p.x - 2, p.y - 3 + wob, 4, 1);
+    }
+    // Party collar — paper ruff under chin
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(p.x - 11, p.y - 2 + wob, 22, 2);
+    ctx.fillStyle = '#d8d8e8';
+    ctx.fillRect(p.x - 11, p.y - 0 + wob, 22, 1);
+    // colorful confetti dots on collar
+    ctx.fillStyle = p.hatColor;
+    ctx.fillRect(p.x - 8, p.y - 1 + wob, 1, 1);
+    ctx.fillRect(p.x + 3, p.y - 1 + wob, 1, 1);
+    ctx.fillRect(p.x + 7, p.y - 1 + wob, 1, 1);
     // Party hat — cone with pom-pom
     ctx.fillStyle = p.hatColor;
     ctx.beginPath();
@@ -5348,6 +5398,16 @@ function renderPartygoers() {
     ctx.lineTo(p.x + 8, p.y - 16 + wob);
     ctx.lineTo(p.x, p.y - 30 + wob);
     ctx.closePath(); ctx.fill();
+    // hat lightening highlight (one side lit)
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.beginPath();
+    ctx.moveTo(p.x - 6, p.y - 17 + wob);
+    ctx.lineTo(p.x - 1, p.y - 17 + wob);
+    ctx.lineTo(p.x - 1, p.y - 28 + wob);
+    ctx.closePath(); ctx.fill();
+    // hat band base
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.fillRect(p.x - 8, p.y - 17 + wob, 16, 1);
     // Hat stripe
     ctx.fillStyle = '#fff';
     ctx.beginPath();
@@ -5356,9 +5416,17 @@ function renderPartygoers() {
     ctx.lineTo(p.x + 3, p.y - 25 + wob);
     ctx.lineTo(p.x - 3, p.y - 25 + wob);
     ctx.closePath(); ctx.fill();
-    // Pom-pom
+    // tiny polka-dot stripe pattern
+    ctx.fillStyle = p.hatColor;
+    ctx.fillRect(p.x - 3, p.y - 23 + wob, 1, 1);
+    ctx.fillRect(p.x + 0, p.y - 23 + wob, 1, 1);
+    ctx.fillRect(p.x + 3, p.y - 23 + wob, 1, 1);
+    // Pom-pom (with shine)
     ctx.fillStyle = '#ffd23f';
     ctx.beginPath(); ctx.arc(p.x, p.y - 30 + wob, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fff0a8';
+    ctx.fillRect(p.x - 1, p.y - 32 + wob, 1, 1);
+    ctx.fillRect(p.x + 1, p.y - 31 + wob, 1, 1);
     // Status label when alerted
     if (partyAlertedT > 0) {
       ctx.fillStyle = '#ff8080'; ctx.font = "7px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
@@ -5499,40 +5567,119 @@ function drawFurniture(h) {
   } else if (h.kind === 'locker') {
     // Metal school-style locker, two vertical doors with handles.
     ctx.fillStyle = '#5a6068'; ctx.fillRect(h.x - 16, h.y - 24, 32, 42);
+    // top + bottom edge bands
     ctx.fillStyle = '#3a4048'; ctx.fillRect(h.x - 16, h.y - 24, 32, 3);
+    ctx.fillStyle = '#2a3038'; ctx.fillRect(h.x - 16, h.y + 14, 32, 4);
+    // door divider seam
     ctx.fillStyle = '#1a1e22';
     ctx.fillRect(h.x - 1, h.y - 24, 2, 42);
     ctx.fillRect(h.x - 16, h.y + 16, 32, 2);
+    // metallic side-frame highlights (3D edge)
+    ctx.fillStyle = '#8a9098';
+    ctx.fillRect(h.x - 16, h.y - 24, 1, 42);
+    ctx.fillStyle = '#3a4048';
+    ctx.fillRect(h.x + 15, h.y - 24, 1, 42);
+    // BIG HANDLES — chrome levers with bolt-head
     ctx.fillStyle = '#8a8c94';
-    ctx.fillRect(h.x - 7, h.y - 2, 3, 6);
-    ctx.fillRect(h.x + 4, h.y - 2, 3, 6);
-    // Vent slits
+    ctx.fillRect(h.x - 9, h.y - 2, 5, 7);
+    ctx.fillRect(h.x + 4, h.y - 2, 5, 7);
+    ctx.fillStyle = '#c8cad0';
+    ctx.fillRect(h.x - 9, h.y - 2, 5, 1);  // shine
+    ctx.fillRect(h.x + 4, h.y - 2, 5, 1);
+    ctx.fillStyle = '#1a1e22';  // bolt centers
+    ctx.fillRect(h.x - 7, h.y, 1, 1);
+    ctx.fillRect(h.x + 6, h.y, 1, 1);
+    // top number-plate (locker number) — small white tag
+    ctx.fillStyle = '#e8e0c8'; ctx.fillRect(h.x - 13, h.y - 22, 8, 4);
+    ctx.fillStyle = '#1a0d05'; ctx.font = "6px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText('07', h.x - 9, h.y - 18);
+    // Vent slits (more rows + darker depth)
     ctx.fillStyle = '#1a1e22';
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 4; i++) {
       ctx.fillRect(h.x - 9, h.y - 18 + i * 3, 5, 1);
       ctx.fillRect(h.x + 4, h.y - 18 + i * 3, 5, 1);
     }
+    // vent grille shadow band underneath
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.fillRect(h.x - 9, h.y - 7, 5, 1);
+    ctx.fillRect(h.x + 4, h.y - 7, 5, 1);
+    // small rust streaks
+    ctx.fillStyle = 'rgba(120,40,10,0.4)';
+    ctx.fillRect(h.x - 13, h.y + 4, 1, 5);
+    ctx.fillRect(h.x + 13, h.y + 8, 1, 4);
   } else if (h.kind === 'cabinet') {
-    // Wood filing cabinet with knobs.
+    // Wood filing cabinet with knobs — now with visible drawer shelves + label tags.
     ctx.fillStyle = '#6a4a2a'; ctx.fillRect(h.x - 16, h.y - 20, 32, 36);
     ctx.fillStyle = '#4a3018'; ctx.fillRect(h.x - 16, h.y - 20, 32, 3);
+    // wood grain stripes
+    ctx.fillStyle = 'rgba(40,24,8,0.35)';
+    ctx.fillRect(h.x - 14, h.y - 18, 28, 1);
+    ctx.fillRect(h.x - 14, h.y + 4, 28, 1);
+    // drawer separators
     ctx.fillStyle = '#3a2a14';
     ctx.fillRect(h.x - 16, h.y - 6, 32, 1);
     ctx.fillRect(h.x - 16, h.y + 7, 32, 1);
+    // drawer-front inset shadow (gives depth)
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.fillRect(h.x - 14, h.y - 18, 28, 1);
+    ctx.fillRect(h.x - 14, h.y - 4, 28, 1);
+    ctx.fillRect(h.x - 14, h.y + 9, 28, 1);
+    // brass handle pulls (longer, tear-drop style)
     ctx.fillStyle = '#d2a878';
-    ctx.fillRect(h.x - 2, h.y - 14, 4, 2);
-    ctx.fillRect(h.x - 2, h.y - 1, 4, 2);
-    ctx.fillRect(h.x - 2, h.y + 11, 4, 2);
+    ctx.fillRect(h.x - 4, h.y - 14, 8, 2);
+    ctx.fillRect(h.x - 4, h.y - 1, 8, 2);
+    ctx.fillRect(h.x - 4, h.y + 11, 8, 2);
+    // handle highlights
+    ctx.fillStyle = '#fff0a8';
+    ctx.fillRect(h.x - 4, h.y - 14, 8, 1);
+    ctx.fillRect(h.x - 4, h.y - 1, 8, 1);
+    ctx.fillRect(h.x - 4, h.y + 11, 8, 1);
+    // file-label tags (white slips)
+    ctx.fillStyle = '#e8e0c8';
+    ctx.fillRect(h.x - 13, h.y - 13, 6, 2);
+    ctx.fillRect(h.x + 7, h.y - 0, 6, 2);
+    ctx.fillRect(h.x - 13, h.y + 12, 6, 2);
+    // small key-lock hole on the top drawer
+    ctx.fillStyle = '#1a0e08';
+    ctx.fillRect(h.x + 12, h.y - 16, 2, 2);
   } else if (h.kind === 'closet') {
-    // Tall wardrobe closet with doors slightly ajar.
+    // Tall wardrobe closet with doors slightly ajar — visible interior darkness.
     ctx.fillStyle = '#3a2410'; ctx.fillRect(h.x - 18, h.y - 26, 36, 46);
-    ctx.fillStyle = '#1a0e08'; ctx.fillRect(h.x - 1, h.y - 26, 2, 46);
+    // top trim
     ctx.fillStyle = '#5a3818';
     ctx.fillRect(h.x - 18, h.y - 26, 18, 4);
     ctx.fillRect(h.x + 0, h.y - 26, 18, 4);
+    // base trim
+    ctx.fillStyle = '#1a0e08';
+    ctx.fillRect(h.x - 18, h.y + 18, 36, 2);
+    // door seam (door slightly ajar — small interior gap visible)
+    ctx.fillStyle = '#1a0e08'; ctx.fillRect(h.x - 1, h.y - 26, 2, 46);
+    // PEEKING INTERIOR — dark slit at the seam top hinting at darkness inside
+    ctx.fillStyle = 'rgba(0,0,0,0.85)';
+    ctx.fillRect(h.x - 2, h.y - 18, 4, 12);
+    // wood grain panels on doors
+    ctx.fillStyle = 'rgba(80,40,16,0.4)';
+    ctx.fillRect(h.x - 14, h.y - 22, 12, 1);
+    ctx.fillRect(h.x + 2, h.y - 22, 12, 1);
+    ctx.fillRect(h.x - 14, h.y + 8, 12, 1);
+    ctx.fillRect(h.x + 2, h.y + 8, 12, 1);
+    // door inset panels (carved rectangles)
+    ctx.strokeStyle = 'rgba(20,10,4,0.6)'; ctx.lineWidth = 1;
+    ctx.strokeRect(h.x - 14, h.y - 18, 12, 14);
+    ctx.strokeRect(h.x + 2, h.y - 18, 12, 14);
+    ctx.strokeRect(h.x - 14, h.y - 0, 12, 14);
+    ctx.strokeRect(h.x + 2, h.y - 0, 12, 14);
+    // BRASS KNOBS (round + highlight)
     ctx.fillStyle = '#ffd23f';
-    ctx.fillRect(h.x - 7, h.y - 2, 2, 4);
-    ctx.fillRect(h.x + 5, h.y - 2, 2, 4);
+    ctx.beginPath(); ctx.arc(h.x - 6, h.y, 2, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(h.x + 6, h.y, 2, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fff0a8';
+    ctx.fillRect(h.x - 7, h.y - 1, 1, 1);
+    ctx.fillRect(h.x + 5, h.y - 1, 1, 1);
+    // keyhole below each knob
+    ctx.fillStyle = '#1a0e08';
+    ctx.fillRect(h.x - 6, h.y + 4, 1, 2);
+    ctx.fillRect(h.x + 6, h.y + 4, 1, 2);
   } else if (h.kind === 'crate') {
     // Wooden crate with x-brace.
     ctx.fillStyle = '#7a5a2a'; ctx.fillRect(h.x - 18, h.y - 14, 36, 28);
@@ -5594,30 +5741,83 @@ function drawMonster() {
 }
 
 function drawHound(e) {
-  // a four-legged dark shape with glowing eyes
+  // a four-legged dark shape with glowing eyes — now with hackles, ribs, and ear shapes
+  const chasing = e.state === 'chase';
   ctx.fillStyle = 'rgba(0,0,0,0.55)';
   ctx.beginPath(); ctx.ellipse(e.x, e.y + 14, 14, 4, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = e.state === 'chase' ? '#3a0a0a' : '#1a0a08';
+  const bodyCol = chasing ? '#3a0a0a' : '#1a0a08';
+  const accentCol = chasing ? '#5a1a1a' : '#2a1a14';
+  ctx.fillStyle = bodyCol;
   // body
   ctx.fillRect(e.x - 14, e.y - 4, 28, 12);
+  // body top-highlight (less flat)
+  ctx.fillStyle = accentCol;
+  ctx.fillRect(e.x - 14, e.y - 4, 28, 2);
   // head (front-right)
+  ctx.fillStyle = bodyCol;
   ctx.fillRect(e.x + 10, e.y - 6, 10, 10);
-  // legs
+  // forward snout/jaw
+  ctx.fillRect(e.x + 18, e.y - 2, 4, 5);
+  // bare teeth (small white slits) — only when chasing
+  if (chasing) {
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(e.x + 19, e.y + 1, 1, 2);
+    ctx.fillRect(e.x + 21, e.y + 1, 1, 2);
+  }
+  // pointed ears (2 triangular ear nubs on top of head)
+  ctx.fillStyle = bodyCol;
+  ctx.beginPath();
+  ctx.moveTo(e.x + 11, e.y - 6); ctx.lineTo(e.x + 13, e.y - 11); ctx.lineTo(e.x + 14, e.y - 6); ctx.closePath(); ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(e.x + 16, e.y - 6); ctx.lineTo(e.x + 18, e.y - 11); ctx.lineTo(e.x + 19, e.y - 6); ctx.closePath(); ctx.fill();
+  // raised hackles (back spikes when chasing)
+  if (chasing) {
+    ctx.fillStyle = '#5a1a1a';
+    ctx.fillRect(e.x - 8, e.y - 6, 1, 2);
+    ctx.fillRect(e.x - 5, e.y - 7, 1, 3);
+    ctx.fillRect(e.x - 2, e.y - 7, 1, 3);
+    ctx.fillRect(e.x + 1, e.y - 6, 1, 2);
+    ctx.fillRect(e.x + 4, e.y - 6, 1, 2);
+  }
+  // exposed rib hint (vertical dark line stripes on body)
+  ctx.fillStyle = 'rgba(0,0,0,0.45)';
+  ctx.fillRect(e.x - 8, e.y + 2, 1, 4);
+  ctx.fillRect(e.x - 4, e.y + 2, 1, 4);
+  ctx.fillRect(e.x + 0, e.y + 2, 1, 4);
+  ctx.fillRect(e.x + 4, e.y + 2, 1, 4);
+  // legs — slightly wider, with paw-tip detail
+  ctx.fillStyle = bodyCol;
   ctx.fillRect(e.x - 12, e.y + 8, 3, 6);
   ctx.fillRect(e.x - 4, e.y + 8, 3, 6);
   ctx.fillRect(e.x + 4, e.y + 8, 3, 6);
   ctx.fillRect(e.x + 12, e.y + 8, 3, 6);
-  // tail
+  // paw pads (white claw tips when chasing)
+  if (chasing) {
+    ctx.fillStyle = '#dde0c8';
+    ctx.fillRect(e.x - 12, e.y + 13, 1, 1);
+    ctx.fillRect(e.x - 4, e.y + 13, 1, 1);
+    ctx.fillRect(e.x + 4, e.y + 13, 1, 1);
+    ctx.fillRect(e.x + 12, e.y + 13, 1, 1);
+  }
+  // tail (curved drooping, with darker tip)
+  ctx.fillStyle = bodyCol;
   ctx.fillRect(e.x - 18, e.y - 2, 5, 2);
-  // glowing eyes
-  ctx.fillStyle = e.state === 'chase' ? '#ff3a3a' : '#ffaa3a';
-  ctx.shadowColor = e.state === 'chase' ? '#ff3a3a' : '#ffaa3a';
-  ctx.shadowBlur = e.state === 'chase' ? 10 : 4;
-  ctx.fillRect(e.x + 16, e.y - 4, 2, 2);
-  ctx.fillRect(e.x + 18, e.y - 2, 2, 2);
+  ctx.fillRect(e.x - 21, e.y + 0, 3, 2);
+  ctx.fillStyle = accentCol;
+  ctx.fillRect(e.x - 21, e.y + 2, 2, 1);
+  // glowing eyes (now BOTH eyes properly placed)
+  ctx.fillStyle = chasing ? '#ff3a3a' : '#ffaa3a';
+  ctx.shadowColor = chasing ? '#ff3a3a' : '#ffaa3a';
+  ctx.shadowBlur = chasing ? 10 : 4;
+  ctx.fillRect(e.x + 13, e.y - 4, 2, 2);
+  ctx.fillRect(e.x + 17, e.y - 2, 2, 2);
+  // bright pupil dot
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(e.x + 14, e.y - 3, 1, 1);
+  ctx.fillRect(e.x + 18, e.y - 1, 1, 1);
   ctx.shadowBlur = 0;
   // little label
-  if (e.state === 'chase') {
+  if (chasing) {
     ctx.fillStyle = '#ff8080'; ctx.font = "7px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
     ctx.fillText('HOUND', e.x, e.y - 16);
   }
@@ -5626,20 +5826,49 @@ function drawHound(e) {
 function drawSmiler(e) {
   ctx.save();
   ctx.globalAlpha = Math.min(1, e.opacity);
-  // dark body smudge
-  ctx.fillStyle = 'rgba(0,0,0,0.8)';
+  // outer halo so the smile glows in the dark
+  const halo = ctx.createRadialGradient(e.x, e.y, 4, e.x, e.y, 36);
+  halo.addColorStop(0, 'rgba(255,210,63,0.18)');
+  halo.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = halo;
+  ctx.beginPath(); ctx.arc(e.x, e.y, 36, 0, Math.PI * 2); ctx.fill();
+  // dark body smudge (now layered for depth)
+  ctx.fillStyle = 'rgba(0,0,0,0.85)';
   ctx.beginPath(); ctx.arc(e.x, e.y, 22, 0, Math.PI * 2); ctx.fill();
-  // glowing eyes
+  ctx.fillStyle = 'rgba(8,2,8,0.95)';
+  ctx.beginPath(); ctx.arc(e.x, e.y, 17, 0, Math.PI * 2); ctx.fill();
+  // glowing eyes (now with red iris core)
   ctx.fillStyle = '#ffd23f';
   ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 12;
   ctx.fillRect(e.x - 8, e.y - 4, 4, 4);
   ctx.fillRect(e.x + 4, e.y - 4, 4, 4);
-  // grin (curve of teeth)
-  ctx.fillStyle = '#ffffff';
+  // iris/pupil
+  ctx.fillStyle = '#aa0000';
+  ctx.fillRect(e.x - 7, e.y - 3, 2, 2);
+  ctx.fillRect(e.x + 5, e.y - 3, 2, 2);
+  // bright catchlight
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(e.x - 7, e.y - 4, 1, 1);
+  ctx.fillRect(e.x + 5, e.y - 4, 1, 1);
+  // grin (curve of teeth) — now with gaps + canine tips
+  ctx.fillStyle = '#fffae0';
   for (let i = -6; i <= 6; i += 2) {
     const yy = e.y + 6 + Math.abs(i) * 0.4;
     ctx.fillRect(e.x + i, yy, 2, 3);
   }
+  // jagged tooth shadows (gives crooked grin feel)
+  ctx.fillStyle = 'rgba(40,0,0,0.5)';
+  for (let i = -5; i <= 5; i += 4) {
+    const yy = e.y + 6 + Math.abs(i) * 0.4;
+    ctx.fillRect(e.x + i, yy + 2, 1, 1);
+  }
+  // upper lip (red gum line above teeth)
+  ctx.fillStyle = 'rgba(160,20,20,0.85)';
+  ctx.fillRect(e.x - 7, e.y + 5, 14, 1);
+  // two canine teeth (longer tips at corners)
+  ctx.fillStyle = '#fffae0';
+  ctx.fillRect(e.x - 7, e.y + 6, 1, 4);
+  ctx.fillRect(e.x + 6, e.y + 6, 1, 4);
   ctx.shadowBlur = 0;
   ctx.restore();
 }
@@ -5650,28 +5879,57 @@ function drawCrawler(e) {
   // shadow
   ctx.fillStyle = 'rgba(0,0,0,0.55)';
   ctx.beginPath(); ctx.ellipse(e.x, e.y + 8, 18, 5, 0, 0, Math.PI * 2); ctx.fill();
-  // legs (8 spindly ones)
-  ctx.strokeStyle = lunging ? '#3a0a0a' : '#1a0a08'; ctx.lineWidth = 2;
+  // legs (8 spindly, now with KNEE joint mid-segment for a more arachnid feel)
+  const legCol = lunging ? '#3a0a0a' : '#1a0a08';
+  const kneeCol = lunging ? '#5a1a1a' : '#2a1a14';
+  ctx.strokeStyle = legCol; ctx.lineWidth = 2;
   for (let i = 0; i < 8; i++) {
     const a = (i / 8) * Math.PI * 2 + Math.sin(e.t * 4 + i) * 0.15;
-    ctx.beginPath();
-    ctx.moveTo(e.x, e.y);
+    const knx = e.x + Math.cos(a) * 9;
+    const kny = e.y + Math.sin(a) * 4 - 2;
     const lx = e.x + Math.cos(a) * 16;
     const ly = e.y + Math.sin(a) * 8;
-    ctx.lineTo(lx, ly);
+    ctx.beginPath();
+    ctx.moveTo(e.x, e.y);
+    ctx.lineTo(knx, kny);  // segment 1 (femur)
+    ctx.lineTo(lx, ly);    // segment 2 (tibia)
     ctx.stroke();
+    // knee joint dot
+    ctx.fillStyle = kneeCol;
+    ctx.fillRect(knx - 1, kny - 1, 2, 2);
+    // tiny claw tip
+    ctx.fillStyle = lunging ? '#ff9090' : '#5a3a3a';
+    ctx.fillRect(lx - 0.5, ly - 0.5, 1, 1);
   }
-  // body
+  // body (with darker spine line + bristles)
   ctx.fillStyle = lunging ? '#5a1a1a' : '#1a0a08';
   ctx.beginPath(); ctx.ellipse(e.x, e.y, 10, 6, 0, 0, Math.PI * 2); ctx.fill();
-  // head — small with red eyes
+  // dorsal spine ridge
+  ctx.fillStyle = lunging ? '#7a2a2a' : '#2a1a14';
+  ctx.fillRect(e.x - 6, e.y - 1, 12, 1);
+  // bristly back hairs (3 spikes)
+  ctx.fillStyle = legCol;
+  ctx.fillRect(e.x - 3, e.y - 5, 1, 2);
+  ctx.fillRect(e.x, e.y - 6, 1, 2);
+  ctx.fillRect(e.x + 3, e.y - 5, 1, 2);
+  // head — small with red eyes + mandibles
   ctx.fillStyle = '#0a0606';
   ctx.beginPath(); ctx.arc(e.x + 6, e.y - 2, 5, 0, Math.PI * 2); ctx.fill();
+  // chelicerae mandibles (2 small fangs jutting forward)
+  ctx.fillStyle = lunging ? '#aa3030' : '#3a2018';
+  ctx.fillRect(e.x + 9, e.y - 1, 2, 1);
+  ctx.fillRect(e.x + 9, e.y + 1, 2, 1);
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(e.x + 11, e.y - 1, 1, 1);
+  ctx.fillRect(e.x + 11, e.y + 1, 1, 1);
+  // eyes — now 4 small clustered like a spider's
   ctx.fillStyle = lunging ? '#ff3a3a' : '#ffaa3a';
   ctx.shadowColor = lunging ? '#ff3a3a' : '#aa6630';
   ctx.shadowBlur = lunging ? 10 : 4;
   ctx.fillRect(e.x + 8, e.y - 3, 2, 2);
   ctx.fillRect(e.x + 8, e.y, 2, 2);
+  ctx.fillRect(e.x + 5, e.y - 4, 1, 1);
+  ctx.fillRect(e.x + 5, e.y + 2, 1, 1);
   ctx.shadowBlur = 0;
   if (lunging) {
     ctx.fillStyle = '#ff5050'; ctx.font = "7px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
@@ -5691,19 +5949,41 @@ function drawWhisperer(e) {
   if (a < 0.02) return;
   ctx.save();
   ctx.globalAlpha = a;
-  // tall silhouette
+  // tall silhouette — now with subtle gradient and shoulder definition
   ctx.fillStyle = '#000';
   ctx.fillRect(e.x - 9, e.y - 36, 18, 50);
+  // narrow waist
+  ctx.fillStyle = 'rgba(0,0,0,0.85)';
+  ctx.fillRect(e.x - 7, e.y - 14, 14, 14);
+  // shoulders — broader top
+  ctx.fillStyle = '#000';
+  ctx.fillRect(e.x - 12, e.y - 34, 24, 6);
+  // neck
+  ctx.fillRect(e.x - 3, e.y - 36, 6, 4);
   // head
   ctx.beginPath(); ctx.arc(e.x, e.y - 40, 8, 0, Math.PI * 2); ctx.fill();
-  // arms hanging
-  ctx.fillRect(e.x - 14, e.y - 28, 4, 28);
-  ctx.fillRect(e.x + 10, e.y - 28, 4, 28);
+  // arms hanging (longer than humanoid — adds creepy proportion)
+  ctx.fillRect(e.x - 14, e.y - 28, 4, 30);
+  ctx.fillRect(e.x + 10, e.y - 28, 4, 30);
+  // long fingers/claws at end of each arm (3 prongs each side)
+  ctx.fillRect(e.x - 14, e.y + 2, 1, 4);
+  ctx.fillRect(e.x - 12, e.y + 2, 1, 5);
+  ctx.fillRect(e.x - 10, e.y + 2, 1, 4);
+  ctx.fillRect(e.x + 10, e.y + 2, 1, 4);
+  ctx.fillRect(e.x + 12, e.y + 2, 1, 5);
+  ctx.fillRect(e.x + 14, e.y + 2, 1, 4);
   // hint of eyes — only when gazed enough
   if ((e.gazeT || 0) > 0.8) {
     ctx.fillStyle = '#fff';
     ctx.fillRect(e.x - 4, e.y - 42, 2, 2);
     ctx.fillRect(e.x + 2, e.y - 42, 2, 2);
+    // mouth — long jagged smile (creepy)
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(e.x - 4, e.y - 37, 1, 1);
+    ctx.fillRect(e.x - 2, e.y - 37, 1, 1);
+    ctx.fillRect(e.x, e.y - 37, 1, 1);
+    ctx.fillRect(e.x + 2, e.y - 37, 1, 1);
+    ctx.fillRect(e.x + 4, e.y - 37, 1, 1);
   }
   ctx.restore();
 }
