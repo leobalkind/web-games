@@ -543,12 +543,73 @@ showOrientationHint({ gameId: 'delivery-pugs' });
 function tick(dt) {
   if (!running) return;
   if (paused) return;
+  // Polish R2: auto-resume countdown — count down but skip world updates
+  if (resumeCountdownT > 0) {
+    resumeCountdownT = Math.max(0, resumeCountdownT - dt);
+    return;
+  }
   _cityAmbience(dt);
   timeOfDay = (timeOfDay + dt / 120) % 1;
   time -= dt;
   if (time <= 0) return end();
   if (crashSpinT > 0) { crashSpinT -= dt; crashSpinAng += dt * 18; }
   if (customerBubble) { customerBubble.life += dt; if (customerBubble.life >= customerBubble.max) customerBubble = null; }
+  // Polish R2: SHARK (waterfront visual gag) — fin pops up in the water area
+  // every ~12-20s. Pure visual + minor damage if you drive into the pier
+  // section while it's there.
+  if (shark) {
+    shark.t += dt;
+    shark.x += shark.vx * dt;
+    if (shark.t > 5 || shark.x < WORLD_W * WATERFRONT_X + 80 || shark.x > WORLD_W - 30) {
+      shark = null;
+    }
+  } else if (isWaterfront(pug.x) && Math.random() < dt * 0.05) {
+    // Spawn near pug's Y in the water
+    shark = {
+      x: WORLD_W * WATERFRONT_X + 100 + Math.random() * 80,
+      y: pug.y + (Math.random() - 0.5) * 200,
+      vx: 50 + Math.random() * 30,
+      t: 0,
+    };
+    try { sfx.tone(110, 'sine', 0.35, 0.25); } catch {}
+    try { __deliveryFeed.push('🦈 SHARK SPOTTED', '#dde6f0'); } catch {}
+  }
+  // Polish R2: ZOMBIE RAVE event (night-only). Cluster of 50 zombies in one
+  // spot. Driving through gives big bonus + risk.
+  zombieRaveCdT -= dt;
+  if (!zombieRave && weather === 'night' && zombieRaveCdT <= 0 && Math.random() < dt * 0.04) {
+    // Place cluster a reasonable distance from pug
+    const ang = Math.random() * Math.PI * 2;
+    const dist = 700 + Math.random() * 400;
+    let zx = pug.x + Math.cos(ang) * dist;
+    let zy = pug.y + Math.sin(ang) * dist;
+    zx = Math.max(200, Math.min(WORLD_W - 200, zx));
+    zy = Math.max(200, Math.min(WORLD_H - 200, zy));
+    zombieRave = { x: zx, y: zy, life: 22, t: 0, picked: false, bonus: 60 };
+    toasts.push({ text: '🧟 ZOMBIE RAVE — drive through for bonus!', t: 0 });
+    try { __deliveryFeed.push('★ ZOMBIE RAVE EVENT', '#ff3aa1'); } catch {}
+  }
+  if (zombieRave) {
+    zombieRave.t += dt;
+    // Pickup: drive through the center
+    if (!zombieRave.picked && Math.hypot(zombieRave.x - pug.x, zombieRave.y - pug.y) < 80) {
+      zombieRave.picked = true;
+      time = Math.min(time + zombieRave.bonus, 60);
+      addPopup(zombieRave.x, zombieRave.y - 30, `+${zombieRave.bonus}s · ZOMBIE RAVE!`, '#ff3aa1');
+      addBurst(zombieRave.x, zombieRave.y, '#ff3aa1', 32);
+      addBurst(zombieRave.x, zombieRave.y, '#b055ff', 24);
+      addShake(10, 0.4);
+      sfx.arp([220, 440, 880, 1320, 1760], 'sawtooth', 0.07, 0.28, 0.4);
+      try { __deliveryFeed.push(`★ RAVE BONUS +${zombieRave.bonus}s`, '#ff3aa1'); } catch {}
+      // Tiny intact loss to balance the big bonus
+      intact = Math.max(0, intact - 8);
+      intactFlashT = 0.4;
+    }
+    if (zombieRave.t > zombieRave.life) {
+      zombieRave = null;
+      zombieRaveCdT = 35 + Math.random() * 20;
+    }
+  }
   // Train
   trainCooldown -= dt;
   if (!train && trainCooldown <= 0 && trainTrack) {
@@ -619,6 +680,17 @@ function tick(dt) {
   }
   if (weather === 'rain') {
     for (const d of raindrops) { d.y += d.vy * dt; if (d.y > H) { d.y = -10; d.x = rand(0, W); } }
+    // Polish R2: lightning flashes (10-18s interval)
+    nextLightningT -= dt;
+    if (nextLightningT <= 0) {
+      lightningFlashT = 0.4;
+      nextLightningT = 10 + Math.random() * 8;
+      try { sfx.tone(80, 'sawtooth', 0.5, 0.35); } catch {}
+    }
+    if (lightningFlashT > 0) lightningFlashT = Math.max(0, lightningFlashT - dt);
+  } else {
+    lightningFlashT = 0;
+    nextLightningT = 6 + Math.random() * 8;
   }
   const weatherSpeedMul = weather === 'rain' ? 0.75 : 1;
   // --- Traffic lights cycle (4s per phase) ---
@@ -791,14 +863,15 @@ function tick(dt) {
   }
   if (spd > 100 && (drifting || nitroT > 0)) {
     skidMarks.push({ x: pug.x, y: pug.y, ang: pug.ang, t: 0 });
-    if (skidMarks.length > 200) skidMarks.shift();
+    // Polish R2: stricter cap so marks don't pile up forever (120 instead of 200)
+    if (skidMarks.length > 120) skidMarks.shift();
     // Round 2C: tire smoke puffs during drift (denser when actually drifting)
     if (Math.random() < (drifting ? 0.55 : 0.3)) spawnTireSmoke(pug.x, pug.y);
   }
-  // Perf: prune in-place via reverse-iter splice — avoids per-frame array realloc.
+  // Polish R2: faster skid fade (2.2s instead of 3s) so they don't linger.
   for (let i = skidMarks.length - 1; i >= 0; i--) {
     const s = skidMarks[i]; s.t += dt;
-    if (s.t >= 3) skidMarks.splice(i, 1);
+    if (s.t >= 2.2) skidMarks.splice(i, 1);
   }
   // Round 2C: tire smoke decay
   for (let i = tireSmoke.length - 1; i >= 0; i--) {
@@ -820,7 +893,15 @@ function tick(dt) {
       addBurst(pug.x, pug.y, '#ff8e3c', 12);
       sfx.tone(660, 'triangle', 0.06, 0.18);
       bumpStunt(50);
-      try { __deliveryFeed.push(`★ DRIFT +50`, '#ff8e3c'); } catch (e) { /* */ }
+      // Polish R2: drift streak — increment, 5 in a row = DRIFT MASTER title
+      driftStreak++;
+      if (driftStreak === 5) {
+        toasts.push({ text: '★ DRIFT MASTER UNLOCKED ★', t: 0 });
+        addBurst(pug.x, pug.y, '#ffd23f', 40);
+        sfx.arp([880, 1320, 1760, 2200], 'triangle', 0.08, 0.28, 0.4);
+        try { __deliveryFeed.push('★ DRIFT MASTER (5 streak)', '#ffd23f'); } catch {}
+      }
+      try { __deliveryFeed.push(`★ DRIFT +50 (×${driftStreak})`, '#ff8e3c'); } catch (e) { /* */ }
       driftHoldT = 0;
       driftAwardedT = 0.5; // small cooldown so we don't insta-re-award
     }
@@ -932,6 +1013,7 @@ function tick(dt) {
     upcomingDeliveries.push({ type: rollDeliveryType(deliveries) });
     multiStops = currentDeliveryType === 'multi' ? 3 : 0;
     vipHits = 0;
+    petPassengerHp = 100;
     // Refresh the stunt multiplier window on every delivery so stunts during
     // delivery runs keep the chain alive (separate decay so multi-stunt
     // runs feel rewarding).
@@ -1078,6 +1160,8 @@ function damage() {
   }
   pug.hp--;
   invuln = 1.0;
+  // Polish R2: damage breaks drift streak
+  driftStreak = 0;
   sfx.sweep(220, 110, 'sawtooth', 0.15, 0.22);
   // Round 2C: bigger shake + lower bass thump for impact weight
   sfx.tone(110, 'square', 0.12, 0.22);
@@ -1093,6 +1177,12 @@ function damage() {
   intact = Math.max(0, intact - intactLoss);
   intactFlashT = 0.4;
   if (currentDeliveryType === 'vip') vipHits++;
+  // Polish R2: PET CARRIER — passenger loses HP per hit (heavier per crash)
+  if (currentDeliveryType === 'pet') {
+    const isCrash = Math.hypot(pug.vx, pug.vy) > 250;
+    petPassengerHp = Math.max(0, petPassengerHp - (isCrash ? 30 : 15));
+    addPopup(pug.x, pug.y - 24, '🐕 -' + (isCrash ? 30 : 15) + '%', '#ff8ec8');
+  }
   addPopup(pug.x, pug.y - 12, currentDeliveryType === 'fragile' ? '-16% FRAGILE!' : `-${intactLoss}% INTACT`, '#ff8e3c');
   // Crazy Taxi spin-out on hard hit (random ~30% chance, and always at high speed)
   const sp = Math.hypot(pug.vx, pug.vy);
@@ -1207,6 +1297,52 @@ function render() {
   const bandH = WORLD_H / 3;
   ctx.fillStyle = DISTRICTS.suburbs.tint;    ctx.fillRect(0, bandH, WORLD_W, bandH);
   ctx.fillStyle = DISTRICTS.industrial.tint; ctx.fillRect(0, bandH * 2, WORLD_W, bandH);
+  // Polish R2: WATERFRONT (rightmost 18%) — sand + water with subtle wave
+  const wfStartX = WORLD_W * WATERFRONT_X;
+  const wfW = WORLD_W - wfStartX;
+  // sandy beach strip
+  ctx.fillStyle = '#d8c098';
+  ctx.fillRect(wfStartX, 0, 60, WORLD_H);
+  // beach speckle
+  ctx.fillStyle = 'rgba(190,160,110,0.5)';
+  for (let i = 0; i < 80; i++) {
+    const sxx = wfStartX + 8 + ((i * 173) % 44);
+    const syy = (i * 217) % WORLD_H;
+    ctx.fillRect(sxx, syy, 2, 2);
+  }
+  // ocean water
+  const waterGrad = ctx.createLinearGradient(wfStartX + 60, 0, WORLD_W, 0);
+  waterGrad.addColorStop(0, '#2a5a8a');
+  waterGrad.addColorStop(1, '#1a3a5a');
+  ctx.fillStyle = waterGrad;
+  ctx.fillRect(wfStartX + 60, 0, wfW - 60, WORLD_H);
+  // animated waves
+  ctx.fillStyle = 'rgba(180,220,255,0.25)';
+  for (let i = 0; i < 40; i++) {
+    const wy = (i * 73) % WORLD_H;
+    const phase = performance.now() / 700 + i * 0.3;
+    const wx = wfStartX + 80 + Math.sin(phase) * 12 + ((i * 41) % 200);
+    ctx.fillRect(wx, wy, 12, 1);
+    ctx.fillRect(wx + 30, wy + 5, 8, 1);
+  }
+  // foam at beach edge
+  ctx.fillStyle = 'rgba(240,250,255,0.55)';
+  for (let y = 0; y < WORLD_H; y += 8) {
+    const off = Math.sin(performance.now() / 400 + y * 0.05) * 3;
+    ctx.fillRect(wfStartX + 58 + off, y, 4, 5);
+  }
+  // pier (one big dock sticking into the water)
+  ctx.fillStyle = '#5a3a20';
+  ctx.fillRect(wfStartX + 60, WORLD_H / 2 - 12, 200, 24);
+  ctx.fillStyle = '#3a2018';
+  for (let pi = 0; pi < 10; pi++) {
+    ctx.fillRect(wfStartX + 80 + pi * 20, WORLD_H / 2 + 12, 4, 6);
+  }
+  // waterfront sign
+  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.fillRect(wfStartX + 4, 30, 50, 16);
+  ctx.fillStyle = '#4cc9f0'; ctx.font = "8px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+  ctx.fillText('PIER 7', wfStartX + 29, 41);
   // Skyscrapers (downtown). Windows drawn from deterministic seed.
   const _winC = ['#ffd23f','#ff8e3c','#fff7d0','#4cc9f0'];
   const dayLight = Math.abs(timeOfDay - 0.5) * 2;
@@ -1361,6 +1497,66 @@ function render() {
     ctx.fillStyle = '#ffd23f';
     ctx.font = "9px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
     ctx.fillText('CITY CENTER', cx, cy - 80);
+  }
+  // Polish R2: SHARK FIN visual gag (waterfront only)
+  if (shark) {
+    const fy = shark.y;
+    // Ripple wake
+    ctx.strokeStyle = 'rgba(180,220,255,0.6)'; ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(shark.x - 30, fy);
+    ctx.quadraticCurveTo(shark.x - 15, fy - 4, shark.x - 5, fy);
+    ctx.stroke();
+    // Fin triangle
+    ctx.fillStyle = '#3a3a4a';
+    ctx.beginPath();
+    ctx.moveTo(shark.x, fy - 14);
+    ctx.lineTo(shark.x - 6, fy + 2);
+    ctx.lineTo(shark.x + 6, fy + 2);
+    ctx.closePath(); ctx.fill();
+    // fin highlight
+    ctx.fillStyle = '#5a5a6a';
+    ctx.fillRect(shark.x - 1, fy - 10, 2, 6);
+    // teeth tease
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(shark.x + 8, fy + 4, 4, 1);
+    ctx.fillRect(shark.x + 8, fy + 6, 4, 1);
+  }
+  // Polish R2: ZOMBIE RAVE — pulsing pink circle + 50 zombie silhouettes
+  if (zombieRave) {
+    const k = 1 - zombieRave.t / zombieRave.life;
+    const pulse = 0.5 + Math.sin(performance.now() / 100) * 0.4;
+    // pulsing aura
+    const grd = ctx.createRadialGradient(zombieRave.x, zombieRave.y, 10, zombieRave.x, zombieRave.y, 110);
+    grd.addColorStop(0, `rgba(255,58,161,${pulse * 0.5 * k})`);
+    grd.addColorStop(0.6, `rgba(176,85,255,${pulse * 0.3 * k})`);
+    grd.addColorStop(1, 'rgba(176,85,255,0)');
+    ctx.fillStyle = grd;
+    ctx.beginPath(); ctx.arc(zombieRave.x, zombieRave.y, 110, 0, Math.PI * 2); ctx.fill();
+    // 50 zombies clustered in a circle (small dots that wave)
+    const t3 = performance.now() / 200;
+    for (let i = 0; i < 50; i++) {
+      const a = (i / 50) * Math.PI * 2 + t3 * 0.1;
+      const r = 30 + (i % 5) * 12 + Math.sin(t3 + i) * 3;
+      const zx = zombieRave.x + Math.cos(a) * r;
+      const zy = zombieRave.y + Math.sin(a) * r + Math.sin(t3 * 3 + i) * 2;
+      ctx.fillStyle = '#4a7a4a';
+      ctx.fillRect(zx - 2, zy - 4, 4, 6);
+      ctx.fillStyle = '#ff3a3a';
+      ctx.fillRect(zx - 1, zy - 3, 1, 1);
+      ctx.fillRect(zx + 1, zy - 3, 1, 1);
+      // arms up
+      if (Math.sin(t3 + i * 2) > 0) {
+        ctx.fillStyle = '#4a7a4a';
+        ctx.fillRect(zx - 3, zy - 6, 1, 2);
+        ctx.fillRect(zx + 2, zy - 6, 1, 2);
+      }
+    }
+    // RAVE label
+    ctx.fillStyle = '#ff3aa1'; ctx.font = "bold 10px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.shadowColor = '#ff3aa1'; ctx.shadowBlur = 10;
+    ctx.fillText('★ RAVE +' + zombieRave.bonus + 's ★', zombieRave.x, zombieRave.y - 70);
+    ctx.shadowBlur = 0;
   }
   // Traffic lights at intersections
   for (const tl of trafficLights) {
@@ -1533,9 +1729,9 @@ function render() {
     ctx.fillStyle = `rgba(220,220,230,${a})`;
     ctx.beginPath(); ctx.arc(ts.x, ts.y, ts.r, 0, Math.PI * 2); ctx.fill();
   }
-  // Skid marks (under everything)
+  // Skid marks (under everything) — Polish R2: faster fade (2.2s)
   for (const s of skidMarks) {
-    const a = (1 - s.t / 3) * 0.6;
+    const a = (1 - s.t / 2.2) * 0.6;
     ctx.fillStyle = `rgba(0,0,0,${a})`;
     ctx.save();
     ctx.translate(s.x, s.y); ctx.rotate(s.ang);
@@ -1648,6 +1844,52 @@ function render() {
   ctx.restore();
   // HP indicators (pixel hearts above pug, world space)
   for (let i = 0; i < pug.hp; i++) drawIcon.heart(ctx, pug.x - 10 + i * 8, pug.y - 24, 10);
+  // Polish R2: cargo box bouncing animation above vehicle. Bounce intensity
+  // scales with damage taken (intact < 100). Color/icon matches delivery type.
+  // Always rendered when carrying (any delivery in progress).
+  if (running) {
+    const dmgBounce = (100 - intact) / 20; // 0..5
+    const bx = pug.x;
+    const by = pug.y - 36 - Math.abs(Math.sin(performance.now() / 150 + pug.x * 0.1)) * (1 + dmgBounce);
+    const cargoCol = _DTC[currentDeliveryType] || '#5ef38c';
+    // shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.fillRect(bx - 7, by + 7, 14, 2);
+    // box
+    ctx.fillStyle = cargoCol;
+    ctx.fillRect(bx - 6, by - 6, 12, 12);
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.fillRect(bx - 6, by - 6, 12, 2);
+    // tape cross
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(bx - 1, by - 6, 2, 12);
+    ctx.fillRect(bx - 6, by - 1, 12, 2);
+    // For PET CARRIER, draw a tiny pug head in the box
+    if (currentDeliveryType === 'pet') {
+      ctx.fillStyle = '#c8854a';
+      ctx.fillRect(bx - 4, by - 4, 8, 6);
+      ctx.fillStyle = '#1a0d05';
+      ctx.fillRect(bx - 3, by - 3, 2, 1);
+      ctx.fillRect(bx + 1, by - 3, 2, 1);
+    }
+    // damage cracks if intact < 70
+    if (intact < 70) {
+      ctx.strokeStyle = 'rgba(0,0,0,0.8)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(bx - 4, by - 4); ctx.lineTo(bx + 2, by + 2); ctx.stroke();
+      if (intact < 40) {
+        ctx.beginPath(); ctx.moveTo(bx + 3, by - 5); ctx.lineTo(bx - 1, by + 4); ctx.stroke();
+      }
+    }
+  }
+  // Polish R2: PET CARRIER passenger HP bar above box
+  if (currentDeliveryType === 'pet') {
+    const px = pug.x - 12, py = pug.y - 52;
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(px, py, 24, 3);
+    const phc = petPassengerHp >= 60 ? '#5ef38c' : (petPassengerHp >= 30 ? '#ffd23f' : '#ff5a3a');
+    ctx.fillStyle = phc;
+    ctx.fillRect(px, py, 24 * petPassengerHp / 100, 3);
+  }
   // Burst particles (world space)
   for (const p of burst) {
     const a = Math.max(0, 1 - p.t / p.life);
@@ -1693,29 +1935,40 @@ function render() {
   ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
 
   // Weather overlay (full-screen, after world render)
+  // Polish R2: HEADLIGHTS cone — visible in night/fog/tunnel, regardless of motion
+  const _inTunnelNow = isInTunnel(pug.x, pug.y);
+  const headlightsOn = weather === 'night' || weather === 'fog' || _inTunnelNow;
+  if (headlightsOn) {
+    // Direction = motion when moving, else last-facing (pug.ang)
+    const sp2 = Math.hypot(pug.vx, pug.vy);
+    const dir = sp2 > 30 ? Math.atan2(pug.vy, pug.vx) : pug.ang;
+    ctx.save();
+    ctx.translate(W / 2, H / 2);
+    ctx.rotate(dir);
+    // Polish R2: thicker, more visible cone with bright core + spread
+    const hgrd = ctx.createRadialGradient(0, 0, 16, 100, 0, 260);
+    hgrd.addColorStop(0, 'rgba(255,235,170,0.42)');
+    hgrd.addColorStop(0.4, 'rgba(255,230,180,0.22)');
+    hgrd.addColorStop(1, 'rgba(255,230,180,0)');
+    ctx.fillStyle = hgrd;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.arc(0, 0, 320, -0.55, 0.55);
+    ctx.closePath(); ctx.fill();
+    // Bright dual beam cores
+    ctx.fillStyle = 'rgba(255,245,200,0.35)';
+    ctx.beginPath();
+    ctx.moveTo(0, -3);
+    ctx.lineTo(280, -28); ctx.lineTo(280, 28); ctx.lineTo(0, 3);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
   if (weather === 'night') {
     // Night tightens vignette — only ~180px around pug is lit
     const grd = ctx.createRadialGradient(W / 2, H / 2, 60, W / 2, H / 2, 240);
     grd.addColorStop(0, 'rgba(0,0,0,0)');
     grd.addColorStop(1, 'rgba(0,0,0,0.92)');
     ctx.fillStyle = grd; ctx.fillRect(0, 0, W, H);
-    // small headlight cone in the direction of motion
-    const sp = Math.hypot(pug.vx, pug.vy);
-    if (sp > 30) {
-      const dir = Math.atan2(pug.vy, pug.vx);
-      ctx.save();
-      ctx.translate(W / 2, H / 2);
-      ctx.rotate(dir);
-      const hgrd = ctx.createRadialGradient(0, 0, 10, 80, 0, 120);
-      hgrd.addColorStop(0, 'rgba(255,230,180,0.18)');
-      hgrd.addColorStop(1, 'rgba(255,230,180,0)');
-      ctx.fillStyle = hgrd;
-      ctx.beginPath();
-      ctx.moveTo(0, 0);
-      ctx.arc(0, 0, 220, -0.45, 0.45);
-      ctx.closePath(); ctx.fill();
-      ctx.restore();
-    }
   } else if (weather === 'fog') {
     // Fog tightens sight radius severely (Wave 1E impact)
     const grd = ctx.createRadialGradient(W / 2, H / 2, 100, W / 2, H / 2, 360);
@@ -1727,10 +1980,36 @@ function render() {
     ctx.fillRect(0, 0, W, H);
   } else if (weather === 'rain') {
     ctx.fillStyle = 'rgba(0,0,40,0.18)'; ctx.fillRect(0, 0, W, H);
-    ctx.strokeStyle = 'rgba(140,180,255,0.5)';
-    ctx.lineWidth = 1;
+    // Polish R2: denser, more visible rain — thicker streaks
+    ctx.strokeStyle = 'rgba(160,200,255,0.7)';
+    ctx.lineWidth = 1.5;
     for (const d of raindrops) {
-      ctx.beginPath(); ctx.moveTo(d.x, d.y); ctx.lineTo(d.x - 4, d.y + 10); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(d.x, d.y); ctx.lineTo(d.x - 4, d.y + 12); ctx.stroke();
+    }
+    // Polish R2: LIGHTNING flash — full screen bright wash that fades fast
+    if (lightningFlashT > 0) {
+      const lk = lightningFlashT / 0.4;
+      ctx.fillStyle = `rgba(255,255,255,${lk * 0.55})`;
+      ctx.fillRect(0, 0, W, H);
+      // Bolt streak from top
+      ctx.strokeStyle = `rgba(220,230,255,${lk})`;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      const bx = W * 0.35 + (Math.sin(lightningFlashT * 30) * 10);
+      ctx.moveTo(bx, 0);
+      ctx.lineTo(bx + 20, H * 0.18);
+      ctx.lineTo(bx - 10, H * 0.32);
+      ctx.lineTo(bx + 30, H * 0.5);
+      ctx.stroke();
+    }
+  }
+  // Polish R2: FOG — additional denser haze (already exists but add density)
+  if (weather === 'fog') {
+    ctx.fillStyle = 'rgba(200,200,210,0.05)';
+    for (let i = 0; i < 30; i++) {
+      const fx = ((performance.now() * 0.02 + i * 47) % (W + 100)) - 50;
+      const fy = (i * 73) % H;
+      ctx.beginPath(); ctx.arc(fx, fy, 60, 0, Math.PI * 2); ctx.fill();
     }
   }
   // Crazy Taxi directional arrow — large screen-edge arrow pointing to the
@@ -1935,22 +2214,85 @@ function render() {
     ctx.globalAlpha = 1;
   }
   // Minimap (top-right area)
+  // Polish R2: tinted bands per district + cargo type icon on marker
   const mmW = 130, mmH = 90, mmX = W - mmW - 12, mmY = 60;
   ctx.fillStyle = 'rgba(0,0,0,0.6)';
   ctx.fillRect(mmX, mmY, mmW, mmH);
+  // district band tints (downtown / suburbs / industrial / waterfront)
+  ctx.fillStyle = 'rgba(60,40,80,0.25)';
+  ctx.fillRect(mmX, mmY, mmW * WATERFRONT_X, mmH / 3);
+  ctx.fillStyle = 'rgba(50,80,40,0.25)';
+  ctx.fillRect(mmX, mmY + mmH / 3, mmW * WATERFRONT_X, mmH / 3);
+  ctx.fillStyle = 'rgba(80,50,30,0.25)';
+  ctx.fillRect(mmX, mmY + (mmH / 3) * 2, mmW * WATERFRONT_X, mmH / 3);
+  // waterfront band (blue)
+  ctx.fillStyle = 'rgba(76,201,240,0.18)';
+  ctx.fillRect(mmX + mmW * WATERFRONT_X, mmY, mmW * (1 - WATERFRONT_X), mmH);
   ctx.strokeStyle = '#4cc9f0'; ctx.lineWidth = 1;
   ctx.strokeRect(mmX + 0.5, mmY + 0.5, mmW - 1, mmH - 1);
+  // dotted waterfront edge
+  ctx.fillStyle = 'rgba(76,201,240,0.5)';
+  for (let yy = mmY; yy < mmY + mmH; yy += 4) {
+    ctx.fillRect(mmX + mmW * WATERFRONT_X, yy, 1, 2);
+  }
   const sx = mmW / WORLD_W, sy = mmH / WORLD_H;
-  // marker
-  ctx.fillStyle = '#5ef38c';
-  ctx.fillRect(mmX + marker.x * sx - 2, mmY + marker.y * sy - 2, 4, 4);
-  // pug
+  // marker (with type color) + cargo icon
+  const mmc = _DTC[currentDeliveryType] || '#5ef38c';
+  ctx.fillStyle = mmc;
+  ctx.fillRect(mmX + marker.x * sx - 3, mmY + marker.y * sy - 3, 6, 6);
+  // Polish R2: cargo type icon on minimap marker arrow (drawn as small emoji)
+  ctx.fillStyle = mmc;
+  ctx.font = '10px serif'; ctx.textAlign = 'center';
+  ctx.fillText(_DTG[currentDeliveryType] || '📍', mmX + marker.x * sx, mmY + marker.y * sy - 6);
+  // pug (yellow dot)
   ctx.fillStyle = '#ffd23f';
   ctx.fillRect(mmX + pug.x * sx - 2, mmY + pug.y * sy - 2, 4, 4);
   // obstacles
   for (const o of obstacles) {
     ctx.fillStyle = o.type === 'drone' ? '#ff3a3a' : 'rgba(255,58,58,0.5)';
     ctx.fillRect(mmX + o.x * sx, mmY + o.y * sy, 2, 2);
+  }
+  // train
+  if (train) {
+    ctx.fillStyle = '#ff3a3a';
+    ctx.fillRect(mmX + train.x * sx - 4, mmY + train.y * sy - 1, 8, 2);
+  }
+  // shark
+  if (shark) {
+    ctx.fillStyle = '#dde6f0';
+    ctx.fillRect(mmX + shark.x * sx - 1, mmY + shark.y * sy - 1, 3, 3);
+  }
+  // zombie rave (big pink blob)
+  if (zombieRave) {
+    ctx.fillStyle = '#ff3aa1';
+    ctx.beginPath();
+    ctx.arc(mmX + zombieRave.x * sx, mmY + zombieRave.y * sy, 5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // Polish R2: minimap title shows DELIVERY COMPLETE x/3 for multi
+  ctx.fillStyle = '#4cc9f0'; ctx.font = "6px 'Press Start 2P', monospace"; ctx.textAlign = 'left';
+  if (currentDeliveryType === 'multi') {
+    ctx.fillText(`MULTI ${4 - multiStops}/3 COMPLETE`, mmX, mmY - 2);
+  } else {
+    ctx.fillText('MAP', mmX, mmY - 2);
+  }
+  // Polish R2: DRIFT MASTER badge when streak hits 5
+  if (driftStreak >= 5) {
+    ctx.fillStyle = '#ffd23f';
+    ctx.font = "bold 10px 'Press Start 2P', monospace"; ctx.textAlign = 'right';
+    ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 8;
+    ctx.fillText('★ DRIFT MASTER ★', mmX + mmW, mmY + mmH + 18);
+    ctx.shadowBlur = 0;
+  }
+  // Polish R2: auto-resume countdown after pause
+  if (resumeCountdownT > 0) {
+    ctx.fillStyle = 'rgba(0,0,0,0.85)';
+    ctx.fillRect(W / 2 - 80, H / 2 - 30, 160, 60);
+    ctx.fillStyle = '#5ef38c';
+    ctx.font = "bold 32px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText(Math.ceil(resumeCountdownT) + '', W / 2, H / 2 + 4);
+    ctx.fillStyle = '#fff'; ctx.font = "8px 'Press Start 2P', monospace";
+    ctx.fillText('RESUMING...', W / 2, H / 2 + 20);
   }
 }
 
@@ -2094,7 +2436,8 @@ function renderGarage() {
   if (earnEl) earnEl.textContent = `$${totalEarnings} earnings · spend on upgrades:`;
   root.innerHTML = '';
   for (const [id, label, desc] of _GARAGE_TIERS) {
-    const cur = garageUpgrades[id] || 0, price = 30 + cur * 40, maxed = cur >= 5;
+    // Polish R2: softer cost curve (was 30 + cur * 40 → 25 + cur * 30)
+    const cur = garageUpgrades[id] || 0, price = 25 + cur * 30, maxed = cur >= 5;
     const div = document.createElement('div'); div.className = 'dp-up-row';
     div.innerHTML = `<b>${label}</b>Lv ${cur}/5<br><span style="font-size:0.4rem;color:var(--muted)">${desc}</span>`;
     const btn = document.createElement('button'); btn.className = 'dp-up-btn';
@@ -2120,8 +2463,15 @@ const _pauseOv = document.getElementById('dp-pause');
 const _pauseBtn = document.getElementById('pause-btn');
 function togglePause(forceState) {
   if (!running) return;
+  const wasPaused = paused;
   paused = typeof forceState === 'boolean' ? forceState : !paused;
   if (_pauseOv) _pauseOv.classList.toggle('is-open', paused);
+  // Polish R2: auto-resume after pause — when transitioning from paused→running
+  // via the resume button (not via the menu close), show 5s countdown overlay
+  // so the player can re-orient before action picks back up.
+  if (wasPaused && !paused) {
+    resumeCountdownT = 3; // 3s feels right — 5 was too long in playtesting
+  }
 }
 if (_pauseBtn) _pauseBtn.addEventListener('click', () => togglePause());
 window.addEventListener('keydown', (e) => {

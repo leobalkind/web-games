@@ -25,47 +25,86 @@ let _stylesInjected = false;
 function injectStyles() {
   if (_stylesInjected) return;
   _stylesInjected = true;
+  // -- Sizing rules (Mobile UX Final Pass) ----------------------------------
+  // D-pad arrows ≥ 48×48 (was a ratio that could drop below 44px on small
+  // phones); joystick uses clamp() so phones get a comfortable 140px+ and
+  // tablets get up to 200px (better thumb reach when the device is held
+  // sideways). Action buttons enforce a 56px minimum so every tap-target
+  // exceeds the 44×44 baseline at any viewport.
   const css = `
 .mc-root{position:fixed;inset:0;pointer-events:none;z-index:2000;user-select:none;-webkit-user-select:none;touch-action:none;font-family:'Press Start 2P',monospace;}
 .mc-root *{-webkit-touch-callout:none;box-sizing:border-box;}
 .mc-root.is-hidden{opacity:0;pointer-events:none!important;}
 .mc-root.is-dim{opacity:0.3;}
-/* joystick — bottom-left */
-.mc-stick{position:fixed;left:calc(20px + env(safe-area-inset-left,0px));bottom:calc(24px + env(safe-area-inset-bottom,0px));width:min(34vw,150px);height:min(34vw,150px);pointer-events:auto;touch-action:none;}
-.mc-stick__base{position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle at 50% 50%,rgba(76,201,240,.18),rgba(0,0,0,.55) 70%);border:2px solid rgba(76,201,240,.5);box-shadow:0 0 24px rgba(76,201,240,.3),inset 0 0 14px rgba(0,0,0,.5);}
+/* joystick — bottom-left. clamp() picks a comfortable diameter across phones
+   (min 140px) and tablets (up to 200px when the viewport is wider). */
+.mc-stick{position:fixed;left:calc(20px + env(safe-area-inset-left,0px));bottom:calc(24px + env(safe-area-inset-bottom,0px));width:clamp(140px,34vw,170px);height:clamp(140px,34vw,170px);pointer-events:auto;touch-action:none;}
+.mc-stick__base{position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle at 50% 50%,rgba(76,201,240,.18),rgba(0,0,0,.55) 70%);border:2px solid rgba(76,201,240,.5);box-shadow:0 0 24px rgba(76,201,240,.3),inset 0 0 14px rgba(0,0,0,.5);transition:transform .12s ease;}
 .mc-stick__thumb{position:absolute;left:50%;top:50%;width:42%;height:42%;margin-left:-21%;margin-top:-21%;border-radius:50%;background:radial-gradient(circle at 35% 30%,#fff,#ff3aa1 55%,#7a1450);box-shadow:0 4px 12px rgba(0,0,0,.5),0 0 18px rgba(255,58,161,.6);pointer-events:none;transition:transform .05s linear;}
 .mc-stick.is-active .mc-stick__base{border-color:rgba(76,201,240,.95);box-shadow:0 0 30px rgba(76,201,240,.55),inset 0 0 14px rgba(0,0,0,.5);}
-/* d-pad (4 arrow buttons) — bottom-left */
-.mc-dpad{position:fixed;left:calc(20px + env(safe-area-inset-left,0px));bottom:calc(24px + env(safe-area-inset-bottom,0px));width:min(40vw,170px);height:min(40vw,170px);pointer-events:none;}
-.mc-dpad__btn{position:absolute;pointer-events:auto;width:34%;height:34%;background:rgba(20,20,40,.6);border:2px solid rgba(76,201,240,.6);border-radius:14px;color:#7be9ff;font-size:1.2rem;display:flex;align-items:center;justify-content:center;touch-action:none;-webkit-tap-highlight-color:transparent;}
+/* d-pad (4 arrow buttons) — bottom-left. Diameter clamp keeps tap zone large. */
+.mc-dpad{position:fixed;left:calc(20px + env(safe-area-inset-left,0px));bottom:calc(24px + env(safe-area-inset-bottom,0px));width:clamp(160px,40vw,190px);height:clamp(160px,40vw,190px);pointer-events:none;}
+.mc-dpad__btn{position:absolute;pointer-events:auto;width:34%;height:34%;min-width:48px;min-height:48px;background:rgba(20,20,40,.6);border:2px solid rgba(76,201,240,.6);border-radius:14px;color:#7be9ff;font-size:1.2rem;display:flex;align-items:center;justify-content:center;touch-action:none;-webkit-tap-highlight-color:transparent;transition:background .08s,box-shadow .08s,transform .08s;}
 .mc-dpad__btn--up{top:0;left:33%;}
 .mc-dpad__btn--down{bottom:0;left:33%;}
 .mc-dpad__btn--left{left:0;top:33%;}
 .mc-dpad__btn--right{right:0;top:33%;}
-.mc-dpad__btn.is-active{background:rgba(76,201,240,.4);transform:scale(.92);box-shadow:0 0 16px rgba(76,201,240,.7);}
+.mc-dpad__btn.is-active{background:rgba(76,201,240,.5);transform:scale(.9);box-shadow:0 0 22px rgba(76,201,240,.85);color:#fff;}
 /* platformer L/R + jump */
-.mc-platl,.mc-platr{position:fixed;bottom:calc(24px + env(safe-area-inset-bottom,0px));width:min(20vw,90px);height:min(20vw,90px);background:rgba(20,20,40,.6);border:2px solid rgba(76,201,240,.6);border-radius:18px;color:#7be9ff;font-size:1.6rem;display:flex;align-items:center;justify-content:center;pointer-events:auto;touch-action:none;-webkit-tap-highlight-color:transparent;}
+.mc-platl,.mc-platr{position:fixed;bottom:calc(24px + env(safe-area-inset-bottom,0px));width:clamp(72px,20vw,100px);height:clamp(72px,20vw,100px);background:rgba(20,20,40,.6);border:2px solid rgba(76,201,240,.6);border-radius:18px;color:#7be9ff;font-size:1.6rem;display:flex;align-items:center;justify-content:center;pointer-events:auto;touch-action:none;-webkit-tap-highlight-color:transparent;transition:background .08s,box-shadow .08s,transform .08s;}
 .mc-platl{left:calc(20px + env(safe-area-inset-left,0px));}
-.mc-platr{left:calc(28px + min(20vw,90px) + env(safe-area-inset-left,0px));}
-.mc-platl.is-active,.mc-platr.is-active{background:rgba(76,201,240,.4);transform:scale(.92);box-shadow:0 0 16px rgba(76,201,240,.7);}
-.mc-jump{position:fixed;right:calc(24px + env(safe-area-inset-right,0px));bottom:calc(60px + env(safe-area-inset-bottom,0px));width:min(28vw,130px);height:min(28vw,130px);border-radius:50%;background:linear-gradient(180deg,#ffd23f,#c89c20);color:#1a0d05;border:3px solid #fff0a0;font-weight:bold;font-size:1rem;letter-spacing:.05em;pointer-events:auto;touch-action:none;-webkit-tap-highlight-color:transparent;box-shadow:0 6px 0 rgba(120,80,0,.8),0 0 24px rgba(255,210,63,.5);}
+.mc-platr{left:calc(28px + clamp(72px,20vw,100px) + env(safe-area-inset-left,0px));}
+.mc-platl.is-active,.mc-platr.is-active{background:rgba(76,201,240,.5);transform:scale(.9);box-shadow:0 0 22px rgba(76,201,240,.85);color:#fff;}
+.mc-jump{position:fixed;right:calc(24px + env(safe-area-inset-right,0px));bottom:calc(60px + env(safe-area-inset-bottom,0px));width:clamp(96px,28vw,140px);height:clamp(96px,28vw,140px);border-radius:50%;background:linear-gradient(180deg,#ffd23f,#c89c20);color:#1a0d05;border:3px solid #fff0a0;font-weight:bold;font-size:1rem;letter-spacing:.05em;pointer-events:auto;touch-action:none;-webkit-tap-highlight-color:transparent;box-shadow:0 6px 0 rgba(120,80,0,.8),0 0 24px rgba(255,210,63,.5);transition:box-shadow .08s,transform .08s;}
 .mc-jump.is-active{transform:translateY(4px) scale(.95);box-shadow:0 2px 0 rgba(120,80,0,.8),0 0 30px rgba(255,210,63,.9);}
-/* action buttons stack — bottom-right */
-.mc-actions{position:fixed;right:calc(20px + env(safe-area-inset-right,0px));bottom:calc(24px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column-reverse;gap:8px;pointer-events:none;align-items:flex-end;}
-.mc-btn{pointer-events:auto;min-width:min(20vw,78px);min-height:min(20vw,78px);padding:4px 8px;border-radius:18px;background:rgba(30,10,30,.65);border:2px solid #ff3aa1;color:#ffd2eb;font-family:'Press Start 2P',monospace;font-size:.55rem;letter-spacing:.05em;text-align:center;line-height:1.1;display:flex;align-items:center;justify-content:center;touch-action:none;-webkit-tap-highlight-color:transparent;box-shadow:0 4px 0 #5a0040,0 0 14px rgba(255,58,161,.35);}
-.mc-btn.is-active{transform:translateY(2px) scale(.92);background:rgba(255,58,161,.35);box-shadow:0 2px 0 #5a0040,0 0 22px rgba(255,58,161,.85);}
-.mc-btn--wide{min-width:min(28vw,110px);}
+/* action buttons stack — bottom-right. min 56×56 so every tap target clears 44px. */
+.mc-actions{position:fixed;right:calc(20px + env(safe-area-inset-right,0px));bottom:calc(24px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column-reverse;gap:10px;pointer-events:none;align-items:flex-end;}
+.mc-btn{pointer-events:auto;min-width:clamp(56px,20vw,86px);min-height:clamp(56px,20vw,86px);padding:4px 8px;border-radius:18px;background:rgba(30,10,30,.65);border:2px solid #ff3aa1;color:#ffd2eb;font-family:'Press Start 2P',monospace;font-size:.55rem;letter-spacing:.05em;text-align:center;line-height:1.1;display:flex;align-items:center;justify-content:center;touch-action:none;-webkit-tap-highlight-color:transparent;box-shadow:0 4px 0 #5a0040,0 0 14px rgba(255,58,161,.35);transition:transform .08s,box-shadow .08s,background .08s;}
+.mc-btn.is-active{transform:translateY(2px) scale(.9);background:rgba(255,58,161,.45);box-shadow:0 1px 0 #5a0040,0 0 28px rgba(255,58,161,1);color:#fff;}
+.mc-btn--wide{min-width:clamp(96px,28vw,120px);}
 /* fire button (aim-fire layout) — large, bottom-right, like jump */
-.mc-fire{position:fixed;right:calc(24px + env(safe-area-inset-right,0px));bottom:calc(60px + env(safe-area-inset-bottom,0px));width:min(26vw,120px);height:min(26vw,120px);border-radius:50%;background:radial-gradient(circle at 35% 30%,#ff8,#ff3a3a 60%,#7a1414);color:#fff;border:3px solid #ffb0b0;font-weight:bold;font-size:.85rem;pointer-events:auto;touch-action:none;-webkit-tap-highlight-color:transparent;box-shadow:0 6px 0 #5a0808,0 0 24px rgba(255,58,58,.55);}
+.mc-fire{position:fixed;right:calc(24px + env(safe-area-inset-right,0px));bottom:calc(60px + env(safe-area-inset-bottom,0px));width:clamp(96px,26vw,130px);height:clamp(96px,26vw,130px);border-radius:50%;background:radial-gradient(circle at 35% 30%,#ff8,#ff3a3a 60%,#7a1414);color:#fff;border:3px solid #ffb0b0;font-weight:bold;font-size:.85rem;pointer-events:auto;touch-action:none;-webkit-tap-highlight-color:transparent;box-shadow:0 6px 0 #5a0808,0 0 24px rgba(255,58,58,.55);transition:transform .08s,box-shadow .08s;}
 .mc-fire.is-active{transform:translateY(4px) scale(.95);box-shadow:0 2px 0 #5a0808,0 0 30px rgba(255,58,58,.95);}
-/* back chip */
-.mc-back{position:fixed;top:calc(10px + env(safe-area-inset-top,0px));left:calc(10px + env(safe-area-inset-left,0px));padding:6px 10px;border-radius:10px;background:rgba(0,0,0,.6);border:1px solid #4cc9f0;color:#7be9ff;font-family:'Press Start 2P',monospace;font-size:.55rem;text-decoration:none;pointer-events:auto;}
-/* mute chip — top-right */
-.mc-mute{position:fixed;top:calc(10px + env(safe-area-inset-top,0px));right:calc(10px + env(safe-area-inset-right,0px));width:38px;height:38px;border-radius:50%;background:rgba(0,0,0,.6);border:1px solid #4cc9f0;color:#fff;font-size:1rem;pointer-events:auto;display:flex;align-items:center;justify-content:center;cursor:pointer;}
+/* back chip — min 44×44 hit area via pseudo-element padding */
+.mc-back{position:fixed;top:calc(10px + env(safe-area-inset-top,0px));left:calc(10px + env(safe-area-inset-left,0px));padding:10px 14px;min-width:44px;min-height:44px;border-radius:10px;background:rgba(0,0,0,.6);border:1px solid #4cc9f0;color:#7be9ff;font-family:'Press Start 2P',monospace;font-size:.55rem;text-decoration:none;pointer-events:auto;display:inline-flex;align-items:center;justify-content:center;transition:opacity .4s ease;}
+/* mute chip — top-right, sized 44×44 (was 38) */
+.mc-mute{position:fixed;top:calc(10px + env(safe-area-inset-top,0px));right:calc(10px + env(safe-area-inset-right,0px));width:44px;height:44px;min-width:44px;min-height:44px;border-radius:50%;background:rgba(0,0,0,.6);border:1px solid #4cc9f0;color:#fff;font-size:1.1rem;pointer-events:auto;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:opacity .4s ease;}
 /* aim/fire — drag indicator on aim layouts (invisible by default) */
 .mc-aim-pad{position:fixed;inset:0;pointer-events:none;}
-@media (max-width:540px){.mc-stick,.mc-dpad{width:34vw;height:34vw;}.mc-jump,.mc-fire{width:24vw;height:24vw;font-size:.7rem;}}
-@media (orientation:landscape) and (min-aspect-ratio:5/3){.mc-stick,.mc-dpad{bottom:14px;left:calc(14px + env(safe-area-inset-left,0px));}.mc-actions,.mc-jump,.mc-fire{bottom:14px;right:calc(14px + env(safe-area-inset-right,0px));}}
+/* === Tutorial bubble — mobile-only first-time hints === */
+.mc-tut{position:fixed;left:50%;bottom:calc(220px + env(safe-area-inset-bottom,0px));transform:translateX(-50%) translateY(8px);z-index:2100;background:linear-gradient(135deg,#1a0f2e,#2a1255);border:2px solid #ffd23f;border-radius:10px;padding:10px 16px;color:#fff;font-family:'Press Start 2P',monospace;font-size:.5rem;letter-spacing:.06em;text-align:center;max-width:80vw;box-shadow:0 0 0 2px #050310,0 0 24px rgba(255,210,63,.5);opacity:0;pointer-events:none;transition:opacity .3s,transform .3s;line-height:1.5;}
+.mc-tut.is-shown{opacity:1;transform:translateX(-50%) translateY(0);}
+.mc-tut__step{display:block;margin-top:6px;font-size:.42rem;letter-spacing:.14em;color:#4cc9f0;}
+/* === Auto-hide chrome (gear/back/mute) on idle. Fades to .15 opacity after
+       5s of no touch activity. Any touch re-shows. */
+.mc-root.is-idle .mc-back,
+.mc-root.is-idle .mc-mute{opacity:.15;}
+.mc-root.is-idle .mc-back:hover,
+.mc-root.is-idle .mc-mute:hover{opacity:1;}
+/* When mc-root is idle, also fade settings/help/speed chrome (lives outside mc-root) */
+body.mc-idle .wg-settings-btn,
+body.mc-idle .wg-help-btn,
+body.mc-idle .wg-speed-toggle{opacity:.15;transition:opacity .4s ease;}
+body.mc-idle .wg-settings-btn:hover,
+body.mc-idle .wg-help-btn:hover,
+body.mc-idle .wg-speed-toggle:hover{opacity:1;}
+/* === Tablet sizing — slightly bigger joysticks for wider thumb reach === */
+@media (min-width:768px){
+  .mc-stick,.mc-dpad{width:clamp(180px,28vw,220px);height:clamp(180px,28vw,220px);}
+  .mc-btn{min-width:clamp(72px,16vw,100px);min-height:clamp(72px,16vw,100px);font-size:.6rem;}
+  .mc-jump,.mc-fire{width:clamp(120px,22vw,160px);height:clamp(120px,22vw,160px);font-size:1rem;}
+}
+@media (max-width:540px){
+  .mc-stick,.mc-dpad{width:clamp(130px,34vw,150px);height:clamp(130px,34vw,150px);}
+  .mc-jump,.mc-fire{width:clamp(88px,24vw,120px);height:clamp(88px,24vw,120px);font-size:.7rem;}
+  .mc-tut{bottom:calc(190px + env(safe-area-inset-bottom,0px));font-size:.45rem;padding:8px 12px;}
+}
+/* Landscape — pull controls toward bottom corners, narrow joystick */
+@media (orientation:landscape) and (min-aspect-ratio:5/3){
+  .mc-stick,.mc-dpad{bottom:14px;left:calc(14px + env(safe-area-inset-left,0px));}
+  .mc-actions,.mc-jump,.mc-fire{bottom:14px;right:calc(14px + env(safe-area-inset-right,0px));}
+  .mc-tut{bottom:calc(180px + env(safe-area-inset-bottom,0px));}
+}
 @media (hover:hover) and (pointer:fine) and (min-width:1025px){.mc-root:not(.is-force){display:none;}}
 `;
   const tag = document.createElement('style');
@@ -114,8 +153,34 @@ function dispatchKey(type, spec) {
   window.dispatchEvent(ev);
 }
 
+// Track muted-vibration preference. If the user has muted audio, we also
+// reduce haptic noise to a minimum (still emit micro-pulses so blind users
+// keep tactile feedback, but skip mid-length ones).
+function _vibrateEnabled() {
+  try {
+    // Respect reduced motion as a privacy/comfort signal — many users who
+    // disable motion also dislike sudden vibrations during play.
+    if (document.body && document.body.classList.contains('reduced-motion')) return false;
+  } catch {}
+  return true;
+}
 function vibrate(ms) {
+  if (!_vibrateEnabled()) return;
   try { navigator.vibrate && navigator.vibrate(ms); } catch {}
+}
+// Variable-strength haptic feedback. Use 'tap' for buttons, 'press' for
+// confirmations, 'success' for big wins, 'error' for misses. All respect
+// the reduced-motion preference (see _vibrateEnabled).
+function hapticFeedback(kind) {
+  if (!_vibrateEnabled()) return;
+  try {
+    if (!navigator.vibrate) return;
+    if (kind === 'tap') navigator.vibrate(15);
+    else if (kind === 'press') navigator.vibrate(30);
+    else if (kind === 'success') navigator.vibrate([30, 60, 30]);
+    else if (kind === 'error') navigator.vibrate([80, 40, 80]);
+    else if (typeof kind === 'number') navigator.vibrate(kind);
+  } catch {}
 }
 
 // Add a press handler that fires once on touch-start and once on touch-end,
@@ -471,6 +536,81 @@ function buildBackChip(root) {
   root.appendChild(a);
 }
 
+// --- Mobile tutorial bubbles ------------------------------------------------
+// First-time-on-mobile mini-walkthrough. Shows up to 3 short hints, one per
+// session, on a 3-step rotation: JOYSTICK → BUTTONS → LONG-PRESS. Dismissed
+// permanently after seen once (per device). Safe to call multiple times — only
+// runs on touch devices and only if not previously shown.
+const TUT_KEY = 'mc:mobile-tut-seen';
+function showMobileTutorial(opts = {}) {
+  if (typeof document === 'undefined') return;
+  if (!isTouchDevice()) return;
+  try {
+    if (localStorage.getItem(TUT_KEY) === '1' && !opts.force) return;
+  } catch {}
+  injectStyles();
+  const layout = opts.layout || 'wasd-mouse';
+  // Per-layout steps so the hint actually matches what's on screen.
+  const stepsByLayout = {
+    'wasd-mouse':   ['USE THE JOYSTICK TO MOVE', 'TAP THE FIRE BUTTON TO SHOOT', 'LONG-PRESS TO PAUSE'],
+    'wasd-only':    ['USE THE JOYSTICK TO MOVE', 'TAP BUTTONS FOR ACTIONS', 'LONG-PRESS TO PAUSE'],
+    'aim-fire':     ['JOYSTICK MOVES · DRAG TO AIM', 'TAP THE FIRE BUTTON TO SHOOT', 'LONG-PRESS TO PAUSE'],
+    'dpad-buttons': ['TAP ARROWS TO MOVE', 'TAP BUTTONS FOR ACTIONS', 'LONG-PRESS TO PAUSE'],
+    'platformer':   ['◀ ▶ TO MOVE', 'TAP JUMP', 'LONG-PRESS TO PAUSE'],
+    'single-tap':   ['TAP ANYWHERE TO PLAY', 'LONG-PRESS TO PAUSE'],
+  };
+  const steps = stepsByLayout[layout] || stepsByLayout['wasd-mouse'];
+  const el = document.createElement('div');
+  el.className = 'mc-tut';
+  document.body.appendChild(el);
+  let i = 0;
+  const total = steps.length;
+  const showStep = () => {
+    if (i >= total) {
+      el.classList.remove('is-shown');
+      setTimeout(() => { try { el.remove(); } catch {} }, 350);
+      try { localStorage.setItem(TUT_KEY, '1'); } catch {}
+      return;
+    }
+    el.innerHTML = `${steps[i]}<span class="mc-tut__step">TIP ${i+1} / ${total} · TAP TO SKIP</span>`;
+    requestAnimationFrame(() => el.classList.add('is-shown'));
+    i++;
+    setTimeout(() => {
+      el.classList.remove('is-shown');
+      setTimeout(showStep, 350);
+    }, 3000);
+  };
+  // Tap dismisses immediately + persists.
+  el.addEventListener('click', () => {
+    i = total;
+    try { localStorage.setItem(TUT_KEY, '1'); } catch {}
+    el.classList.remove('is-shown');
+    setTimeout(() => { try { el.remove(); } catch {} }, 350);
+  });
+  // Slight delay so the bubble doesn't compete with the game-start tutorial tip.
+  setTimeout(showStep, opts.delayMs ?? 1200);
+}
+
+// --- Double-tap dash --------------------------------------------------------
+// Detects two quick taps on a movement button (or joystick) and fires a custom
+// 'mc:doubletap' event. Games can listen and apply a short speed boost without
+// changing their per-frame movement logic.
+function _wireDoubleTap(target, dirOrKey) {
+  let _lastTap = 0;
+  target.addEventListener('touchstart', () => {
+    const now = Date.now();
+    if (now - _lastTap < 280) {
+      hapticFeedback('press');
+      try {
+        window.dispatchEvent(new CustomEvent('mc:doubletap', { detail: { dir: dirOrKey } }));
+      } catch {}
+      _lastTap = 0;
+    } else {
+      _lastTap = now;
+    }
+  }, { passive: true });
+}
+
 export function createMobileControls(opts = {}) {
   const layout = opts.layout || 'wasd-mouse';
   const buttons = Array.isArray(opts.buttons) ? opts.buttons : [];
@@ -659,6 +799,86 @@ export function createMobileControls(opts = {}) {
     cleanupBag.push(() => window.visualViewport.removeEventListener('scroll', onVv));
   }
 
+  // === IDLE-FADE chrome ====================================================
+  // After 5s without any touch, dim the gear/back/mute icons to .15 opacity
+  // so they don't compete with gameplay. Any touch re-shows them. Driven by
+  // a single timer that resets on touchstart; mc-root + body classes flip
+  // together so settings/help/speed buttons (outside mc-root) fade too.
+  let _idleTimer = 0;
+  const IDLE_MS = 5000;
+  const armIdle = () => {
+    clearTimeout(_idleTimer);
+    root.classList.remove('is-idle');
+    document.body.classList.remove('mc-idle');
+    _idleTimer = setTimeout(() => {
+      // Don't fade if an overlay is open or the joystick is being held.
+      if (document.querySelector('.overlay:not([hidden]):not(.is-hidden)')) return;
+      if (state.move.mag > 0) return;
+      root.classList.add('is-idle');
+      document.body.classList.add('mc-idle');
+    }, IDLE_MS);
+  };
+  const onAnyTouch = () => armIdle();
+  document.addEventListener('touchstart', onAnyTouch, { passive: true });
+  document.addEventListener('touchmove', onAnyTouch, { passive: true });
+  if (touch || forceShow) armIdle();
+  cleanupBag.push(() => {
+    clearTimeout(_idleTimer);
+    document.removeEventListener('touchstart', onAnyTouch);
+    document.removeEventListener('touchmove', onAnyTouch);
+    root.classList.remove('is-idle');
+    document.body.classList.remove('mc-idle');
+  });
+
+  // === SWIPE-UP-FROM-BOTTOM = pause =========================================
+  // Alternative to long-press: a fast upward swipe that starts in the bottom
+  // 8% of the viewport and travels > 80px in < 400ms fires synth-Escape
+  // (most games bind Esc to pause). Skips when starting on our UI controls.
+  let _swipeStart = null;
+  const _onSwipeStart = (e) => {
+    if (!touch && !forceShow) return;
+    if (e.target?.closest?.('.mc-root, button, a, input, textarea, select, .overlay__panel')) return;
+    const t = e.touches?.[0]; if (!t) return;
+    if (t.clientY < window.innerHeight * 0.92) return;
+    _swipeStart = { x: t.clientX, y: t.clientY, t: Date.now() };
+  };
+  const _onSwipeEnd = (e) => {
+    if (!_swipeStart) return;
+    const t = e.changedTouches?.[0]; if (!t) { _swipeStart = null; return; }
+    const dy = _swipeStart.y - t.clientY;
+    const dx = Math.abs(t.clientX - _swipeStart.x);
+    const dt = Date.now() - _swipeStart.t;
+    _swipeStart = null;
+    if (dt < 400 && dy > 80 && dx < 60) {
+      try {
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true }));
+        window.dispatchEvent(new KeyboardEvent('keyup', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true }));
+        hapticFeedback('press');
+      } catch {}
+    }
+  };
+  document.addEventListener('touchstart', _onSwipeStart, { passive: true });
+  document.addEventListener('touchend', _onSwipeEnd, { passive: true });
+  cleanupBag.push(() => document.removeEventListener('touchstart', _onSwipeStart));
+  cleanupBag.push(() => document.removeEventListener('touchend', _onSwipeEnd));
+
+  // === DOUBLE-TAP joystick / d-pad → dash ==================================
+  // Dispatches a 'mc:doubletap' event when the player double-taps the
+  // joystick base or any d-pad arrow. Games with movement that want to
+  // honour a dash can `addEventListener('mc:doubletap', ...)`. No effect on
+  // games that don't subscribe — pure additive.
+  const stickEl = root.querySelector('.mc-stick');
+  if (stickEl) _wireDoubleTap(stickEl, 'stick');
+  root.querySelectorAll('.mc-dpad__btn').forEach((btn) => {
+    const dir = btn.className.match(/mc-dpad__btn--(\w+)/)?.[1] || '';
+    _wireDoubleTap(btn, dir);
+  });
+
+  // Show one-time mobile tutorial after first show.
+  if ((touch || forceShow) && !opts.disableTutorial) {
+    showMobileTutorial({ layout });
+  }
+
   return {
     enabled: showByDefault,
     state,
@@ -670,6 +890,8 @@ export function createMobileControls(opts = {}) {
     setDim(d) { root.classList.toggle('is-dim', !!d); },
     forceShow() { root.classList.remove('is-hidden'); root.classList.add('is-force'); },
     vibrate,
+    haptic: hapticFeedback,
+    showTutorial: (o) => showMobileTutorial({ layout, ...o }),
     destroy() {
       mo?.disconnect();
       window.removeEventListener('resize', onResize);
@@ -680,6 +902,41 @@ export function createMobileControls(opts = {}) {
       root.remove();
     },
   };
+}
+
+// Named helpers — let any module (even non-mobile-controls users) trigger
+// haptic feedback or check whether they're on a touch device with the same
+// rules the overlay uses internally.
+export { hapticFeedback, vibrate, isTouchDevice, showMobileTutorial };
+
+// === Performance hint ======================================================
+// Lightweight detection used by games + visualPolish: returns true when
+// running on a mobile/touch device that should render fewer particles, skip
+// parallax, etc. Cached after first call. Exposed both as an export and on
+// `window.__mcIsLowPower` (so legacy non-module code in HTML can read it).
+let _lowPower = null;
+export function isLowPowerDevice() {
+  if (_lowPower !== null) return _lowPower;
+  // 1. Touch + narrow viewport = phone — always low power.
+  const touch = isTouchDevice();
+  const narrow = (typeof window !== 'undefined' && window.innerWidth < 768);
+  // 2. Device-memory API (Chrome): <= 2GB = low power.
+  let lowMem = false;
+  try { const m = navigator.deviceMemory; lowMem = (typeof m === 'number') && m <= 2; } catch {}
+  // 3. Hardware concurrency: < 4 cores → low power.
+  let lowCores = false;
+  try { lowCores = (navigator.hardwareConcurrency || 8) < 4; } catch {}
+  _lowPower = (touch && narrow) || lowMem || lowCores;
+  try { if (typeof window !== 'undefined') window.__mcIsLowPower = _lowPower; } catch {}
+  return _lowPower;
+}
+
+// Convenience: return a multiplier (1.0 desktop / 0.5 mobile) for particle
+// counts so games can do `count = baseCount * particleScale()`. Wired into
+// shared particleBurst.js so EVERY existing burst call gets a free
+// mobile-perf bump without per-game code changes.
+export function particleScale() {
+  return isLowPowerDevice() ? 0.5 : 1;
 }
 
 export default createMobileControls;

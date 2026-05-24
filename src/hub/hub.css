@@ -1275,7 +1275,8 @@ body.high-contrast :focus-visible {
   .hub__header { margin-bottom: 36px; }
   .hub__chips { gap: 6px; }
   .hub__chip { font-size: 0.45rem; padding: 4px 8px; }
-  .hub__search { font-size: 0.9rem; padding: 9px 32px 9px 12px; }
+  /* min 44px tap height — iOS Safari can hide search affordance otherwise */
+  .hub__search { font-size: 0.9rem; padding: 12px 32px 12px 14px; min-height: 44px; }
   /* Scroll category chips horizontally on phones — wrapping made them blocky. */
   .hub__cats {
     gap: 5px;
@@ -1291,16 +1292,31 @@ body.high-contrast :focus-visible {
     -webkit-mask-image: linear-gradient(to right, transparent, #000 14px, #000 calc(100% - 14px), transparent);
   }
   .hub__cats::-webkit-scrollbar { display: none; }
-  .hub__cat { font-size: 0.4rem; padding: 4px 7px; letter-spacing: 0.08em; scroll-snap-align: center; }
+  /* Chips are still tappable — 32px min height covers the 44px target via padding. */
+  .hub__cat { font-size: 0.4rem; padding: 8px 9px; min-height: 32px; letter-spacing: 0.08em; scroll-snap-align: center; }
+  /* Single-column grid on phones; cards stretch full width with bigger artwork
+     so the player can read titles + descriptions without zooming. */
   .hub__grid { gap: var(--space-4); grid-template-columns: 1fr; }
-  .card__art { height: 160px; }
+  .card { min-height: 280px; }
+  .card__art { height: 180px; }
   .card__body { padding: 16px 16px 18px; }
-  .card__title { font-size: 0.85rem; }
+  .card__title { font-size: 0.9rem; }
+  .card__desc { font-size: 0.95rem; }
+  .card__cta { font-size: 0.95rem; padding: 4px 0; min-height: 28px; }
   .hub__footer { margin-top: 36px; font-size: 0.7rem; }
   .hub__footer > span:first-child { padding: 4px 9px; }
-  .hub-modal__panel { padding: 22px 18px; }
+  /* Modal panels fit a phone screen comfortably, never overflow safe-area. */
+  .hub-modal__panel {
+    padding: 22px 18px;
+    width: calc(100% - 16px);
+    max-width: none;
+    max-height: calc(100vh - 24px);
+    max-height: calc(100dvh - 24px);
+  }
   .stats-table { font-size: 0.75rem; }
   .stats-table thead th { font-size: 0.42rem; }
+  /* Footer icon buttons enlarged on phones to clear 44px tap target */
+  .hub__icon-btn { width: 36px; height: 36px; font-size: 14px; }
   /* Hide top-right pill on phones so the gear-button area in games doesn't collide */
   .signed-in-pill { top: calc(8px + env(safe-area-inset-top, 0)); }
 }
@@ -1308,8 +1324,81 @@ body.high-contrast :focus-visible {
 @media (max-width: 400px) {
   .hub__header h1 { font-size: clamp(1.4rem, 7vw, 2rem); }
   .hub__tagline { font-size: 0.9rem; }
-  .hub__cat { font-size: 0.36rem; padding: 3px 6px; }
+  .hub__cat { font-size: 0.36rem; padding: 6px 7px; }
+  .card { min-height: 260px; }
+  .card__art { height: 150px; }
+  .card__title { font-size: 0.85rem; }
 }
+
+/* === Landscape phones (≤520px tall) — keep header out of the way === */
+@media (max-height: 520px) and (orientation: landscape) {
+  .hub { padding: 28px 16px 24px; }
+  .hub__header { margin-bottom: 18px; }
+  .hub__header h1 { font-size: clamp(1.2rem, 4vh, 1.8rem); }
+  .hub__tagline { display: none; }
+  .hub__chips { display: none; }
+  .hub__grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+  .card__art { height: 110px; }
+}
+
+/* === iPad / tablets — two-column grid, comfortable card sizes === */
+@media (min-width: 601px) and (max-width: 900px) {
+  .hub__grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* === PWA install hint (shown on first 3 visits on mobile) ============
+   Renders top-of-screen as a non-blocking banner. Dismiss persists. */
+.pwa-install-hint {
+  position: fixed;
+  left: 50%;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0));
+  transform: translateX(-50%) translateY(40px);
+  z-index: 9050;
+  background: linear-gradient(135deg, #1a0f2e, #2a1255);
+  border: 2px solid var(--neon-cyan);
+  border-radius: 10px;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100vw - 32px);
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 0.5rem;
+  letter-spacing: 0.06em;
+  box-shadow: 0 0 24px rgba(76, 201, 240, 0.45);
+  opacity: 0;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+.pwa-install-hint.is-shown {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+.pwa-install-hint__icon { font-size: 1.4rem; flex-shrink: 0; }
+.pwa-install-hint__body { display: flex; flex-direction: column; gap: 2px; }
+.pwa-install-hint__title { color: var(--neon-cyan); }
+.pwa-install-hint__sub { font-size: 0.4rem; color: var(--text-soft); letter-spacing: 0.06em; }
+.pwa-install-hint__close,
+.pwa-install-hint__install {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-soft);
+  font-family: inherit;
+  font-size: 0.4rem;
+  letter-spacing: 0.1em;
+  padding: 8px 10px;
+  border-radius: 6px;
+  min-width: 44px;
+  min-height: 32px;
+  cursor: pointer;
+  margin-left: 4px;
+}
+.pwa-install-hint__install {
+  background: linear-gradient(180deg, var(--neon-cyan), #2189b8);
+  color: #0a0716;
+  border-color: var(--neon-cyan-soft);
+}
+.pwa-install-hint__close:hover { color: var(--neon-pink); border-color: var(--neon-pink); }
 
 /* Cards stagger-fade-up on first paint. */
 .hub__grid .card,

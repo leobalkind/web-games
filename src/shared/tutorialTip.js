@@ -25,14 +25,16 @@ function ensureTipStyles() {
       z-index: 160;
       pointer-events: none;
       font-family: 'Press Start 2P', 'Courier New', monospace;
-      font-size: 0.6rem;
+      /* clamp() so the tip stays readable on phones (min .55rem) without
+         exploding on tablets (max .75rem). Plays well with large-text mode. */
+      font-size: clamp(0.55rem, 1.6vw, 0.75rem);
       color: #fff;
       background: rgba(10, 7, 22, 0.92);
       border: 2px solid #4cc9f0;
       border-radius: 6px;
-      padding: 10px 16px;
+      padding: 12px 18px;
       box-shadow: 0 0 24px rgba(76, 201, 240, 0.45);
-      max-width: 90vw;
+      max-width: 92vw;
       text-align: center;
       line-height: 1.6;
       letter-spacing: 0.06em;
@@ -46,6 +48,9 @@ function ensureTipStyles() {
       transform: translateX(-50%) translateY(0) scale(1);
     }
     body.reduced-motion #tutorial-tip { transition: opacity 0.12s linear; }
+    @media (max-width:380px){
+      #tutorial-tip{padding:10px 12px;line-height:1.5;letter-spacing:.04em;}
+    }
   `;
   document.head.appendChild(s);
   _stylesInjected = true;

@@ -30,6 +30,22 @@ export function isReducedMotion() {
   return !!(document.body && document.body.classList.contains('reduced-motion'));
 }
 
+// Mobile / low-power devices skip the heaviest depth3D effects (parallax,
+// perspective transforms) so they don't pay the GPU cost on phones. Lighting
+// and shadows still draw — they're cheap and meaningful for clarity.
+let _lowPowerCache3D = null;
+function _isLowPower3D() {
+  if (_lowPowerCache3D !== null) return _lowPowerCache3D;
+  try {
+    if (typeof window === 'undefined') { _lowPowerCache3D = false; return false; }
+    if (typeof window.__mcIsLowPower === 'boolean') { _lowPowerCache3D = window.__mcIsLowPower; return _lowPowerCache3D; }
+    const touch = ('ontouchstart' in window) || (navigator.maxTouchPoints && navigator.maxTouchPoints > 0);
+    const narrow = window.innerWidth < 768;
+    _lowPowerCache3D = touch && narrow;
+  } catch { _lowPowerCache3D = false; }
+  return _lowPowerCache3D;
+}
+
 function _ensureStyles() {
   if (_stylesInjected) return;
   if (typeof document === 'undefined') return;
@@ -113,10 +129,14 @@ export function parallaxLayers(opts) {
     render(camX, camY) {
       if (!ctx) return;
       const reduce = isReducedMotion();
+      const low = _isLowPower3D();
       const w = canvas.width / (window.devicePixelRatio || 1);
       const h = canvas.height / (window.devicePixelRatio || 1);
-      const cx = reduce ? 0 : (camX || 0);
-      const cy = reduce ? 0 : (camY || 0);
+      // Low-power: keep the still parallax layers (so the world isn't bald)
+      // but skip the camera-driven offset — that's where the per-frame GPU
+      // cost lives. Reduced motion same behaviour.
+      const cx = (reduce || low) ? 0 : (camX || 0);
+      const cy = (reduce || low) ? 0 : (camY || 0);
       for (const l of layers) {
         if (!l || typeof l.draw !== 'function') continue;
         const sx = (l.speed || 0) * cx;
@@ -136,6 +156,9 @@ export function parallaxLayers(opts) {
 export function perspectiveTransform(ctx, opts) {
   if (!ctx) return false;
   if (isReducedMotion()) return false;
+  // Skip on phones — the matrix transform is the priciest per-frame cost in
+  // canvas pipelines and looks worst on small viewports anyway.
+  if (_isLowPower3D()) return false;
   const o = opts || {};
   const tiltY = o.tiltY != null ? o.tiltY : 1;
   const skewX = o.skewX != null ? o.skewX : 0;
@@ -280,7 +303,7 @@ export function htmlParallax(opts) {
   host.appendChild(wrap);
   let mx = 0, my = 0;
   const onMove = (e) => {
-    if (isReducedMotion()) { mx = 0; my = 0; return; }
+    if (isReducedMotion() || _isLowPower3D()) { mx = 0; my = 0; return; }
     const w = window.innerWidth, h = window.innerHeight;
     mx = ((e.clientX || 0) / w - 0.5) * 2;   // -1..1
     my = ((e.clientY || 0) / h - 0.5) * 2;
@@ -289,7 +312,9 @@ export function htmlParallax(opts) {
       el.style.transform = `translate(${-mx * sp * 40}px, ${-my * sp * 40}px)`;
     }
   };
-  window.addEventListener('mousemove', onMove, { passive: true });
+  // Mobile devices skip the mousemove listener entirely — no touch equivalent
+  // and parallax-on-touch feels stuttery.
+  if (!_isLowPower3D()) window.addEventListener('mousemove', onMove, { passive: true });
   return {
     el: wrap,
     destroy() {

@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#0a0716" />
+  <title>Backrooms 3D · Web Games</title>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../../src/shared/gameBase.css">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <!-- Three.js renderer mounts here. We use a plain <div> instead of <canvas>
+       because three creates its own canvas internally. The shared gameBase.css
+       targets #game-canvas only, so this avoids the pixelated CSS rule that
+       would conflict with WebGL antialias settings. -->
+  <div id="three-root" aria-hidden="true"></div>
+
+  <!-- Crosshair / vignette overlay (DOM-on-top so it never gets composed away
+       by WebGL). Sits above the canvas at z-index 5. -->
+  <div id="crosshair" aria-hidden="true"></div>
+  <div id="vignette" aria-hidden="true"></div>
+  <!-- Jumpscare flash layer (red strobe + white burst on monster catch). -->
+  <div id="flash" aria-hidden="true"></div>
+
+  <button id="mute-btn" class="mute-btn" aria-label="Toggle mute">🔊</button>
+
+  <!-- =====================================================================
+       HUD: sanity bar (bottom-left), depth/level (bottom-right). DOM-based
+       so screen readers + the shared settings menu's "large text" toggle
+       apply uniformly with every other game.
+       ===================================================================== -->
+  <div id="hud" hidden>
+    <div class="hud3-row hud3-row--vital">
+      <div class="hud3-vital">
+        <div class="hud3-lbl">SANITY</div>
+        <div class="hud3-bar"><i id="hud-sanity"></i></div>
+      </div>
+    </div>
+    <div class="hud3-row hud3-row--stats">
+      <div class="hud3-stat"><b>DEPTH</b><span id="hud-depth">0</span></div>
+      <div class="hud3-stat"><b>LEVEL</b><span id="hud-level">0</span></div>
+    </div>
+  </div>
+
+  <!-- =====================================================================
+       Start overlay: black with the WELCOME prompt. The CLICK-TO-ENTER button
+       requests pointer-lock (desktop) or just hides the overlay (mobile).
+       Uses .overlay (shared) so the entrance animation matches every other
+       game's intro screen.
+       ===================================================================== -->
+  <div id="start-overlay" class="overlay">
+    <div class="overlay__panel overlay__panel--backrooms">
+      <div class="overlay__tag">HORROR · FIRST-PERSON</div>
+      <h1 class="overlay__title">WELCOME TO THE BACKROOMS</h1>
+      <p class="overlay__sub">
+        You noclipped into a place that was never meant for humans.
+        Endless yellow hallways. Buzzing fluorescent lights. Something is in here with you.
+      </p>
+      <ul class="overlay__controls">
+        <li><b>WASD</b> walk · <b>MOUSE</b> look · <b>ESC</b> pause</li>
+        <li>On mobile: <b>JOYSTICK</b> walk · <b>DRAG</b> look</li>
+      </ul>
+      <p class="overlay__sub" style="color:var(--neon-yellow);font-size:0.55rem;">
+        Best depth: <span id="start-best">—</span>
+      </p>
+      <button id="start-btn" class="overlay__btn">[ CLICK TO ENTER ]</button>
+      <a class="overlay__back" href="../../index.html">← BACK TO HUB</a>
+    </div>
+  </div>
+
+  <!-- =====================================================================
+       End overlay: shown when the monster catches the player OR sanity ≤ 0.
+       Quotes back the depth walked + best score for replay-loop hook.
+       ===================================================================== -->
+  <div id="end-overlay" class="overlay" hidden>
+    <div class="overlay__panel overlay__panel--backrooms">
+      <h2 class="overlay__title" id="end-title">DEATH</h2>
+      <p class="overlay__sub" id="end-sub">The smile reached you.</p>
+      <ul class="end-stats">
+        <li>Rooms walked: <b id="end-depth">0</b></li>
+        <li>Deepest level: <b id="end-level">0</b></li>
+        <li id="end-best">Best depth: <b>—</b></li>
+      </ul>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:14px;">
+        <button id="end-restart" class="overlay__btn">REENTER</button>
+        <a class="overlay__btn overlay__btn--ghost" href="../../index.html">← HUB</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- =====================================================================
+       Pause overlay (ESC). Resume re-acquires pointer-lock; quit links back
+       to the hub. The shared settings menu mounts its gear button into the
+       page; we surface its panel via a "settings" button.
+       ===================================================================== -->
+  <div id="pause-overlay" class="overlay" hidden>
+    <div class="overlay__panel">
+      <div class="overlay__tag">PAUSED</div>
+      <h2 class="overlay__title">PAUSED</h2>
+      <p class="overlay__sub">The hum continues without you.</p>
+      <div style="display:flex;flex-direction:column;gap:10px;align-items:stretch;max-width:240px;margin:0 auto;">
+        <button id="pause-resume" class="overlay__btn">RESUME</button>
+        <button id="pause-restart" class="overlay__btn overlay__btn--ghost">RESTART</button>
+        <a class="overlay__btn overlay__btn--ghost" href="../../index.html">← QUIT TO HUB</a>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="./main.js"></script>
+</body>
+</html>

@@ -20,17 +20,24 @@ function injectStyles() {
   s.id = 'wg-orient-styles';
   s.textContent = `
     .wg-orient-hint{position:fixed;left:50%;top:max(80px,env(safe-area-inset-top,12px));transform:translateX(-50%) translateY(-12px);z-index:9100;
-      background:linear-gradient(135deg,#1a0f2e,#2a1255);border:2px solid #ffd23f;border-radius:10px;padding:10px 14px;
-      color:#fff;font-family:'Press Start 2P',monospace;font-size:.5rem;letter-spacing:.06em;text-align:center;
+      background:linear-gradient(135deg,#1a0f2e,#2a1255);border:2px solid #ffd23f;border-radius:10px;padding:12px 16px;
+      color:#fff;font-family:'Press Start 2P',monospace;font-size:.55rem;letter-spacing:.06em;text-align:center;
       box-shadow:0 0 0 2px #050310,0 0 24px rgba(255,210,63,.5);opacity:0;pointer-events:auto;cursor:pointer;
-      transition:opacity .3s ease,transform .3s ease;display:flex;align-items:center;gap:10px;max-width:90vw}
+      transition:opacity .3s ease,transform .3s ease;display:flex;align-items:center;gap:10px;max-width:90vw;
+      min-height:44px;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
     .wg-orient-hint.is-shown{opacity:1;transform:translateX(-50%) translateY(0)}
     .wg-orient-hint.is-leaving{opacity:0;transform:translateX(-50%) translateY(-12px)}
-    .wg-orient-hint__icon{width:24px;height:24px;flex-shrink:0;animation:wgOrientSpin 1.6s ease-in-out infinite}
+    .wg-orient-hint__icon{width:28px;height:28px;flex-shrink:0;animation:wgOrientSpin 1.6s ease-in-out infinite}
     .wg-orient-hint__text{white-space:nowrap}
-    .wg-orient-hint__close{margin-left:6px;color:#8a90b1;font-size:.6rem}
+    .wg-orient-hint__close{margin-left:6px;color:#8a90b1;font-size:.7rem;min-width:24px;text-align:center}
     @keyframes wgOrientSpin{0%,100%{transform:rotate(0)}50%{transform:rotate(90deg)}}
     body.reduced-motion .wg-orient-hint__icon{animation:none}
+    /* Phones: shrink the wrapping text so even narrow viewports (iPhone SE)
+       don't truncate the hint. Letter-spacing reduced for fit. */
+    @media (max-width:380px){
+      .wg-orient-hint{font-size:.45rem;letter-spacing:.04em;padding:10px 12px;gap:8px}
+      .wg-orient-hint__icon{width:24px;height:24px}
+    }
   `;
   document.head.appendChild(s);
 }

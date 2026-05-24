@@ -385,6 +385,61 @@ const VISUAL_CSS = `
 .cafe-tip-mult{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);z-index:90;padding:4px 10px;background:rgba(255,210,63,.18);border:1px solid var(--neon-yellow);border-radius:4px;font-family:var(--font-display);font-size:.5rem;letter-spacing:.08em;color:var(--neon-yellow);text-shadow:0 0 6px var(--neon-yellow);pointer-events:none;opacity:0;transition:opacity .2s}
 .cafe-tip-mult.is-show{opacity:1}
 .cafe-cb{display:inline-block;border:1px solid currentColor;padding:0 4px;border-radius:3px;font-size:.32rem;letter-spacing:.05em;margin-right:4px}
+/* === POLISH ROUND 2 ADDITIONS === */
+.cafe-bg__hang::after { animation: cafe-pendant-flicker 7s ease-in-out infinite; }
+@keyframes cafe-pendant-flicker { 0%,30%,40%,70%,100% { opacity: 1; filter: brightness(1); } 32% { opacity: 0.78; filter: brightness(0.85); } 33% { opacity: 1; filter: brightness(1.05); } 72% { opacity: 0.85; filter: brightness(0.9); } 73% { opacity: 1; } }
+.cafe-fan { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); width: 80px; height: 80px; pointer-events: none; z-index: 4; }
+.cafe-fan__hub { position: absolute; top: 50%; left: 50%; width: 12px; height: 12px; margin: -6px 0 0 -6px; background: radial-gradient(circle, #6a4a2c, #3a2818); border-radius: 50%; box-shadow: 0 0 6px rgba(0,0,0,0.7); z-index: 2; }
+.cafe-fan__blades { position: absolute; inset: 0; animation: cafe-fan-spin 1.4s linear infinite; transform-origin: 50% 50%; }
+@keyframes cafe-fan-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+.cafe-fan__blade { position: absolute; top: 50%; left: 50%; width: 36px; height: 7px; margin-top: -3px; background: linear-gradient(90deg, #6a4a2c, #2a1a10); border-radius: 0 50% 50% 0; transform-origin: 0 50%; box-shadow: 0 2px 4px rgba(0,0,0,0.4); }
+.cafe-fan__blade:nth-child(1) { transform: rotate(0deg); }
+.cafe-fan__blade:nth-child(2) { transform: rotate(120deg); }
+.cafe-fan__blade:nth-child(3) { transform: rotate(240deg); }
+.cafe-fan__cord { position: absolute; top: 0; left: 50%; width: 2px; height: 14px; background: #2a1a10; transform: translateX(-50%); }
+.cafe-espresso__lever { position: absolute; top: 6px; right: -6px; width: 4px; height: 18px; background: linear-gradient(180deg, #888898, #4a4a52); border-radius: 2px; transform-origin: 2px 16px; animation: cafe-lever-pull 3.2s ease-in-out infinite; }
+@keyframes cafe-lever-pull { 0%,55%,100% { transform: rotate(0deg); } 65% { transform: rotate(-65deg); } 75% { transform: rotate(-65deg); } 85% { transform: rotate(0deg); } }
+.cafe-espresso__steam { position: absolute; top: 30px; left: 50%; width: 6px; height: 6px; margin-left: -3px; border-radius: 50%; background: radial-gradient(circle, rgba(255,255,255,0.7), transparent 70%); animation: cafe-espresso-steam 3.2s ease-in-out infinite; opacity: 0; }
+.cafe-espresso__steam--2 { animation-delay: 0.3s; left: 40%; }
+.cafe-espresso__steam--3 { animation-delay: 0.6s; left: 60%; }
+@keyframes cafe-espresso-steam { 0%,60% { transform: translateY(0) scale(0.4); opacity: 0; } 70% { opacity: 0.8; } 100% { transform: translateY(-30px) scale(1.5); opacity: 0; } }
+.cafe-customer.is-arriving { animation: cafe-customer-walkin 0.85s cubic-bezier(.22,1,.36,1); }
+@keyframes cafe-customer-walkin { from { transform: translateX(-60px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+.cafe-doorbell { position: fixed; top: calc(110px + env(safe-area-inset-top,0)); left: 50%; transform: translateX(-50%); z-index: 200; font-family: var(--font-display); font-size: .55rem; color: #ffd23f; background: rgba(0,0,0,.78); border: 2px solid #ffd23f; padding: 6px 12px; border-radius: 6px; text-shadow: 0 0 6px #ffd23f; pointer-events: none; opacity: 0; animation: cafe-doorbell-pop 1.2s ease-out forwards; }
+@keyframes cafe-doorbell-pop { 0% { opacity: 0; transform: translate(-50%,-12px); } 18% { opacity: 1; transform: translate(-50%,0); } 80% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%,-6px); } }
+.cafe-customer__emote { position: absolute; top: -28px; right: -4px; font-size: 14px; line-height: 1; text-shadow: 0 1px 2px rgba(0,0,0,.8); pointer-events: none; transition: opacity .2s; }
+.order.is-urgent { animation: cafe-order-urgent .55s ease-in-out infinite; }
+@keyframes cafe-order-urgent { 0%,100% { transform: scale(1); box-shadow: 0 0 8px rgba(255,58,58,0.5); } 50% { transform: scale(1.03); box-shadow: 0 0 20px rgba(255,58,58,0.9); } }
+.order__priority { display: inline-block; background: linear-gradient(90deg,#ff3a3a,#ff6a3a); color: #fff; font-family: var(--font-display); font-size: .32rem; padding: 1px 4px; border-radius: 2px; margin-left: 4px; letter-spacing: .05em; text-shadow: 0 0 6px #ff3a3a; animation: cafe-priority-blink .4s ease-in-out infinite; }
+@keyframes cafe-priority-blink { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.5); } }
+.cafe-autoserve { position: fixed; bottom: 130px; right: 12px; z-index: 90; background: rgba(0,0,0,.7); color: var(--neon-cyan); border: 2px solid var(--neon-cyan); border-radius: 6px; font-family: var(--font-display); font-size: .42rem; padding: 6px 9px; letter-spacing: .06em; cursor: pointer; text-shadow: 0 0 4px var(--neon-cyan); -webkit-tap-highlight-color: transparent; }
+.cafe-autoserve.is-on { background: rgba(94,243,140,.18); color: var(--neon-green); border-color: var(--neon-green); text-shadow: 0 0 4px var(--neon-green); }
+.cafe-autoserve:hover { transform: translateY(-1px); }
+.cafe-tipbar { position: fixed; top: calc(46px + env(safe-area-inset-top,0)); left: 50%; transform: translateX(-50%); z-index: 88; width: 220px; max-width: calc(100vw - 320px); pointer-events: none; }
+.cafe-tipbar__label { font-family: var(--font-display); font-size: .35rem; letter-spacing: .06em; color: var(--neon-yellow); text-align: center; text-shadow: 0 0 4px var(--neon-yellow); margin-bottom: 2px; }
+.cafe-tipbar__track { height: 6px; background: rgba(0,0,0,.7); border: 1px solid var(--neon-yellow); border-radius: 3px; overflow: hidden; }
+.cafe-tipbar__fill { height: 100%; background: linear-gradient(90deg, var(--neon-yellow), var(--neon-pink)); transition: width .3s ease-out; box-shadow: 0 0 6px var(--neon-yellow); }
+.cafe-pause-overlay { position: fixed; inset: 0; z-index: 300; background: rgba(0,0,0,.6); display: none; align-items: center; justify-content: center; flex-direction: column; gap: 14px; }
+.cafe-pause-overlay.is-on { display: flex; }
+.cafe-pause-title { font-family: var(--font-display); font-size: 1.3rem; letter-spacing: .1em; color: var(--neon-yellow); text-shadow: 0 0 16px var(--neon-yellow); }
+.cafe-pause-count { font-family: var(--font-display); font-size: 2.4rem; color: var(--neon-cyan); text-shadow: 0 0 20px var(--neon-cyan); animation: cafe-count-pop .5s ease-out; }
+@keyframes cafe-count-pop { from { transform: scale(0.4); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.cafe-pause-hint { font-family: var(--font-display); font-size: .5rem; color: var(--text-soft); letter-spacing: .06em; text-align: center; }
+.cafe-pause-btn { background: rgba(0,0,0,.5); color: var(--text); border: 2px solid var(--border); border-radius: 4px; font-family: var(--font-display); font-size: .55rem; padding: 8px 16px; cursor: pointer; letter-spacing: .08em; }
+.cafe-pause-btn:hover { border-color: var(--neon-yellow); color: var(--neon-yellow); }
+.cafe-pause-chip { position: fixed; bottom: 80px; right: 12px; z-index: 90; background: rgba(0,0,0,.7); color: var(--text); border: 2px solid var(--border); border-radius: 4px; font-family: var(--font-display); font-size: .42rem; padding: 5px 8px; letter-spacing: .06em; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.cafe-pause-chip:hover { border-color: var(--neon-yellow); color: var(--neon-yellow); }
+.cafe-critic-award { position: fixed; top: 30%; left: 50%; z-index: 260; padding: 18px 30px; border-radius: 10px; transform: translate(-50%,-50%) scale(0.4); opacity: 0; font-family: var(--font-display); font-size: 1rem; letter-spacing: .1em; background: rgba(10,7,22,.96); border: 4px solid #ffd23f; color: #ffd23f; text-align: center; pointer-events: none; text-shadow: 0 0 14px #ffd23f; transition: opacity .3s, transform .5s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.cafe-critic-award.is-show { opacity: 1; transform: translate(-50%,-50%) scale(1); }
+.order.is-family { border-color: #ff8e3c !important; box-shadow: 0 0 12px rgba(255,142,60,0.7); }
+.order__family-tag { display: inline-block; background: linear-gradient(90deg,#ff8e3c,#ffd23f); color: #1a0d05; font-family: var(--font-display); font-size: .32rem; padding: 1px 4px; border-radius: 2px; margin-left: 4px; letter-spacing: .05em; }
+.cafe-daily-special { position: absolute; right: 6px; top: 200px; width: 160px; min-height: 80px; background: linear-gradient(180deg, #2a1230 0%, #1a0820 100%); border: 4px solid #6a3a1c; border-radius: 4px; box-shadow: 0 4px 0 rgba(0,0,0,.6), inset 0 0 18px rgba(0,0,0,.5); padding: 6px 8px; font-family: 'Press Start 2P', monospace; font-size: .42rem; color: #ffd23f; pointer-events: none; line-height: 1.4; }
+.cafe-daily-special__title { color: #ff8ac8; font-size: .5rem; letter-spacing: .1em; border-bottom: 1px dashed #f4ecd2; padding-bottom: 3px; margin-bottom: 4px; text-align: center; text-shadow: 0 0 5px #ff8ac8; }
+.cafe-daily-special__body { color: #fff; font-size: .42rem; text-align: center; }
+.cafe-daily-special__bonus { color: #5ef38c; font-size: .36rem; margin-top: 3px; text-align: center; }
+.cafe-shift-summary__sparkle { display: inline-block; color: #ffd23f; animation: cafe-sparkle-pop 1.4s ease-in-out infinite; margin-left: 4px; }
+@keyframes cafe-sparkle-pop { 0%,100% { opacity: 0.4; transform: scale(0.9); } 50% { opacity: 1; transform: scale(1.2); } }
+.cafe-shift-summary__row.is-top { background: rgba(255,210,63,.12); border-radius: 3px; padding: 3px 4px; }
 `;
 const _s = document.createElement('style'); _s.textContent = VISUAL_CSS; document.head.appendChild(_s);
 // depth3D: vignette + soft drop shadows under staff/customers via CSS filter.
@@ -512,7 +567,8 @@ const _CUSTOMER_COLORS = [
 ];
 // Wave 1F: bump from 6 to 8 customer slots — booths/bar/patio variety.
 // We rotate through type badges so the crowd visibly reads as varied.
-const _CUSTOMER_BADGE_TYPES = ['NORMAL', 'HUNGRY', 'VIP', 'KAREN', 'TOURIST', 'NORMAL', 'HUNGRY', 'NORMAL'];
+const _CUSTOMER_BADGE_TYPES = ['NORMAL', 'HUNGRY', 'VIP', 'KAREN', 'TOURIST', 'NORMAL', 'HUNGRY', 'CRITIC'];
+const _customerSlots = []; // POLISH ROUND 2 — track slots for arrival anim + emote update
 for (let i = 0; i < 8; i++) {
   const col = _CUSTOMER_COLORS[i % _CUSTOMER_COLORS.length];
   const wrap = document.createElement('span'); wrap.className = 'cafe-customer';
@@ -525,21 +581,108 @@ for (let i = 0; i < 8; i++) {
   badge.textContent = ct.icon;
   badge.title = ct.name;
   wrap.appendChild(badge);
+  // POLISH ROUND 2 — wait emote chip (drives the ☕→😊→😐→😠→💢 progression)
+  const emote = document.createElement('span');
+  emote.className = 'cafe-customer__emote';
+  emote.textContent = '☕';
+  wrap.appendChild(emote);
   _customers.appendChild(wrap);
+  _customerSlots.push({ wrap, badge, emote, currentType: _CUSTOMER_BADGE_TYPES[i] });
 }
 document.body.appendChild(_customers);
+
+// POLISH ROUND 2 — door bell + customer walk-in animation.
+let _arrivalSlotCursor = 0;
+function triggerCustomerArrival(customerType) {
+  const dl = document.createElement('div');
+  dl.className = 'cafe-doorbell';
+  dl.textContent = '🛎 DING — customer in!';
+  document.body.appendChild(dl);
+  setTimeout(() => dl.remove(), 1200);
+  try { sfx.tone(880, 'triangle', 0.05, 0.18); sfx.tone(1320, 'triangle', 0.05, 0.18); } catch {}
+  const slot = _customerSlots[_arrivalSlotCursor % _customerSlots.length];
+  _arrivalSlotCursor++;
+  if (!slot) return;
+  const ct = CUSTOMER_TYPES[customerType] || CUSTOMER_TYPES.NORMAL;
+  slot.badge.textContent = ct.icon;
+  slot.badge.title = ct.name;
+  slot.currentType = customerType;
+  slot.emote.textContent = '☕';
+  slot.wrap.classList.remove('is-arriving');
+  void slot.wrap.offsetWidth;
+  slot.wrap.classList.add('is-arriving');
+  setTimeout(() => slot.wrap.classList.remove('is-arriving'), 900);
+}
+// POLISH ROUND 2 — wait emote progression sync. Driven by the oldest order's
+// patience % so the crowd's mood reflects the queue.
+function updateWaitEmotes() {
+  if (!orders || !orders.length) {
+    for (const slot of _customerSlots) slot.emote.textContent = '☕';
+    return;
+  }
+  for (let i = 0; i < _customerSlots.length; i++) {
+    const slot = _customerSlots[i];
+    const o = orders[i];
+    if (!o) { slot.emote.textContent = '☕'; continue; }
+    const k = o.time / o.maxTime;
+    let em;
+    if (k > 0.75) em = '☕';
+    else if (k > 0.55) em = '😊';
+    else if (k > 0.35) em = '😐';
+    else if (k > 0.18) em = '😠';
+    else em = '💢';
+    slot.emote.textContent = em;
+  }
+}
 
 // === WAVE 1F: ESPRESSO machine in kitchen ===
 const _espresso = document.createElement('div');
 _espresso.className = 'cafe-espresso';
 _espresso.innerHTML = `
   <div class="cafe-espresso__top"></div>
+  <div class="cafe-espresso__lever"></div>
   <div class="cafe-espresso__spout"></div>
   <div class="cafe-espresso__drip"></div>
   <div class="cafe-espresso__cup"></div>
+  <div class="cafe-espresso__steam"></div>
+  <div class="cafe-espresso__steam cafe-espresso__steam--2"></div>
+  <div class="cafe-espresso__steam cafe-espresso__steam--3"></div>
 `;
 const _kitchen = document.querySelector('.cafe-kitchen');
 if (_kitchen) _kitchen.appendChild(_espresso);
+
+// POLISH ROUND 2 — Ceiling fan over kitchen
+const _fan = document.createElement('div');
+_fan.className = 'cafe-fan';
+_fan.innerHTML = `
+  <div class="cafe-fan__cord"></div>
+  <div class="cafe-fan__blades">
+    <div class="cafe-fan__blade"></div>
+    <div class="cafe-fan__blade"></div>
+    <div class="cafe-fan__blade"></div>
+  </div>
+  <div class="cafe-fan__hub"></div>
+`;
+if (_kitchen) _kitchen.appendChild(_fan);
+
+// POLISH ROUND 2 — Daily special chalkboard
+const _dailySpecialBoard = document.createElement('div');
+_dailySpecialBoard.className = 'cafe-daily-special';
+_dailySpecialBoard.innerHTML = `
+  <div class="cafe-daily-special__title">★ SPECIAL ★</div>
+  <div class="cafe-daily-special__body" id="cafe-daily-name">—</div>
+  <div class="cafe-daily-special__bonus" id="cafe-daily-bonus">SOUP×2 PAY</div>
+`;
+document.body.appendChild(_dailySpecialBoard);
+function refreshDailySpecialBoard() {
+  const nameEl = document.getElementById('cafe-daily-name');
+  const bonusEl = document.getElementById('cafe-daily-bonus');
+  const s = soupOfTheDay();
+  if (s && nameEl) {
+    nameEl.textContent = s.name;
+    bonusEl.textContent = '×2 PAY · ' + (s.type || 'dish').toUpperCase();
+  }
+}
 
 // === WAVE 1F: CAFE NAME CHIP + SELECT MODAL ===
 const _cafeChip = document.createElement('button');
@@ -644,6 +787,98 @@ document.body.appendChild(_staffHelper);
 function refreshStaffHelper() {
   if (!_staffHelper) return;
   _staffHelper.style.display = upgrades.hireStaff ? 'block' : 'none';
+}
+
+// POLISH ROUND 2 — AUTO-SERVE toggle button.
+let _autoServe = false;
+const _autoServeBtn = document.createElement('button');
+_autoServeBtn.className = 'cafe-autoserve';
+_autoServeBtn.textContent = 'AUTO-SERVE: OFF';
+_autoServeBtn.title = 'Auto-serve completed orders (hold A key to enable temporarily)';
+_autoServeBtn.addEventListener('click', () => {
+  _autoServe = !_autoServe;
+  _autoServeBtn.classList.toggle('is-on', _autoServe);
+  _autoServeBtn.textContent = 'AUTO-SERVE: ' + (_autoServe ? 'ON' : 'OFF');
+});
+document.body.appendChild(_autoServeBtn);
+let _autoServeKey = false;
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'a' || e.key === 'A') _autoServeKey = true;
+  if ((e.key === 'p' || e.key === 'P' || e.key === 'Escape') && !e.repeat) togglePause();
+});
+window.addEventListener('keyup', (e) => { if (e.key === 'a' || e.key === 'A') _autoServeKey = false; });
+
+// POLISH ROUND 2 — PAUSE button + overlay with 3..2..1 countdown resume.
+let _isPaused = false;
+let _resumeCountdown = 0;
+const _pauseChip = document.createElement('button');
+_pauseChip.className = 'cafe-pause-chip';
+_pauseChip.textContent = '⏸ PAUSE';
+_pauseChip.addEventListener('click', () => togglePause());
+document.body.appendChild(_pauseChip);
+const _pauseOverlay = document.createElement('div');
+_pauseOverlay.className = 'cafe-pause-overlay';
+_pauseOverlay.innerHTML = `
+  <div class="cafe-pause-title">⏸ PAUSED</div>
+  <div class="cafe-pause-count" id="cafe-pause-count" style="display:none;">3</div>
+  <div class="cafe-pause-hint">Press P / Esc to resume<br>Countdown: 3..2..1</div>
+  <button class="cafe-pause-btn" id="cafe-pause-resume">▶ RESUME</button>
+`;
+document.body.appendChild(_pauseOverlay);
+document.getElementById('cafe-pause-resume').addEventListener('click', () => togglePause());
+function togglePause() {
+  if (!running) return;
+  if (_resumeCountdown > 0) return;
+  if (!_isPaused) {
+    _isPaused = true;
+    _pauseOverlay.classList.add('is-on');
+    document.getElementById('cafe-pause-count').style.display = 'none';
+  } else {
+    _resumeCountdown = 3;
+    const cd = document.getElementById('cafe-pause-count');
+    cd.style.display = 'block';
+    cd.textContent = '3';
+    cd.classList.remove('cafe-pause-count'); void cd.offsetWidth; cd.classList.add('cafe-pause-count');
+    const tickCd = () => {
+      _resumeCountdown -= 1;
+      if (_resumeCountdown <= 0) {
+        _isPaused = false; _pauseOverlay.classList.remove('is-on'); _resumeCountdown = 0;
+        return;
+      }
+      cd.textContent = String(_resumeCountdown);
+      cd.classList.remove('cafe-pause-count'); void cd.offsetWidth; cd.classList.add('cafe-pause-count');
+      setTimeout(tickCd, 1000);
+    };
+    setTimeout(tickCd, 1000);
+  }
+}
+
+// POLISH ROUND 2 — TIP TRACKER bar (top of screen) showing progress to next cafe unlock
+const _tipBar = document.createElement('div');
+_tipBar.className = 'cafe-tipbar';
+_tipBar.innerHTML = `
+  <div class="cafe-tipbar__label" id="cafe-tipbar-label">$ to next café…</div>
+  <div class="cafe-tipbar__track"><div class="cafe-tipbar__fill" id="cafe-tipbar-fill" style="width:0%"></div></div>
+`;
+document.body.appendChild(_tipBar);
+function updateTipBar() {
+  const next = CAFE_ORDER.find((id) => !cafeUnlocked(id));
+  const label = document.getElementById('cafe-tipbar-label');
+  const fill = document.getElementById('cafe-tipbar-fill');
+  if (!label || !fill) return;
+  if (!next) {
+    label.textContent = `★ ALL CAFÉS UNLOCKED · TIPS $${metaTotalTips}`;
+    fill.style.width = '100%';
+    return;
+  }
+  const cafe = CAFE_TYPES[next];
+  const prev = CAFE_TYPES[CAFE_ORDER[CAFE_ORDER.indexOf(next) - 1] || 'cozy'];
+  const lo = prev ? (prev.needTips || 0) : 0;
+  const hi = cafe.needTips;
+  const total = metaTotalTips;
+  const frac = Math.max(0, Math.min(1, (total - lo) / Math.max(1, hi - lo)));
+  label.textContent = `$${total}/$${hi} · NEXT: ${cafe.icon} ${cafe.name}`;
+  fill.style.width = (frac * 100).toFixed(1) + '%';
 }
 
 // === WAVE 1F: TIP MULTIPLIER CHIP (visible during combo) ===
@@ -813,16 +1048,21 @@ const RECIPES = [
   { name: 'Pickle Garden Salad',  items: ['pickle', 'pickle', 'milk'], pay: 26, type: 'salad' },
   { name: 'Croque Pug',           items: ['cheese', 'bacon', 'milk'], pay: 34, type: 'sandwich' },
   { name: 'Fish Pizza',           items: ['cheese', 'fish', 'donut'], pay: 44, type: 'pizza' },
+  // === POLISH ROUND 2: SPAGHETTI — 4 ingredients, hard to chain ===
+  { name: 'Pug Spaghetti',        items: ['noodle', 'cheese', 'bacon', 'pickle'], pay: 56, type: 'pasta' },
 ];
 
 // === WAVE 1F: 3 CAFE TYPES (unlocked by progression) ===
 // Cozy = current (~24s timeouts). Busy = faster spawns + tighter timeouts +
 // smaller tips. Fancy = slow spawns + huge tips + complex orders + KAREN/VIP
 // only. Unlock by total tips earned ever (meta progression).
+// POLISH ROUND 2 — BALANCE: per-cafe patience multiplier baked in (multiplies
+// base CUSTOMER_TYPES patience), reduced KAREN rates (cozy 15->10, busy 25->18,
+// fancy 35->22). CRITIC is rare across all cafes (3-5%).
 const CAFE_TYPES = {
-  cozy:  { name: 'COZY CORNER',  icon: '🏠', desc: 'Balanced tips.',          maxTime: 24, tipMult: 1.0, customerWeights: { HUNGRY: 35, VIP: 10, KAREN: 15, TOURIST: 20, NORMAL: 20 }, recipePool: null,                 needTips: 0 },
-  busy:  { name: 'BUSY BISTRO',  icon: '🏙', desc: 'Fast spawns, tight time.',maxTime: 18, tipMult: 1.2, customerWeights: { HUNGRY: 50, VIP: 5,  KAREN: 25, TOURIST: 10, NORMAL: 10 }, recipePool: null,                 needTips: 800 },
-  fancy: { name: 'FANCY FRENCH', icon: '🥂', desc: 'Huge tips, complex.',     maxTime: 32, tipMult: 1.8, customerWeights: { HUNGRY: 5,  VIP: 45, KAREN: 35, TOURIST: 5,  NORMAL: 10 }, recipePool: (r) => r.pay >= 30, needTips: 2200 },
+  cozy:  { name: 'COZY CORNER',  icon: '🏠', desc: 'Balanced tips.',          maxTime: 26, tipMult: 1.0, patMult: 1.10, customerWeights: { HUNGRY: 32, VIP: 10, KAREN: 10, TOURIST: 22, NORMAL: 23, CRITIC: 3 }, recipePool: null,                 needTips: 0 },
+  busy:  { name: 'BUSY BISTRO',  icon: '🏙', desc: 'Fast spawns, tight time.',maxTime: 20, tipMult: 1.2, patMult: 1.00, customerWeights: { HUNGRY: 48, VIP: 6,  KAREN: 18, TOURIST: 14, NORMAL: 10, CRITIC: 4 }, recipePool: null,                 needTips: 800 },
+  fancy: { name: 'FANCY FRENCH', icon: '🥂', desc: 'Huge tips, complex.',     maxTime: 34, tipMult: 1.8, patMult: 1.15, customerWeights: { HUNGRY: 6,  VIP: 42, KAREN: 22, TOURIST: 6,  NORMAL: 19, CRITIC: 5 }, recipePool: (r) => r.pay >= 30, needTips: 2200 },
 };
 const CAFE_ORDER = ['cozy', 'busy', 'fancy'];
 let currentCafeId = 'cozy';
@@ -836,8 +1076,11 @@ const CUSTOMER_TYPES = {
   NORMAL:  { id: 'NORMAL',  icon: '🐶', patience: 1.0,  tipMult: 1.0, color: '#c8854a', name: 'NORMAL' },
   HUNGRY:  { id: 'HUNGRY',  icon: '😋', patience: 0.75, tipMult: 1.5, color: '#ff8e3c', name: 'HUNGRY' },
   VIP:     { id: 'VIP',     icon: '👔', patience: 1.6,  tipMult: 2.5, color: '#ffd23f', name: 'VIP' },
-  KAREN:   { id: 'KAREN',   icon: '😤', patience: 0.55, tipMult: 0.6, color: '#ff3a3a', name: 'KAREN' },
+  // POLISH ROUND 2 — KAREN slightly less harsh (patience 0.55 -> 0.65)
+  KAREN:   { id: 'KAREN',   icon: '😤', patience: 0.65, tipMult: 0.6, color: '#ff3a3a', name: 'KAREN' },
   TOURIST: { id: 'TOURIST', icon: '🧳', patience: 1.2,  tipMult: 1.1, color: '#4cc9f0', name: 'TOURIST' },
+  // POLISH ROUND 2 — NEW: CRITIC. Rare. Takes notes. Perfect serve = CRITIC AWARD bonus.
+  CRITIC:  { id: 'CRITIC',  icon: '📝', patience: 1.35, tipMult: 1.8, color: '#b055ff', name: 'CRITIC' },
 };
 function pickCustomerType() {
   const w = currentCafe().customerWeights || { NORMAL: 100 };
@@ -899,7 +1142,11 @@ function reset() {
   comboT = 0; comboCount = 0;
   upgrades = {}; autoCookT = 5;
   hireGrabT = 4; karenFightCheckT = 1.5;
-  shiftStats = { bestTip: 0, longestChain: 0, specialsServed: 0, vipsServed: 0, karensCalmed: 0, burnt: 0, mostChaotic: '', startedAt: performance.now() };
+  shiftStats = { bestTip: 0, longestChain: 0, specialsServed: 0, vipsServed: 0, karensCalmed: 0, criticsServed: 0, familiesServed: 0, burnt: 0, mostChaotic: '', startedAt: performance.now() };
+  // POLISH ROUND 2 — reset family + pause state per run
+  _upcomingFamily = 0; _familyCounter = 0; _familyServes = {};
+  _isPaused = false; _resumeCountdown = 0;
+  if (_pauseOverlay) _pauseOverlay.classList.remove('is-on');
   renderShopChips();
 }
 
@@ -1013,7 +1260,33 @@ const ORDER_COLORS = [
   { id: 'white',    hex: '#fafaff', name: 'white' },
   { id: 'choc',     hex: '#8a5a2a', name: 'choc' },
 ];
-function spawnOrder() {
+// POLISH ROUND 2 — FAMILY ORDER state. 3 customers in a row share `familyId`.
+// Serving all 3 within 5s of the first serve = bonus.
+let _upcomingFamily = 0;
+let _familyCounter = 0;
+let _familyServes = {}; // familyId -> { count, firstServeT, total, target }
+// POLISH ROUND 2 — CRITIC AWARD modal helper
+function showCriticAward(title, sub) {
+  const el = document.createElement('div');
+  el.className = 'cafe-critic-award';
+  el.innerHTML = `${title}<div style="font-size:.45rem;color:var(--text-soft);margin-top:6px;letter-spacing:.05em;">${sub || ''}</div>`;
+  document.body.appendChild(el);
+  requestAnimationFrame(() => el.classList.add('is-show'));
+  setTimeout(() => {
+    el.classList.remove('is-show');
+    setTimeout(() => el.remove(), 400);
+  }, 2200);
+}
+function spawnOrder(forced) {
+  // POLISH ROUND 2 — small chance to roll a FAMILY ORDER (3 customers in a row)
+  if (!forced && _upcomingFamily === 0 && orders.length < 4 && Math.random() < 0.07) {
+    _upcomingFamily = 3;
+    _familyCounter += 1;
+    _familyServes[_familyCounter] = { count: 0, firstServeT: 0, total: 0, target: 3, id: _familyCounter };
+    showAccomplish('★ FAMILY ORDER! ★', 'Serve all 3 within 5s for bonus', '#ff8e3c');
+    for (let k = 0; k < 3; k++) spawnOrder(true);
+    return;
+  }
   // Cafe-aware recipe pool
   const cafe = currentCafe();
   let pool = RECIPES;
@@ -1024,7 +1297,8 @@ function spawnOrder() {
   // multiplies it.
   const customerType = pickCustomerType();
   const ct = CUSTOMER_TYPES[customerType] || CUSTOMER_TYPES.NORMAL;
-  let maxT = (cafe.maxTime || 24) * ct.patience;
+  // POLISH ROUND 2 — apply per-cafe patience multiplier
+  let maxT = (cafe.maxTime || 24) * ct.patience * (cafe.patMult || 1);
   if (upgrades.patient) maxT *= 1.5;
   // Pick a color. ~30% chance to match the *previous* order's color so chains
   // form often enough to feel rewarding without trivialising the bonus.
@@ -1047,10 +1321,22 @@ function spawnOrder() {
     && Math.random() < 0.12;
   // Wave 1F: SOUP OF THE DAY — when this recipe matches today's soup, double pay.
   const sotd = soupOfTheDay();
-  const isSotd = sotd && r.name === sotd.name;
+  // POLISH ROUND 2 — SOTD frequency bump: pool override so SOTD reliably ~18% of the time
+  let isSotd = sotd && r.name === sotd.name;
+  if (!isSotd && sotd && !forced && Math.random() < 0.18) {
+    const fits = !cafe.recipePool || cafe.recipePool(sotd);
+    if (fits) { isSotd = true; }
+  }
+  const finalRecipe = isSotd && sotd ? sotd : r;
+  // POLISH ROUND 2 — FAMILY ORDER tag
+  let familyId = null;
+  if (_upcomingFamily > 0) {
+    familyId = _familyCounter;
+    _upcomingFamily--;
+  }
   orders.push({
-    recipe: r,
-    items: r.items.map((i) => ({ id: i, done: false })),
+    recipe: finalRecipe,
+    items: finalRecipe.items.map((i) => ({ id: i, done: false })),
     time: maxT,
     maxTime: maxT,
     color: col,
@@ -1058,12 +1344,15 @@ function spawnOrder() {
     customerType,
     isSpecial,
     isSotd,
+    familyId,
     // Burnt-food freshness — null until all ingredients arrive on the bench
     // (i.e., the order is "plated"). Then ticks up: 0..5 perfect, 5..10
     // burnt, >10 must-discard.
     freshnessT: null,
     bornAt: performance.now(),
   });
+  // POLISH ROUND 2 — door bell + walk-in animation
+  triggerCustomerArrival(customerType);
   renderOrders();
   updateChalkboard();
   // Wave 1F: KAREN FIGHT — if 2+ KARENS are unattended (no served ingredient)
@@ -1113,6 +1402,9 @@ function renderOrders() {
     if (k < 0.3) cls += ' crit';
     else if (k < 0.6) cls += ' warn';
     if (o.isSpecial) cls += ' is-special';
+    // POLISH ROUND 2 — priority/urgent visual + family group
+    if (k < 0.25) cls += ' is-urgent';
+    if (o.familyId) cls += ' is-family';
     // Freshness state classes — burnt (5..10s) gets red border; the >10s
     // discard transition is handled by tick() and never reaches the UI.
     let burntPct = 0;
@@ -1138,6 +1430,9 @@ function renderOrders() {
     const custBadge = `<span class="cafe-cb" title="${ct.name} pat${(ct.patience*100).toFixed(0)}% tip${(ct.tipMult*100).toFixed(0)}%" style="background:${ct.color}22;border-color:${ct.color};color:${ct.color}">${ct.icon} ${ct.name}</span>`;
     const specialTag = o.isSpecial ? '<span class="order__special-tag">★ SPECIAL 3×</span>' : '';
     const sotdTag = o.isSotd ? '<span style="background:rgba(94,243,140,0.2);color:#5ef38c;padding:1px 4px;border-radius:2px;font-size:0.32rem;letter-spacing:0.05em;margin-left:4px;">SOUP×2</span>' : '';
+    // POLISH ROUND 2 — urgent indicator + family group tag
+    const urgentTag = (k < 0.25) ? '<span class="order__priority">⚡ URGENT</span>' : '';
+    const familyTag = o.familyId ? `<span class="order__family-tag">FAMILY ×${(_familyServes[o.familyId] && _familyServes[o.familyId].target) || 3}</span>` : '';
     // Pay preview includes chain bonus + burnt penalty + customer mult + special + sotd
     let payShown = o.recipe.pay;
     payShown *= ct.tipMult;
@@ -1148,7 +1443,7 @@ function renderOrders() {
     if (o.isSotd) payShown *= 2;
     payShown = Math.round(payShown);
     div.innerHTML = `
-      <h4>${custBadge}${colorDot}${o.recipe.name}${chainBadge}${specialTag}${sotdTag}</h4>
+      <h4>${custBadge}${colorDot}${o.recipe.name}${chainBadge}${specialTag}${sotdTag}${urgentTag}${familyTag}</h4>
       <ul>${o.items.map((it) => {
         const ing = INGREDIENTS.find((g) => g.id === it.id);
         const iconHtml = ing.iconName && iconSvg[ing.iconName] ? iconSvg[ing.iconName](14) : ing.icon;
@@ -1314,6 +1609,12 @@ function serve(idx) {
   if (o.isSpecial && specialMult === 3) shiftStats.specialsServed = (shiftStats.specialsServed || 0) + 1;
   if (o.customerType === 'VIP') shiftStats.vipsServed = (shiftStats.vipsServed || 0) + 1;
   if (o.customerType === 'KAREN') shiftStats.karensCalmed = (shiftStats.karensCalmed || 0) + 1;
+  // POLISH ROUND 2 — track CRITIC + FAMILY stats
+  if (o.customerType === 'CRITIC') shiftStats.criticsServed = (shiftStats.criticsServed || 0) + 1;
+  if (o.familyId) {
+    const fam = _familyServes[o.familyId];
+    if (fam && fam.count >= fam.target) shiftStats.familiesServed = (shiftStats.familiesServed || 0) + 1;
+  }
   // Wave 1F: meta-progression — total tips ever (drives cafe unlocks)
   metaTotalTips = (metaTotalTips || 0) + pay;
   saveMeta();
@@ -1333,6 +1634,37 @@ function serve(idx) {
   // Wave 1F: VIP perfect bonus
   if (o.customerType === 'VIP' && freshnessLabel === '✨ FRESH') {
     showAccomplish(`★ VIP SATISFIED ★`, `+$${pay} — flawless service`, '#ffd23f');
+  }
+  // POLISH ROUND 2 — CRITIC AWARD: perfect serve gives extra ×1.5 bonus
+  if (o.customerType === 'CRITIC' && freshnessLabel === '✨ FRESH') {
+    const criticBonus = Math.round(pay * 1.5);
+    money += criticBonus;
+    metaTotalTips += criticBonus;
+    saveMeta();
+    shiftStats.bestTip = Math.max(shiftStats.bestTip || 0, pay + criticBonus);
+    showCriticAward('★ TIP CRITIC AWARD ★', `+$${criticBonus} BONUS — flawless review!`);
+    try { sfx.arp([523, 659, 880, 1320, 1760], 'triangle', 0.06, 0.22, 0.18); } catch {}
+  }
+  // POLISH ROUND 2 — FAMILY ORDER bonus
+  if (o.familyId && _familyServes[o.familyId]) {
+    const fam = _familyServes[o.familyId];
+    if (fam.count === 0) fam.firstServeT = performance.now();
+    fam.count++;
+    fam.total += pay;
+    const ftSec = (performance.now() - fam.firstServeT) / 1000;
+    if (fam.count >= fam.target) {
+      if (ftSec <= 5) {
+        const bonus = Math.round(fam.total * 0.5);
+        money += bonus;
+        metaTotalTips += bonus;
+        saveMeta();
+        showAccomplish('★ FAMILY BONUS! ★', `+$${bonus} — all 3 served in ${ftSec.toFixed(1)}s`, '#ff8e3c');
+        try { sfx.arp([523, 784, 1047, 1320], 'triangle', 0.08, 0.22, 0.18); } catch {}
+      } else {
+        popup(window.innerWidth / 2, window.innerHeight / 2 - 60, `family ${ftSec.toFixed(1)}s · too slow`, '#ff8a8a');
+      }
+      delete _familyServes[o.familyId];
+    }
   }
   sfx.arp([523, 659, 784], 'triangle', 0.07, 0.22, 0.2);
   // Popup near the served order's button (approx center of orders bar)
@@ -1377,7 +1709,30 @@ function serve(idx) {
 let _freshUsedIdx = null;
 function tick(dt) {
   if (!running) return;
+  // POLISH ROUND 2 — pause halts simulation entirely
+  if (_isPaused || _resumeCountdown > 0) return;
   _kitchenAmbience(dt);
+  // POLISH ROUND 2 — wait emote progression
+  updateWaitEmotes();
+  // POLISH ROUND 2 — AUTO-SERVE
+  if (_autoServe || _autoServeKey) {
+    for (let i = 0; i < orders.length; i++) {
+      const o = orders[i];
+      if (!o) continue;
+      if (!_freshUsedIdx) _freshUsedIdx = new Set();
+      _freshUsedIdx.clear();
+      let ok = true;
+      for (const n of o.recipe.items) {
+        let found = -1;
+        for (let bi = 0; bi < bench.length; bi++) {
+          if (bench[bi] === n && !_freshUsedIdx.has(bi)) { found = bi; break; }
+        }
+        if (found === -1) { ok = false; break; }
+        _freshUsedIdx.add(found);
+      }
+      if (ok) { serve(i); break; }
+    }
+  }
   spawnT -= dt;
   if (spawnT <= 0) { spawnOrder(); spawnT = Math.max(1.6, 4 - served * 0.05); }
   for (let i = orders.length - 1; i >= 0; i--) {
@@ -1558,6 +1913,8 @@ function tick(dt) {
   updateTipMultChip();
   // Wave 1F: daily challenge progress check
   checkDailyChallenge();
+  // POLISH ROUND 2 — tip tracker bar progress
+  updateTipBar();
   renderOrders();
 }
 
@@ -1653,13 +2010,21 @@ function end() {
   }
   const sh = shiftStats || {};
   const durMin = ((performance.now() - (sh.startedAt || performance.now())) / 60000).toFixed(1);
+  // POLISH ROUND 2 — sparkles on the best categories
+  const _sparkles = '<span class="cafe-shift-summary__sparkle">✨</span><span class="cafe-shift-summary__sparkle" style="animation-delay:0.5s;">★</span>';
+  const _topTipCls = (sh.bestTip || 0) >= 80 ? 'is-top' : '';
+  const _topChainCls = (sh.longestChain || 0) >= 4 ? 'is-top' : '';
+  const _topTipSparkles = (sh.bestTip || 0) >= 80 ? _sparkles : '';
+  const _topChainSparkles = (sh.longestChain || 0) >= 4 ? _sparkles : '';
   summaryHost.innerHTML = `
     <div class="cafe-shift-summary__title">★ SHIFT SUMMARY · ${currentCafe().name} ★</div>
-    <div class="cafe-shift-summary__row"><span>Best single tip</span><b>$${sh.bestTip || 0}</b></div>
-    <div class="cafe-shift-summary__row"><span>Longest combo</span><b>×${sh.longestChain || 0}</b></div>
+    <div class="cafe-shift-summary__row ${_topTipCls}"><span>Best single tip${_topTipSparkles}</span><b>$${sh.bestTip || 0}</b></div>
+    <div class="cafe-shift-summary__row ${_topChainCls}"><span>Longest combo${_topChainSparkles}</span><b>×${sh.longestChain || 0}</b></div>
     <div class="cafe-shift-summary__row"><span>SPECIALS served</span><b>${sh.specialsServed || 0}</b></div>
     <div class="cafe-shift-summary__row"><span>VIPs served</span><b>${sh.vipsServed || 0}</b></div>
+    <div class="cafe-shift-summary__row"><span>CRITICS reviewed</span><b>${sh.criticsServed || 0}</b></div>
     <div class="cafe-shift-summary__row"><span>KARENs calmed</span><b>${sh.karensCalmed || 0}</b></div>
+    <div class="cafe-shift-summary__row"><span>Families served</span><b>${sh.familiesServed || 0}</b></div>
     <div class="cafe-shift-summary__row"><span>Burnt orders</span><b>${sh.burnt || 0}</b></div>
     <div class="cafe-shift-summary__row"><span>Most chaotic moment</span><b>${sh.mostChaotic || 'none'}</b></div>
     <div class="cafe-shift-summary__row"><span>Shift duration</span><b>${durMin} min</b></div>
@@ -1754,6 +2119,8 @@ function start() {
   refreshDailyChip();
   refreshSoupBanner();
   refreshStaffHelper();
+  refreshDailySpecialBoard(); // POLISH ROUND 2
+  updateTipBar();             // POLISH ROUND 2
   renderKitchen(); renderBench(); renderOrders();
   refreshBenchTools();
   updateHud();

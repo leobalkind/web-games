@@ -1,0 +1,208 @@
+/* =============================================================================
+   BACKROOMS 3D — overlay + HUD styles. Layered on top of the WebGL canvas.
+
+   The three.js renderer creates its own <canvas> inside #three-root, sized to
+   fill the viewport. Every DOM element below sits above that canvas via
+   z-index. We avoid pointer-events on decorative layers so mouse-look (canvas
+   click → requestPointerLock) keeps working.
+   ============================================================================= */
+
+/* Three.js root — fills the viewport. The canvas it creates gets these same
+   bounds because we set its size programmatically each frame. */
+#three-root {
+  position: fixed;
+  inset: 0;
+  background: #000; /* black until first frame paints — masks any flash on load */
+  z-index: 0;
+}
+#three-root canvas {
+  display: block;
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  /* No image-rendering:pixelated here — would conflict with WebGL antialias
+     intent. We keep the chunky pixel-art look by disabling MSAA in renderer
+     setup (antialias:false) + low DPR (clamped to 1.0) instead. */
+}
+
+/* =============================================================================
+   CROSSHAIR — tiny 4px dot in the center. Visible only while in-game (the JS
+   toggles body.is-playing).
+   ============================================================================= */
+#crosshair {
+  position: fixed;
+  top: 50%; left: 50%;
+  width: 4px; height: 4px;
+  margin: -2px 0 0 -2px;
+  background: rgba(255, 230, 160, 0.55);
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 5;
+  display: none;
+  /* Tiny soft glow so it stays visible against the yellow walls — pure white
+     would disappear in the brighter rooms. */
+  box-shadow: 0 0 4px rgba(0,0,0,0.8);
+}
+body.is-playing #crosshair { display: block; }
+
+/* =============================================================================
+   VIGNETTE — darker corners to amplify the claustrophobic feel and hide the
+   far-fog edge. Pure CSS radial-gradient — no perf cost.
+   ============================================================================= */
+#vignette {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 4;
+  background: radial-gradient(ellipse at center,
+              rgba(0,0,0,0) 40%,
+              rgba(0,0,0,0.45) 80%,
+              rgba(0,0,0,0.75) 100%);
+  display: none;
+}
+body.is-playing #vignette { display: block; }
+
+/* =============================================================================
+   FLASH — full-screen color burst (jumpscare + death). Driven by JS toggling
+   classes; uses opacity transitions so we don't repaint the whole layer on
+   every frame.
+   ============================================================================= */
+#flash {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 50;
+  background: #fff;
+  opacity: 0;
+  transition: opacity 0.08s ease-out;
+}
+#flash.is-on  { opacity: 0.95; }
+#flash.is-red { background: #ff1414; }
+
+/* =============================================================================
+   HUD — minimal floating panels. Bottom-left = sanity. Bottom-right = depth
+   + level. Keeps the upper area clean so the crosshair and view aren't
+   crowded.
+   ============================================================================= */
+#hud {
+  position: fixed;
+  inset: auto 0 0 0;
+  top: auto;
+  bottom: 0;
+  z-index: 10;
+  pointer-events: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  padding: 0 max(14px, env(safe-area-inset-left, 0))
+           max(14px, env(safe-area-inset-bottom, 0))
+           max(14px, env(safe-area-inset-right, 0));
+  font-family: var(--font-display);
+}
+#hud[hidden] { display: none; }
+
+.hud3-row {
+  background: rgba(8, 6, 14, 0.78);
+  border: 1px solid rgba(200, 160, 60, 0.4);
+  border-radius: 4px;
+  padding: 8px 12px;
+  /* Subtle warm glow — picks up the yellow backrooms palette so the HUD
+     doesn't feel like a cyber overlay. */
+  box-shadow: 0 0 18px rgba(200, 160, 60, 0.12), inset 0 0 8px rgba(0,0,0,0.4);
+}
+
+.hud3-vital { min-width: 160px; }
+.hud3-lbl {
+  font-size: 0.45rem;
+  letter-spacing: 0.18em;
+  color: #c8c0a0;
+  margin-bottom: 5px;
+}
+.hud3-bar {
+  width: 100%;
+  height: 10px;
+  background: #1a1424;
+  border: 1px solid #3a3020;
+  border-radius: 2px;
+  overflow: hidden;
+  position: relative;
+}
+.hud3-bar > i {
+  display: block;
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(90deg, #5ef38c, #b8e070);
+  transition: width 0.4s ease, background 0.4s ease;
+}
+/* As sanity drops, the JS sets data-pct on #hud-sanity-wrap so we can swap
+   the bar color via attribute selectors — no inline-style churn each frame. */
+.hud3-bar.is-low    > i { background: linear-gradient(90deg, #ffd23f, #ff8e3c); }
+.hud3-bar.is-critical > i {
+  background: linear-gradient(90deg, #ff3a3a, #c01010);
+  animation: hud3Pulse 0.8s ease-in-out infinite;
+}
+@keyframes hud3Pulse { 50% { opacity: 0.6; } }
+
+.hud3-row--stats { text-align: right; min-width: 130px; }
+.hud3-stat {
+  font-size: 0.5rem;
+  letter-spacing: 0.08em;
+  color: #c8c0a0;
+  line-height: 1.8;
+}
+.hud3-stat b {
+  color: #8a8270;
+  font-weight: normal;
+  margin-right: 6px;
+}
+.hud3-stat span {
+  color: #ffd23f;
+  text-shadow: 0 0 6px rgba(255, 210, 63, 0.4);
+}
+
+/* =============================================================================
+   START / END / PAUSE overlays — tweaked from the shared overlay__panel to
+   feel like a backrooms artifact (yellow border, warm shadow).
+   ============================================================================= */
+.overlay__panel--backrooms {
+  background: linear-gradient(135deg, #1a1408, #0a0806);
+  border-color: #c8a040;
+  box-shadow: 0 0 0 3px #0a0806,
+              0 0 40px rgba(200, 160, 60, 0.4),
+              0 0 80px rgba(200, 160, 60, 0.18);
+}
+.overlay__panel--backrooms::before,
+.overlay__panel--backrooms::after {
+  border-color: #c8a040;
+}
+.overlay__panel--backrooms .overlay__tag {
+  border-color: #c8a040;
+  color: #ffd680;
+  background: rgba(200, 160, 60, 0.12);
+}
+
+/* The big WELCOME button — pulses softly to draw the eye in the dim panel. */
+#start-btn {
+  background: linear-gradient(180deg, #ffd23f, #c89020);
+  color: #1a0d05;
+  border-color: #fff0a0;
+  box-shadow: 0 4px 0 #5a4014, 0 0 30px rgba(255, 210, 63, 0.5);
+  letter-spacing: 0.12em;
+  margin-top: 8px;
+}
+#start-btn:hover { transform: translateY(-2px); }
+
+/* On mobile, fade the overlay panel slightly so the panel chrome doesn't fill
+   the whole screen — the smaller phone screen can't host the giant pulse-glow
+   without clipping. */
+@media (max-width: 540px) {
+  .overlay__panel--backrooms { padding: 22px 18px; max-width: 92vw; }
+  .hud3-vital { min-width: 110px; }
+  .hud3-row--stats { min-width: 90px; }
+  .hud3-stat { font-size: 0.44rem; }
+}
+
+/* Force the body background black so any letterboxing around the canvas
+   (rare aspect-ratio fallbacks) doesn't show the purple hub bg. */
+body { background: #000; }

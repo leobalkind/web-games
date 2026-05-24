@@ -59,6 +59,33 @@
   .dd-panel { display: none; }
   .dd-panel.is-on { display: block; }
   .dd-end-meta { margin: 6px 0; font-size: 0.5rem; color: var(--neon-pink); letter-spacing: 0.08em; }
+  /* POLISH ROUND 2 — Mastery modal + GO DEEPER button + Skill tree visuals */
+  .dd-mastery-modal { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 2200; background: rgba(0,0,0,0.78); animation: dd-shop-fade 0.18s ease-out; }
+  .dd-mastery-panel { background: linear-gradient(180deg,#1a0d2a,#0a0716); border: 3px solid #ffd23f; border-radius: 10px; padding: 18px 22px; min-width: 420px; max-width: 92vw; box-shadow: 0 0 32px rgba(255,210,63,0.55); animation: dd-shop-pop 0.22s cubic-bezier(0.34,1.56,0.64,1); }
+  .dd-mastery-title { font-family: var(--font-display); font-size: 0.85rem; color: #ffd23f; text-align: center; margin-bottom: 8px; letter-spacing: 0.1em; text-shadow: 0 0 10px #ffd23f; }
+  .dd-mastery-sub { text-align: center; font-family: var(--font-display); font-size: 0.42rem; color: var(--text-soft); margin-bottom: 12px; letter-spacing: 0.05em; }
+  .dd-mastery-options { display: grid; grid-template-columns: 1fr; gap: 8px; }
+  .dd-mastery-btn { background: rgba(0,0,0,0.5); border: 2px solid #5ef38c; border-radius: 6px; color: #fff; font-family: var(--font-display); font-size: 0.5rem; padding: 12px; cursor: pointer; letter-spacing: 0.05em; text-align: left; transition: all 0.15s; }
+  .dd-mastery-btn b { color: #ffd23f; }
+  .dd-mastery-btn span { color: #cacacf; font-size: 0.42rem; }
+  .dd-mastery-btn:hover { border-color: #ffd23f; background: rgba(255,210,63,0.1); transform: translateY(-2px); }
+  /* GO DEEPER button */
+  #godeeper-btn { position: fixed; bottom: 130px; right: 12px; z-index: 90; background: linear-gradient(180deg,#b055ff,#5a2080); color: #fff; border: 2px solid #ff8aff; border-radius: 6px; font-family: var(--font-display); font-size: 0.45rem; letter-spacing: 0.06em; padding: 8px 12px; cursor: pointer; box-shadow: 0 3px 0 #2a1040; -webkit-tap-highlight-color: transparent; display: none; }
+  #godeeper-btn:hover { transform: translateY(-1px); }
+  /* Skill tree visuals - tree-shaped layout with branch lines */
+  .dd-skilltree { position: relative; display: grid; grid-template-columns: repeat(2, minmax(140px, 1fr)); gap: 8px; padding: 12px 8px; background: radial-gradient(ellipse at center top, rgba(94,243,140,0.06), transparent 70%); border-radius: 6px; }
+  .dd-skilltree::before { content: ''; position: absolute; top: 0; bottom: 0; left: 50%; width: 2px; background: linear-gradient(180deg, rgba(94,243,140,0.4), rgba(176,85,255,0.4)); transform: translateX(-50%); pointer-events: none; }
+  .dd-skill-btn { position: relative; }
+  /* Run history table sortable */
+  .dd-hist-table { width: 100%; border-collapse: collapse; font-family: var(--font-display); font-size: 0.4rem; color: var(--text-soft); letter-spacing: 0.04em; margin: 6px 0; }
+  .dd-hist-table th { color: var(--neon-yellow); cursor: pointer; padding: 4px 6px; border-bottom: 1px solid var(--border); user-select: none; text-align: left; }
+  .dd-hist-table th:hover { color: var(--neon-pink); }
+  .dd-hist-table th.is-sorted::after { content: ' ▼'; font-size: 0.32rem; }
+  .dd-hist-table th.is-sorted.is-asc::after { content: ' ▲'; }
+  .dd-hist-table td { padding: 3px 6px; border-bottom: 1px dotted var(--border); }
+  /* PERK chip strip (active mastery perks) */
+  .dd-perk-strip { position: fixed; top: 140px; left: 12px; z-index: 50; display: flex; flex-direction: column; gap: 4px; pointer-events: none; }
+  .dd-perk-chip { background: rgba(0,0,0,0.7); color: var(--neon-yellow); border: 1px solid var(--neon-yellow); padding: 3px 6px; border-radius: 3px; font-family: var(--font-display); font-size: 0.34rem; letter-spacing: 0.05em; text-shadow: 0 0 4px var(--neon-yellow); }
 </style>
 </head><body>
 <canvas id="game-canvas"></canvas>
@@ -106,6 +133,15 @@
   <div class="hud-row hud-row--small"><b>BEST</b> <span id="hud-best">0</span></div>
 </div></div>
 <button id="beam-btn" type="button" style="position:fixed;right:20px;bottom:200px;width:72px;height:72px;border-radius:50%;background:linear-gradient(180deg,#a87a4a,#6a4a28);color:#fff;border:3px solid #d0a878;font-family:var(--font-display);font-size:0.55rem;cursor:pointer;display:none;z-index:150;-webkit-tap-highlight-color:transparent;box-shadow:0 6px 0 rgba(60,40,20,0.8);">BEAM</button>
+<button id="godeeper-btn" type="button">▼ GO DEEPER</button>
+<div id="dd-perk-strip" class="dd-perk-strip"></div>
+<div id="mastery-modal" hidden class="dd-mastery-modal">
+  <div class="dd-mastery-panel">
+    <div class="dd-mastery-title" id="mastery-title">★ MASTERY ★</div>
+    <div class="dd-mastery-sub">Choose ONE permanent perk for this run.</div>
+    <div class="dd-mastery-options" id="mastery-options"></div>
+  </div>
+</div>
 <div id="shop-modal" hidden style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:2100;background:rgba(0,0,0,0.6);animation:dd-shop-fade 0.18s ease-out;">
   <div style="background:linear-gradient(180deg,#2a1a14,#1a0d05);border:3px solid #d0a878;border-radius:10px;padding:18px 22px;min-width:320px;max-width:90vw;box-shadow:0 0 32px rgba(208,168,120,0.5);animation:dd-shop-pop 0.22s cubic-bezier(0.34,1.56,0.64,1);">
     <div style="font-family:var(--font-display);font-size:0.7rem;color:#ffd23f;text-align:center;margin-bottom:6px;letter-spacing:0.1em;">SHOPKEEPER</div>

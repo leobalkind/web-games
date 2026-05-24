@@ -58,8 +58,60 @@ function _makeLabPugCanvas(w, h, opts) {
 }
 
 // Helper: small wrapper around makeIngredientCanvas with sensible defaults.
+// For NEW ingredients (philosopher_stone / cosmic_dust / mirror_shard) that
+// aren't in the shared icon module, we draw them locally to a canvas.
+// Compact polygon + drawers for the 3 new Round 2 ingredients.
+function _polyFill(ctx, pts, s, color) {
+  ctx.fillStyle = color; ctx.beginPath();
+  for (let i = 0; i < pts.length; i += 2) {
+    const xx = pts[i] * s, yy = pts[i + 1] * s;
+    if (i === 0) ctx.moveTo(xx, yy); else ctx.lineTo(xx, yy);
+  }
+  ctx.closePath(); ctx.fill();
+}
+const _NEW_INGREDIENT_DRAWERS = {
+  philosopher_stone(ctx, x, y, size) {
+    const s = size / 16; ctx.save(); ctx.translate(x, y);
+    ctx.fillStyle = 'rgba(255,210,63,.25)'; ctx.beginPath(); ctx.arc(0, 0, 7 * s, 0, Math.PI * 2); ctx.fill();
+    _polyFill(ctx, [0,-6,5,-2,5,3,0,6,-5,3,-5,-2], s, '#8a0808');
+    _polyFill(ctx, [0,-5,4,-2,0,1], s, '#c81818');
+    ctx.fillStyle = '#ffd23f'; ctx.fillRect(-s, -s, 2 * s, 2 * s);
+    ctx.restore();
+  },
+  cosmic_dust(ctx, x, y, size) {
+    const s = size / 16; ctx.save(); ctx.translate(x, y);
+    const g = ctx.createRadialGradient(0, 0, 1, 0, 0, 7 * s);
+    g.addColorStop(0, '#fff0a0'); g.addColorStop(.4, '#b055ff'); g.addColorStop(1, 'rgba(40,10,80,.1)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(0, 0, 7 * s, 5 * s, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fff';
+    for (const [px, py] of [[-4,-3],[3,-2],[2,3],[-3,2],[0,-4]]) ctx.fillRect(px * s, py * s, 1, 1);
+    ctx.fillRect(-s, 0, 2 * s, 1); ctx.fillRect(0, -s, 1, 2 * s);
+    ctx.restore();
+  },
+  mirror_shard(ctx, x, y, size) {
+    const s = size / 16; ctx.save(); ctx.translate(x, y);
+    _polyFill(ctx, [-2,-7,4,-5,5,2,2,7,-3,6,-5,-1], s, '#1a2030');
+    _polyFill(ctx, [-1,-6,3,-4,4,1,1,6,-2,5,-4,0], s, '#b0e8ff');
+    ctx.fillStyle = '#fff'; ctx.fillRect(-2 * s, -5 * s, 1, 4 * s);
+    ctx.fillStyle = '#4cc9f0'; ctx.fillRect(2 * s, 0, 1, 4 * s);
+    ctx.restore();
+  },
+};
 function _ingredientEl(ing, size) {
-  return makeIngredientCanvas(ing.id, size || 32);
+  size = size || 32;
+  if (_NEW_INGREDIENT_DRAWERS[ing.id]) {
+    const cv = document.createElement('canvas');
+    const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+    cv.width = Math.round(size * dpr); cv.height = Math.round(size * dpr);
+    cv.style.width = size + 'px'; cv.style.height = size + 'px';
+    cv.style.display = 'block'; cv.style.imageRendering = 'pixelated';
+    const c = cv.getContext('2d');
+    c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    c.imageSmoothingEnabled = false;
+    _NEW_INGREDIENT_DRAWERS[ing.id](c, size / 2, size / 2, size);
+    return cv;
+  }
+  return makeIngredientCanvas(ing.id, size);
 }
 
 const sfx = createSfx({ storageKey: 'mutlab:muted' });
@@ -496,6 +548,46 @@ const LAB_CSS = `
 .lab-accomplish{position:fixed;top:40%;left:50%;transform:translate(-50%,-50%) scale(.3);z-index:260;padding:22px 36px;border-radius:10px;font-family:var(--font-display);font-size:1.1rem;letter-spacing:.1em;background:rgba(10,7,22,.96);border:4px solid currentColor;text-align:center;opacity:0;pointer-events:none;transition:opacity .3s, transform .5s cubic-bezier(.34,1.56,.64,1);text-shadow:0 0 12px currentColor}
 .lab-accomplish.is-show{opacity:1;transform:translate(-50%,-50%) scale(1)}
 .lab-accomplish__sub{font-size:.5rem;color:var(--text-soft);margin-top:6px;letter-spacing:.05em}
+/* === Round 2 (compact) === */
+@keyframes lab-explode-pulse{0%{transform:translate(-50%,-50%) scale(.5);opacity:.95}60%{transform:translate(-50%,-50%) scale(8);opacity:.5}100%{transform:translate(-50%,-50%) scale(14);opacity:0}}
+.lab-item.is-dragging{opacity:.55;transform:scale(.92);cursor:grabbing}.lab-item{cursor:grab}
+.lab-slot.is-drop-target{background:rgba(255,210,63,.25)!important;border-color:var(--neon-yellow)!important;box-shadow:0 0 18px rgba(255,210,63,.5);transform:scale(1.06)}
+.lab-ing-combos-modal{position:fixed;inset:0;z-index:220;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.85);padding:16px}
+.lab-ing-combos-modal__panel{background:linear-gradient(180deg,#2a0a14,#14060a);border:3px solid var(--neon-pink);border-radius:10px;padding:16px;max-width:480px;width:100%;max-height:84vh;overflow-y:auto;box-shadow:0 0 30px rgba(255,58,161,.4)}
+.lab-ing-combo-row{background:rgba(0,0,0,.5);border:2px solid var(--border);border-radius:4px;padding:6px 10px;font-family:var(--font-display);font-size:.42rem;line-height:1.5}
+.lab-ing-combo-row.COMMON{border-color:#c8c8d8}.lab-ing-combo-row.RARE{border-color:#4cc9f0}.lab-ing-combo-row.EPIC{border-color:#b055ff}
+.lab-ing-combo-row.LEGENDARY{border-color:#ffd23f;box-shadow:0 0 8px rgba(255,210,63,.25)}.lab-ing-combo-row.CURSED{border-color:#ff3a3a}
+.lab-ing-combo-ids{color:var(--text-soft);font-size:.38rem}.lab-ing-combo-name{color:var(--neon-yellow);margin-top:2px}
+.lab-codex-sort-row{display:flex;flex-wrap:wrap;gap:4px;justify-content:center;margin:4px 0 8px}.lab-codex-sort-row .lab-sort-chip{font-size:.34rem;padding:3px 7px}
+.lab-room2{background:rgba(10,7,22,.7);border:2px dashed rgba(176,85,255,.4);border-radius:8px;padding:6px;margin-top:4px;display:flex;gap:8px;align-items:center;justify-content:center}
+.lab-room2__title{font-family:var(--font-display);font-size:.42rem;color:#b055ff;letter-spacing:.08em}
+.lab-room2__btn{background:linear-gradient(180deg,#6a2080,#3a1050);color:#fff;border:2px solid #b055ff;border-radius:4px;font-family:var(--font-display);font-size:.42rem;letter-spacing:.06em;padding:4px 8px;cursor:pointer}
+.lab-room2__btn:hover{transform:translateY(-1px)}.lab-room2.is-locked{opacity:.35}
+.lab-room2-mini-slot{width:30px;height:30px;background:rgba(0,0,0,.4);border:1px dashed var(--border);border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:16px}
+.lab-room2-mini-slot.filled{border-style:solid;border-color:#b055ff}
+.lab-beaker__liquid{position:absolute;left:16px;right:16px;bottom:14px;height:70px;border-radius:0 0 14px 14px;pointer-events:none;overflow:hidden;opacity:0;transition:opacity .3s,background .5s;mix-blend-mode:screen}
+.lab-beaker__liquid.is-on{opacity:.55}
+.lab-beaker__meniscus{position:absolute;top:0;left:0;right:0;height:4px;background:rgba(255,255,255,.4);border-radius:50%/30%;box-shadow:0 1px 4px rgba(255,255,255,.5)}
+.lab-week-section{background:rgba(176,85,255,.08);border:2px dashed #b055ff;border-radius:6px;padding:10px 12px;margin-bottom:12px}
+.lab-week-section__title{font-family:var(--font-display);font-size:.55rem;letter-spacing:.08em;color:#b055ff;margin-bottom:6px}
+.lab-chains-btn{top:calc(96px + env(safe-area-inset-top,0));left:60px;background:linear-gradient(180deg,#ff8e3c,#c84a08);color:#fff;border:3px solid #ffd09a;box-shadow:0 4px 0 #6a2810;font-size:.42rem;padding:5px 9px;position:fixed;z-index:100;font-family:var(--font-display);letter-spacing:.06em;border-radius:6px;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.lab-chains-btn:hover{transform:translateY(-1px)}
+.lab-chains-modal{position:fixed;inset:0;z-index:200;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.85);padding:16px}
+.lab-chains-modal.is-open{display:flex}
+.lab-chains-modal__panel{background:linear-gradient(180deg,#2a1a08,#14060a);border:3px solid #ff8e3c;border-radius:10px;padding:18px;max-width:540px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 0 40px rgba(255,142,60,.4)}
+.lab-chains-title{font-family:var(--font-display);font-size:.85rem;letter-spacing:.1em;color:#ff8e3c;text-align:center;margin:0 0 8px;text-shadow:0 0 12px #ff8e3c}
+.lab-chains-sub{font-family:var(--font-display);font-size:.42rem;color:var(--text-soft);text-align:center;margin-bottom:12px;letter-spacing:.04em}
+.lab-chain-row{display:flex;gap:10px;align-items:center;justify-content:center;margin:8px 0;padding:8px;background:rgba(0,0,0,.5);border-radius:6px;border:2px solid var(--border)}
+.lab-chain-slot{width:56px;height:56px;background:rgba(0,0,0,.6);border:2px dashed var(--border);border-radius:6px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0}
+.lab-chain-slot.filled{border-style:solid;border-color:#ff8e3c}
+.lab-chain-plus{font-family:var(--font-display);font-size:.8rem;color:#ff8e3c}
+.lab-chain-btn{background:linear-gradient(180deg,#ff8e3c,#c84a08);color:#fff;border:3px solid #ffd09a;padding:8px 16px;font-family:var(--font-display);font-size:.6rem;letter-spacing:.08em;border-radius:4px;cursor:pointer;box-shadow:0 4px 0 #6a2810;display:block;margin:12px auto 0}
+.lab-chain-btn:disabled{opacity:.4;cursor:not-allowed}
+.lab-chain-result{margin-top:14px;padding:12px;background:rgba(255,142,60,.1);border:2px solid #ff8e3c;border-radius:6px;text-align:center;font-family:var(--font-display);font-size:.55rem;color:#ffd09a}
+.lab-chain-discovered-list{max-height:240px;overflow-y:auto;margin-top:12px;padding:6px;border-top:1px dashed var(--border)}
+.lab-chain-disc-item{padding:4px 6px;cursor:pointer;font-family:var(--font-display);font-size:.42rem;color:var(--text-soft);border-radius:3px}
+.lab-chain-disc-item:hover{background:rgba(255,142,60,.15);color:#ff8e3c}
+.lab-chain-disc-item.is-selected{background:rgba(255,142,60,.25);color:#fff}
 body.lab-theme-dark .lab-bg{background:radial-gradient(ellipse at 50% 0%,rgba(122,32,128,.18),transparent 60%),radial-gradient(ellipse at 20% 100%,rgba(255,58,58,.12),transparent 60%),#050208}
 body.lab-theme-cosmic .lab-bg{background:radial-gradient(ellipse at 50% 0%,rgba(176,85,255,.18),transparent 60%),radial-gradient(ellipse at 20% 100%,rgba(76,201,240,.18),transparent 60%),radial-gradient(circle at 75% 25%,rgba(255,210,63,.10),transparent 50%),#0a0820}
 .lab-assistant__hat{position:absolute;top:-10px;left:50%;transform:translateX(-50%);font-size:20px;line-height:1;pointer-events:none;text-shadow:0 2px 4px rgba(0,0,0,.8);opacity:0;transition:opacity .3s}
@@ -686,13 +778,13 @@ _assist.appendChild(_assistBubble);
 document.body.appendChild(_assist);
 let _assistBubbleHide = null;
 const ASSIST_PHRASES = {
-  legendary: ['SPECTACULAR!', 'a MASTERPIECE!', 'history made!', '★ chef\'s kiss ★', 'bork excellence!'],
-  epic:      ['amazing!', 'very good fusion', 'epic mutation!', 'I am impressed'],
-  rare:      ['nice one!', 'rare specimen', 'good bork', 'interesting'],
-  common:    ['…sure.', 'a pug.', 'meh.', 'mid bork.'],
-  cursed:    ['don\'t look at it', '*scared yip*', 'IT MOVED', 'I shall sleep here'],
-  almost:    ['close!', 'almost there', 'so close…', 'try again'],
-  idle:      ['snrk', 'I\'m hungry', 'bork', 'when lunch?', 'I miss the sun'],
+  legendary: ['SPECTACULAR!', 'a MASTERPIECE!', 'history made!', '★ chef\'s kiss ★', 'bork excellence!', 'PUG-NOBEL PRIZE!', 'museum-worthy!', 'I am SOBBING'],
+  epic:      ['amazing!', 'very good fusion', 'epic mutation!', 'I am impressed', 'mathematically pretty', 'top-tier bork', 'beautiful!'],
+  rare:      ['nice one!', 'rare specimen', 'good bork', 'interesting', 'noted in the ledger', 'oh? OH!'],
+  common:    ['…sure.', 'a pug.', 'meh.', 'mid bork.', 'we have one of those', 'collection ++'],
+  cursed:    ['don\'t look at it', '*scared yip*', 'IT MOVED', 'I shall sleep here', 'we do not speak of it', 'lock the door'],
+  almost:    ['close!', 'almost there', 'so close…', 'try again', 'ONE swap away…', 'I can FEEL it'],
+  idle:      ['snrk', 'I\'m hungry', 'bork', 'when lunch?', 'I miss the sun', 'do you have treats?', 'snoot boop?', '*sniff sniff*', 'fwip'],
 };
 function assistantReact(kind) {
   // Remove old animation class so the same kind can re-trigger.
@@ -795,6 +887,10 @@ const INGREDIENTS = [
   { id: 'bat',      emoji: '🦇', name: 'Bat Wing',         element: 'DARK' },
   { id: 'tentacle', emoji: '🐙', name: 'Tentacle',         element: 'FLESH' },
   { id: 'leaf',     emoji: '🌿', name: 'Strange Leaf',     element: 'EARTH' },
+  // === Round 2 expansion ingredients ===
+  { id: 'philosopher_stone', emoji: '🪨', name: 'Philosopher Stone', element: 'COSMIC' },
+  { id: 'cosmic_dust',       emoji: '✨', name: 'Cosmic Dust',       element: 'COSMIC' },
+  { id: 'mirror_shard',      emoji: '🪞', name: 'Mirror Shard',      element: 'TECH' },
 ];
 
 // Affinity pairs — 2-element key string lookup, much smaller minified.
@@ -830,6 +926,9 @@ const LEGENDARY = {
   'lightning,rainbow,eyeball': { name: 'KALEIDOSCOPE EYE',  icon: '👁🌈⚡', tier: 'LEGENDARY', desc: 'Sees in 11 dimensions. Most are snacks.' },
   'donut,cake,cheese':     { name: 'DESSERT KING PUG',      icon: '🍩🧀🍰', tier: 'LEGENDARY', desc: 'Eats only the sweet AND the savory. Diabetic vet declines.' },
   'bone,lava,tentacle':    { name: 'HELL-OCTOPUG',          icon: '🦴🌋🐙', tier: 'LEGENDARY', desc: 'Eight burning tentacles. Eight times the chaos.' },
+  // === Round 2: new legendaries using the new ingredients ===
+  'cosmic_dust,philosopher_stone,wizard': { name: 'CELESTIAL ALCHEMIST', icon: '✨🪨🧙', tier: 'LEGENDARY', desc: 'Transmutes treats into gold. Audited annually by the IRS.' },
+  'cosmic_dust,mirror_shard,rainbow':     { name: 'INFINITE PUG MIRROR', icon: '✨🪞🌈', tier: 'LEGENDARY', desc: 'Reflects all known pug-versions. Some looking back at you.' },
 };
 
 // Cursed adjectives + nouns for procedural names
@@ -839,7 +938,7 @@ const FACE = ['😈', '👹', '🤖', '🧟', '🦄', '🐲', '🦑', '🦎', '�
 const CAPS = ['"It bork. It haunt. It mid."', '"Tag urself."', '"Do not feed."', '"Was once a good boy."', '"Smells like static."', '"Born in a microwave."', '"Knows what you did."', '"5/7."', '"Sad pug noises."', '"Just vibing."', '"Don\'t look it in the snoot."', '"Vegan now somehow."', '"100% organic chaos."', '"Cannot stop bork."', '"Free to a good home."'];
 
 // Target totals per tier (for the codex display + progress goal)
-const TIER_TARGETS = { COMMON: 14, RARE: 14, EPIC: 14, LEGENDARY: 13, CURSED: 5 };
+const TIER_TARGETS = { COMMON: 16, RARE: 16, EPIC: 16, LEGENDARY: 15, CURSED: 6 };
 const TIER_ORDER = ['LEGENDARY', 'EPIC', 'RARE', 'COMMON', 'CURSED'];
 
 // Decide tier from sorted ids (deterministic). Legendaries are checked separately first.
@@ -859,9 +958,9 @@ let experiments = 0;
 // Each 3-ingredient combination is one-shot: once a sorted key lands here,
 // re-fusing the same 3 ingredients triggers an "already discovered" toast.
 let discoveredCombos = new Set();
-// Total possible 3-ingredient combinations from 20 ingredients: C(20,3) = 1140.
+// Total possible 3-ingredient combinations — derived from INGREDIENTS length.
 const TOTAL_COMBOS = (function () {
-  const n = 20, k = 3;
+  const n = INGREDIENTS.length, k = 3;
   let r = 1;
   for (let i = 1; i <= k; i++) r = r * (n - i + 1) / i;
   return Math.round(r);
@@ -928,6 +1027,19 @@ function _buildIngredientCard(ing) {
     addToBeaker(ing, fx, fy);
     el.classList.remove('is-picked'); void el.offsetWidth; el.classList.add('is-picked');
     setTimeout(() => el.classList.remove('is-picked'), 340);
+  });
+  // === Drag-and-drop support (Round 2) ===
+  el.draggable = true;
+  el.addEventListener('dragstart', (ev) => {
+    ev.dataTransfer.setData('text/lab-ingredient', ing.id);
+    ev.dataTransfer.effectAllowed = 'copy';
+    el.classList.add('is-dragging');
+  });
+  el.addEventListener('dragend', () => el.classList.remove('is-dragging'));
+  // === Right-click — show all already-tried combos for this ingredient (Round 2) ===
+  el.addEventListener('contextmenu', (ev) => {
+    ev.preventDefault();
+    showIngredientCombos(ing);
   });
   return el;
 }
@@ -1050,6 +1162,29 @@ function syncBeaker() {
         beakerEl.appendChild(sm);
       }
     }
+    // ===== ROUND 2: ANIMATED LIQUID LAYER WITH COLOR BLENDING + MENISCUS =====
+    let liquidEl = beakerEl.querySelector('.lab-beaker__liquid');
+    if (!liquidEl) {
+      liquidEl = document.createElement('div');
+      liquidEl.className = 'lab-beaker__liquid';
+      liquidEl.innerHTML = '<div class="lab-beaker__meniscus"></div>';
+      beakerEl.appendChild(liquidEl);
+    }
+    const loadedIngs = beaker.filter((b) => b != null);
+    if (loadedIngs.length > 0) {
+      // Blend the colors of the loaded ingredient elements
+      const cols = loadedIngs.map((ing) => ELEMENTS[ing.element]?.color || '#888').filter(Boolean);
+      const grad = cols.length === 1
+        ? `linear-gradient(180deg, ${cols[0]}cc 0%, ${cols[0]}66 100%)`
+        : `linear-gradient(135deg, ${cols.join(', ')})`;
+      liquidEl.style.background = grad;
+      liquidEl.classList.add('is-on');
+      // Liquid fill height — 30% / 60% / 90% based on ingredients
+      const fillPct = loadedIngs.length === 3 ? 0.9 : loadedIngs.length === 2 ? 0.6 : 0.3;
+      liquidEl.style.height = (70 * fillPct) + 'px';
+    } else {
+      liquidEl.classList.remove('is-on');
+    }
     // ===== WAVE 1F: AFFINITY GLOW + LABEL =====
     // Look at currently-loaded ingredients; if any pair shares an affinity
     // bond, highlight the beaker with that color and show a small label above
@@ -1087,7 +1222,133 @@ function syncBeaker() {
 
 document.querySelectorAll('.lab-slot').forEach((el, i) => {
   el.addEventListener('click', () => { beaker[i] = null; syncBeaker(); applyAlmostHints(); });
+  // Drag-and-drop target — accept ingredient ids from the shelf
+  el.addEventListener('dragover', (ev) => {
+    if (ev.dataTransfer.types.includes('text/lab-ingredient')) {
+      ev.preventDefault(); ev.dataTransfer.dropEffect = 'copy';
+      el.classList.add('is-drop-target');
+    }
+  });
+  el.addEventListener('dragleave', () => el.classList.remove('is-drop-target'));
+  el.addEventListener('drop', (ev) => {
+    ev.preventDefault();
+    el.classList.remove('is-drop-target');
+    const id = ev.dataTransfer.getData('text/lab-ingredient');
+    if (!id) return;
+    const ing = INGREDIENTS.find((x) => x.id === id);
+    if (!ing) return;
+    // Replace this specific slot — drag-to-slot overrides default findEmpty.
+    beaker[i] = ing;
+    sfx.tone(660 + i * 110, 'triangle', 0.08, 0.18);
+    syncBeaker();
+    applyAlmostHints();
+  });
 });
+
+// === Round 2: Backup beaker (parallel slot stash — second lab room) ===
+// Lets the player stash 3 ingredients alongside the main beaker for parallel
+// experimentation. Unlocks after 20 discoveries.
+let _backupBeaker = [null, null, null];
+function _isBackupUnlocked() { return Object.keys(discoveries).length >= 20; }
+function refreshBackupBeaker() {
+  const room2 = document.getElementById('lab-room2');
+  if (!room2) return;
+  const unlocked = _isBackupUnlocked();
+  room2.classList.toggle('is-locked', !unlocked);
+  // Update title to show lock status
+  const titleEl = room2.querySelector('.lab-room2__title');
+  if (titleEl) {
+    titleEl.textContent = unlocked ? 'BACKUP BEAKER (LAB 2)' : `BACKUP BEAKER (unlocks @ 20)`;
+  }
+  document.querySelectorAll('.lab-room2-mini-slot').forEach((el, i) => {
+    el.innerHTML = '';
+    if (_backupBeaker[i]) {
+      el.appendChild(_ingredientEl(_backupBeaker[i], 24));
+      el.classList.add('filled');
+    } else {
+      el.textContent = '+';
+      el.classList.remove('filled');
+    }
+  });
+  const stashBtn = document.getElementById('lab-room2-stash');
+  const swapBtn = document.getElementById('lab-room2-swap');
+  if (stashBtn) stashBtn.disabled = !unlocked;
+  if (swapBtn) swapBtn.disabled = !unlocked || _backupBeaker.every((s) => s == null);
+}
+function setupBackupBeaker() {
+  document.querySelectorAll('.lab-room2-mini-slot').forEach((el, i) => {
+    el.addEventListener('click', () => {
+      if (!_isBackupUnlocked()) return;
+      _backupBeaker[i] = null;
+      refreshBackupBeaker();
+    });
+    el.addEventListener('dragover', (ev) => {
+      if (!_isBackupUnlocked()) return;
+      if (ev.dataTransfer.types.includes('text/lab-ingredient')) {
+        ev.preventDefault(); ev.dataTransfer.dropEffect = 'copy';
+      }
+    });
+    el.addEventListener('drop', (ev) => {
+      ev.preventDefault();
+      if (!_isBackupUnlocked()) return;
+      const id = ev.dataTransfer.getData('text/lab-ingredient');
+      const ing = INGREDIENTS.find((x) => x.id === id);
+      if (!ing) return;
+      _backupBeaker[i] = ing;
+      sfx.tone(440 + i * 110, 'triangle', 0.05, 0.15);
+      refreshBackupBeaker();
+    });
+  });
+  const stash = document.getElementById('lab-room2-stash');
+  const swap = document.getElementById('lab-room2-swap');
+  if (stash) stash.addEventListener('click', () => {
+    if (!_isBackupUnlocked()) return;
+    // Stash current main beaker into backup (overwriting)
+    _backupBeaker = beaker.slice();
+    beaker = [null, null, null];
+    syncBeaker();
+    refreshBackupBeaker();
+    sfx.tone(660, 'sine', 0.08, 0.18);
+  });
+  if (swap) swap.addEventListener('click', () => {
+    if (!_isBackupUnlocked()) return;
+    const tmp = beaker.slice();
+    beaker = _backupBeaker.slice();
+    _backupBeaker = tmp;
+    syncBeaker();
+    refreshBackupBeaker();
+    applyAlmostHints();
+    sfx.arp([523, 880], 'triangle', 0.06, 0.16, 0.18);
+  });
+}
+
+// Show all already-tried combos that include a given ingredient (right-click)
+function showIngredientCombos(ing) {
+  const matches = [];
+  for (const key of discoveredCombos) {
+    const ids = key.split(',');
+    if (ids.includes(ing.id)) matches.push({ key, ids, d: discoveries[key] });
+  }
+  const wrap = document.createElement('div');
+  wrap.className = 'lab-ing-combos-modal is-open';
+  let html = `<div class="lab-ing-combos-modal__panel"><h2 class="lab-codex-title">${ing.name.toUpperCase()} · ${matches.length} TRIED</h2><div class="lab-codex-sub">Right-click any ingredient to see its combo history</div>`;
+  if (matches.length === 0) {
+    html += `<div style="padding:12px;text-align:center;color:var(--text-soft);font-size:.5rem">No combos tried using ${ing.name}.</div>`;
+  } else {
+    html += `<div style="display:flex;flex-direction:column;gap:6px;max-height:60vh;overflow-y:auto">`;
+    for (const m of matches) {
+      const tier = m.d?.tier || 'COMMON', name = m.d?.name || '???';
+      const ingNames = m.ids.map((id) => INGREDIENTS.find((i) => i.id === id)?.name || id).join(' + ');
+      html += `<div class="lab-ing-combo-row ${tier}"><div class="lab-ing-combo-ids">${ingNames}</div><div class="lab-ing-combo-name">${name} <span style="opacity:.5">[${tier}]</span></div></div>`;
+    }
+    html += `</div>`;
+  }
+  html += `<button class="lab-codex-close" id="ing-combos-close">CLOSE</button></div>`;
+  wrap.innerHTML = html;
+  document.body.appendChild(wrap);
+  wrap.querySelector('#ing-combos-close').addEventListener('click', () => wrap.remove());
+  wrap.addEventListener('click', (e) => { if (e.target === wrap) wrap.remove(); });
+}
 
 fuseBtn.addEventListener('click', fuse);
 
@@ -1176,7 +1437,10 @@ function fuse() {
     };
   }
   const isNew = !discoveries[key];
-  if (isNew) discoveries[key] = result;
+  if (isNew) {
+    result.discoveredAt = Date.now();
+    discoveries[key] = result;
+  }
   // Mark this combo as discovered no matter what (procedural results may map
   // to a creature name that's already in the codex — but the combo itself is
   // novel and counts as a discovery).
@@ -1236,7 +1500,7 @@ function fuse() {
     if (total === 10) showAccomplishment('★ 10 PUGS! ★', 'You\'re officially a breeder', '#5ef38c');
     if (total === 25) showAccomplishment('★ 25 PUGS! ★', 'Quarter of the codex done', '#4cc9f0');
     if (total === 50) showAccomplishment('★ 50 PUGS! ★', 'Almost there — keep fusing', '#b055ff');
-    if (total === 60) showAccomplishment('★ CODEX COMPLETE! ★', 'You discovered every pug!', '#ffd23f');
+    if (total === 69) showAccomplishment('★ CODEX COMPLETE! ★', 'You discovered every pug!', '#ffd23f');
     // Challenge evaluation runs after every new discovery
     evaluateChallenges();
     // Daily fusion completion?
@@ -1248,6 +1512,8 @@ function fuse() {
         if (_dailyBtn) _dailyBtn.classList.remove('is-pending');
       }
     }
+    // Mutation of the Week — check if this combo satisfies the theme
+    evaluateMotw(key);
     // Costume + theme unlocks may have changed
     updateAssistantCostume();
   }
@@ -1265,6 +1531,7 @@ function fuse() {
   applyIngredientFilter(); // re-apply filter after re-render
   applyAlmostHints();
   refreshShelfBg();
+  refreshBackupBeaker();
   updateHud();
   // Celebration FX
   const beakerEl = document.querySelector('.lab-beaker');
@@ -1272,12 +1539,14 @@ function fuse() {
   const cx = rect ? rect.left + rect.width / 2 : window.innerWidth / 2;
   const cy = rect ? rect.top + rect.height / 2 : window.innerHeight / 2;
   if (result.legendary) {
-    // Round 2C: bigger celebration burst — denser sparkles + confetti chase
+    // Round 2: TIER-APPROPRIATE COLOR EXPLOSION
+    // Legendary = gold gold-orange-pink rainbow shockwave + heavy confetti
+    showColorExplosion(cx, cy, 'LEGENDARY');
     sparkleBurst(cx, cy, 52, '#ffd23f');
     setTimeout(() => sparkleBurst(cx, cy, 36, '#ff8ac8'), 120);
     setTimeout(() => sparkleBurst(cx, cy, 36, '#4cc9f0'), 240);
     setTimeout(() => sparkleBurst(cx, cy, 24, '#fff0a0'), 360);
-    try { confettiBurst(cx, cy, 20, ['#ffd23f', '#ff8e3c', '#ff3aa1', '#fff0a0']); } catch (e) { /* */ }
+    try { confettiBurst(cx, cy, 24, ['#ffd23f', '#ff8e3c', '#ff3aa1', '#fff0a0']); } catch (e) { /* */ }
     shakeEl(beakerEl);
     shakeEl(document.querySelector('.lab-result'));
     if (isNew) {
@@ -1287,15 +1556,29 @@ function fuse() {
       }
     }
   } else if (result.tier === 'EPIC') {
+    showColorExplosion(cx, cy, 'EPIC');
     sparkleBurst(cx, cy, 24, '#b055ff');
     setTimeout(() => sparkleBurst(cx, cy, 12, '#d090ff'), 140);
   } else if (result.tier === 'RARE') {
+    showColorExplosion(cx, cy, 'RARE');
     sparkleBurst(cx, cy, 16, '#4cc9f0');
   } else if (result.cursed) {
+    showColorExplosion(cx, cy, 'CURSED');
     sparkleBurst(cx, cy, 16, '#ff3a3a');
     shakeEl(beakerEl);
   } else {
     sparkleBurst(cx, cy, 12, '#c8c8d8');
+  }
+}
+// Round 2: tier-appropriate color burst — single radial gradient that scales out.
+function showColorExplosion(x, y, tier) {
+  const col = tier === 'LEGENDARY' ? '#ffd23f' : tier === 'EPIC' ? '#b055ff'
+    : tier === 'RARE' ? '#4cc9f0' : tier === 'CURSED' ? '#ff3a3a' : '#c8c8d8';
+  for (let i = 0; i < 3; i++) {
+    const b = document.createElement('div');
+    b.style.cssText = `position:fixed;left:${x}px;top:${y}px;width:20px;height:20px;border-radius:50%;background:radial-gradient(circle,${col},transparent 70%);transform:translate(-50%,-50%) scale(.5);pointer-events:none;z-index:248;mix-blend-mode:screen;animation:lab-explode-pulse .9s ease-out forwards;animation-delay:${i * 100}ms`;
+    document.body.appendChild(b);
+    setTimeout(() => b.remove(), 1200);
   }
 }
 
@@ -1361,8 +1644,9 @@ function updateHud() {
   const combos = discoveredCombos.size;
   const legCount = Object.values(discoveries).filter((d) => d.legendary).length;
   const dEl = document.getElementById('hud-discovered');
-  // 60 is the curated target across all tiers (sum of TIER_TARGETS).
-  if (dEl) dEl.textContent = `${total}/60`;
+  // Sum of TIER_TARGETS — refreshed with Round 2 expansion.
+  const _TARGET_SUM = Object.values(TIER_TARGETS).reduce((a, b) => a + b, 0);
+  if (dEl) dEl.textContent = `${total}/${_TARGET_SUM}`;
   const lEl = document.getElementById('hud-legendary');
   if (lEl) lEl.textContent = `${legCount}/${Object.keys(LEGENDARY).length}`;
   const eEl = document.getElementById('hud-exp');
@@ -1497,13 +1781,70 @@ function _seededInt(seed, max) {
 }
 function dailyFusionIngredients() {
   const day = todayUtcKey();
-  // 3 distinct indices into INGREDIENTS
+  // Round 2: balance — on 50% of days, deterministically pick a LEGENDARY combo
+  // so the daily isn't completely random; on other days, pick 3 random ingredients.
+  // This makes the daily reliably interesting without being trivially obvious.
+  const legendaryKeys = Object.keys(LEGENDARY);
+  const useLegendary = (_seededInt(day + '-coin', 100) < 50);
+  if (useLegendary && legendaryKeys.length > 0) {
+    const key = legendaryKeys[_seededInt(day + '-leg', legendaryKeys.length)];
+    const ids = key.split(',');
+    return ids.map((id) => INGREDIENTS.find((x) => x.id === id)).filter(Boolean);
+  }
+  // Otherwise 3 distinct random ingredients
   const a = _seededInt(day + '-a', INGREDIENTS.length);
   let b = _seededInt(day + '-b', INGREDIENTS.length);
   if (b === a) b = (b + 1) % INGREDIENTS.length;
   let c = _seededInt(day + '-c', INGREDIENTS.length);
   while (c === a || c === b) c = (c + 1) % INGREDIENTS.length;
   return [INGREDIENTS[a], INGREDIENTS[b], INGREDIENTS[c]];
+}
+// === Round 2: Mutation of the Week — themed weekly challenge ===
+// Pick an ELEMENT to focus on for the week. Find a fusion that uses all 3
+// from the same element. Resets every Monday UTC.
+function weekUtcKey() {
+  // Compute ISO week year-week number for the today key
+  const d = new Date();
+  const tmp = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const dayNum = tmp.getUTCDay() || 7;
+  tmp.setUTCDate(tmp.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil(((tmp - yearStart) / 86400000 + 1) / 7);
+  return `${tmp.getUTCFullYear()}-W${weekNo}`;
+}
+// Themes derive from ELEMENTS — saves bytes vs full literal table.
+const MOTW_THEMES = Object.keys(ELEMENTS).map((el) => ({
+  id: el, label: el, element: el, color: ELEMENTS[el].color,
+  goal: `Fuse 3 ${el} ingredients in one recipe`,
+}));
+function motwTheme() {
+  const wk = weekUtcKey();
+  return MOTW_THEMES[_seededInt(wk, MOTW_THEMES.length)];
+}
+const MOTW_KEY = () => profileKey('mutation-lab:motw');
+function motwDoneThisWeek() {
+  try {
+    const obj = JSON.parse(localStorage.getItem(MOTW_KEY()) || '{}');
+    return obj && obj.wk === weekUtcKey();
+  } catch { return false; }
+}
+function markMotwDone() {
+  try { localStorage.setItem(MOTW_KEY(), JSON.stringify({ wk: weekUtcKey(), at: Date.now() })); } catch {}
+}
+function evaluateMotw(comboKey) {
+  if (motwDoneThisWeek()) return false;
+  const theme = motwTheme();
+  const ids = comboKey.split(',');
+  const count = ids.reduce((n, id) => {
+    const ing = INGREDIENTS.find((i) => i.id === id);
+    return ing?.element === theme.element ? n + 1 : n;
+  }, 0);
+  if (count >= 3) {
+    markMotwDone();
+    showAccomplishment(`★ ${theme.label} COMPLETE! ★`, theme.goal, theme.color);
+    return true;
+  }
+  return false;
 }
 // localStorage of done-today flag (so the daily button can pulse pre-attempt).
 const DAILY_KEY = () => profileKey('mutation-lab:dailyDone');
@@ -1526,20 +1867,24 @@ const CHALLENGES = [
     check: () => Object.keys(discoveries).some((k) => _comboHasElements(k, ['FIRE', 'WATER'])) },
   { id: 'all_dark', title: 'DARK ARTS', icon: '🦇', desc: 'Make a recipe with 2+ DARK ingredients',
     check: () => Object.keys(discoveries).some((k) => _countCommonElement(k, 'DARK') >= 2) },
-  { id: 'tier_common', title: 'CASUAL BREEDER', icon: '🐶', desc: 'Discover 10 COMMON pugs',
-    check: () => Object.values(discoveries).filter((d) => (d.tier || 'COMMON') === 'COMMON').length >= 10 },
-  { id: 'tier_rare', title: 'RARE COLLECTOR', icon: '💎', desc: 'Discover 5 RARE pugs',
-    check: () => Object.values(discoveries).filter((d) => (d.tier) === 'RARE').length >= 5 },
+  { id: 'tier_common', title: 'CASUAL BREEDER', icon: '🐶', desc: 'Discover 8 COMMON pugs',
+    check: () => Object.values(discoveries).filter((d) => (d.tier || 'COMMON') === 'COMMON').length >= 8 },
+  { id: 'tier_rare', title: 'RARE COLLECTOR', icon: '💎', desc: 'Discover 4 RARE pugs',
+    check: () => Object.values(discoveries).filter((d) => (d.tier) === 'RARE').length >= 4 },
   { id: 'tier_epic', title: 'EPIC HOARDER', icon: '🌟', desc: 'Discover 3 EPIC pugs',
     check: () => Object.values(discoveries).filter((d) => (d.tier) === 'EPIC').length >= 3 },
-  { id: 'cursed_5', title: 'CURSE COLLECTOR', icon: '💀', desc: 'Discover 3 CURSED pugs',
-    check: () => Object.values(discoveries).filter((d) => (d.tier) === 'CURSED' || d.cursed).length >= 3 },
+  { id: 'cursed_5', title: 'CURSE COLLECTOR', icon: '💀', desc: 'Discover 2 CURSED pugs',
+    check: () => Object.values(discoveries).filter((d) => (d.tier) === 'CURSED' || d.cursed).length >= 2 },
   { id: 'cosmic_rec', title: 'COSMIC HORROR', icon: '👁', desc: 'Make a recipe with COSMIC + FLESH',
     check: () => Object.keys(discoveries).some((k) => _comboHasElements(k, ['COSMIC', 'FLESH'])) },
   { id: 'foody', title: 'FOODIE EXPERIMENTS', icon: '🍩', desc: 'Make 5 recipes using FOOD ingredients',
     check: () => Object.keys(discoveries).filter((k) => _countCommonElement(k, 'FOOD') >= 1).length >= 5 },
   { id: 'legend_5', title: 'LEGEND HUNTER', icon: '👑', desc: 'Discover 5 LEGENDARY pugs',
     check: () => Object.values(discoveries).filter((d) => d.legendary).length >= 5 },
+  { id: 'hyper_first', title: 'HYPER-PIONEER', icon: '⛓', desc: 'Hyper-fuse your first 2 species',
+    check: () => Object.keys(_hyperCreatures || {}).length >= 1 },
+  { id: 'hyper_three', title: 'HYPER-MASTER',   icon: '⚡', desc: 'Discover 3 hyper-species',
+    check: () => Object.keys(_hyperCreatures || {}).length >= 3 },
 ];
 function _comboHasElements(comboKey, els) {
   // comboKey = "id1,id2,id3"; els = array of ELEMENT names ALL of which must appear in the combo
@@ -1760,7 +2105,7 @@ _codexModal.className = 'lab-codex-modal';
 _codexModal.innerHTML = `
   <div class="lab-codex-modal__panel">
     <h2 class="lab-codex-title">★ MUTATION CODEX ★</h2>
-    <div class="lab-codex-sub" id="codex-sub">DISCOVERED 0/60</div>
+    <div class="lab-codex-sub" id="codex-sub">DISCOVERED 0/69</div>
     <div id="codex-body"></div>
     <button class="lab-codex-close" id="codex-close">CLOSE</button>
   </div>
@@ -1772,10 +2117,13 @@ _codexModal.addEventListener('click', (e) => { if (e.target === _codexModal) _co
 
 // Codex search filter (wave 1F) — filter discovered creature names case-insensitive
 let _codexSearch = '';
+// Round 2: codex sort mode — 'tier' (default grouping), 'alpha', 'element', 'date'
+let _codexSortMode = 'tier';
 function openCodex() {
   const sub = document.getElementById('codex-sub');
   const total = Object.keys(discoveries).length;
-  if (sub) sub.textContent = `DISCOVERED ${total}/60 · COMBOS ${discoveredCombos.size}/${TOTAL_COMBOS} · SCORE ${labScore || recomputeScore()}`;
+  const _TARGET_SUM = Object.values(TIER_TARGETS).reduce((a, b) => a + b, 0);
+  if (sub) sub.textContent = `DISCOVERED ${total}/${_TARGET_SUM} · COMBOS ${discoveredCombos.size}/${TOTAL_COMBOS} · SCORE ${labScore || recomputeScore()}`;
   const body = document.getElementById('codex-body');
   body.innerHTML = '';
   // Wave 1F: search box
@@ -1789,10 +2137,35 @@ function openCodex() {
     openCodex();
   });
   body.appendChild(search);
+  // Round 2: sort chips
+  const sortRow = document.createElement('div');
+  sortRow.className = 'lab-codex-sort-row';
+  sortRow.innerHTML = '<span class="lab-sort-row__label">SORT</span>';
+  const sortModes = [
+    { id: 'tier', label: 'BY TIER' },
+    { id: 'alpha', label: 'A-Z' },
+    { id: 'element', label: 'ELEMENT' },
+    { id: 'date', label: 'NEWEST' },
+  ];
+  for (const m of sortModes) {
+    const chip = document.createElement('span');
+    chip.className = 'lab-sort-chip' + (_codexSortMode === m.id ? ' is-active' : '');
+    chip.textContent = m.label;
+    chip.addEventListener('click', () => { _codexSortMode = m.id; openCodex(); });
+    sortRow.appendChild(chip);
+  }
+  body.appendChild(sortRow);
   const q = _codexSearch.trim().toLowerCase();
-  // Group by tier; legendary key set is known. For other tiers we synthesize
-  // slot-counts up to TIER_TARGETS — discovered ones in each tier are shown
-  // by icon/name; the remainder are ? cells.
+  // Apply sort + render
+  if (_codexSortMode === 'tier') {
+    _renderCodexByTier(body, q);
+  } else {
+    _renderCodexFlat(body, q, _codexSortMode);
+  }
+  _codexModal.classList.add('is-open');
+}
+
+function _renderCodexByTier(body, q) {
   const byTier = { LEGENDARY: [], EPIC: [], RARE: [], COMMON: [], CURSED: [] };
   for (const d of Object.values(discoveries)) {
     const t = d.tier || (d.legendary ? 'LEGENDARY' : (d.cursed ? 'CURSED' : 'COMMON'));
@@ -1801,9 +2174,7 @@ function openCodex() {
   for (const tier of TIER_ORDER) {
     const have = byTier[tier];
     const target = TIER_TARGETS[tier];
-    // Apply search filter to discovered list
     const matched = q ? have.filter((d) => (d.name || '').toLowerCase().includes(q)) : have;
-    // Skip tier section entirely when searching with no matches
     if (q && matched.length === 0) continue;
     const heading = document.createElement('div');
     heading.className = 'lab-codex-tier-title ' + tier;
@@ -1811,23 +2182,7 @@ function openCodex() {
     body.appendChild(heading);
     const grid = document.createElement('div');
     grid.className = 'lab-codex-grid';
-    // Discovered cells first
-    for (const d of matched) {
-      const cell = document.createElement('div');
-      cell.className = `lab-codex-cell ${tier} discovered`;
-      cell.title = d.desc || d.name;
-      if (d.key) cell.dataset.comboKey = d.key;
-      const iconWrap = document.createElement('div'); iconWrap.className = 'lab-codex-cell__icon';
-      iconWrap.style.display = 'flex'; iconWrap.style.alignItems = 'center'; iconWrap.style.justifyContent = 'center';
-      const cols = _pugColorsFor(d.key || d.name || d.icon);
-      iconWrap.appendChild(_makeLabPugCanvas(32, 34, { size: 32, ...cols }));
-      cell.appendChild(iconWrap);
-      const nameEl = document.createElement('div'); nameEl.className = 'lab-codex-cell__name';
-      nameEl.textContent = d.name.split(' ').slice(0,2).join(' ');
-      cell.appendChild(nameEl);
-      grid.appendChild(cell);
-    }
-    // Undiscovered placeholders (suppress when searching)
+    for (const d of matched) grid.appendChild(_makeCodexCell(d, tier));
     if (!q) {
       for (let i = have.length; i < target; i++) {
         const cell = document.createElement('div');
@@ -1838,7 +2193,51 @@ function openCodex() {
     }
     body.appendChild(grid);
   }
-  _codexModal.classList.add('is-open');
+}
+
+function _renderCodexFlat(body, q, mode) {
+  let list = Object.values(discoveries).slice();
+  if (q) list = list.filter((d) => (d.name || '').toLowerCase().includes(q));
+  if (mode === 'alpha') list.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  else if (mode === 'date') list.sort((a, b) => (b.discoveredAt || 0) - (a.discoveredAt || 0));
+  else if (mode === 'element') {
+    // Group by dominant element in the combo's ingredients
+    const elementOf = (d) => {
+      const ids = (d.key || '').split(',');
+      const tally = {};
+      for (const id of ids) {
+        const ing = INGREDIENTS.find((i) => i.id === id);
+        if (ing?.element) tally[ing.element] = (tally[ing.element] || 0) + 1;
+      }
+      let best = null, bestN = 0;
+      for (const [k, v] of Object.entries(tally)) if (v > bestN) { best = k; bestN = v; }
+      return best || 'ZZZ';
+    };
+    list.sort((a, b) => elementOf(a).localeCompare(elementOf(b)));
+  }
+  const grid = document.createElement('div');
+  grid.className = 'lab-codex-grid';
+  for (const d of list) {
+    const tier = d.tier || (d.legendary ? 'LEGENDARY' : (d.cursed ? 'CURSED' : 'COMMON'));
+    grid.appendChild(_makeCodexCell(d, tier));
+  }
+  body.appendChild(grid);
+}
+
+function _makeCodexCell(d, tier) {
+  const cell = document.createElement('div');
+  cell.className = `lab-codex-cell ${tier} discovered`;
+  cell.title = d.desc || d.name;
+  if (d.key) cell.dataset.comboKey = d.key;
+  const iconWrap = document.createElement('div'); iconWrap.className = 'lab-codex-cell__icon';
+  iconWrap.style.display = 'flex'; iconWrap.style.alignItems = 'center'; iconWrap.style.justifyContent = 'center';
+  const cols = _pugColorsFor(d.key || d.name || d.icon);
+  iconWrap.appendChild(_makeLabPugCanvas(32, 34, { size: 32, ...cols }));
+  cell.appendChild(iconWrap);
+  const nameEl = document.createElement('div'); nameEl.className = 'lab-codex-cell__name';
+  nameEl.textContent = (d.name || '???').split(' ').slice(0, 2).join(' ');
+  cell.appendChild(nameEl);
+  return cell;
 }
 
 // ===== WAVE 1F: RECIPE BOOK (locked named legendaries with progressive hints) =====
@@ -1851,7 +2250,7 @@ _bookModal.className = 'lab-book-modal';
 _bookModal.innerHTML = `
   <div class="lab-book-modal__panel">
     <h2 class="lab-book-title">★ LEGENDARY RECIPE BOOK ★</h2>
-    <div class="lab-book-sub" id="book-sub">All 13 named LEGENDARIES (hints unlock as you discover more)</div>
+    <div class="lab-book-sub" id="book-sub">All 15 named LEGENDARIES (hints unlock as you discover more)</div>
     <div id="book-body"></div>
     <button class="lab-codex-close" id="book-close">CLOSE</button>
   </div>
@@ -1865,11 +2264,12 @@ function openRecipeBook() {
   const sub = document.getElementById('book-sub');
   const total = Object.keys(discoveries).length;
   const foundLeg = Object.values(discoveries).filter((d) => d.legendary).length;
-  if (sub) sub.textContent = `LEGENDARIES: ${foundLeg}/13 · TOTAL: ${total}`;
+  if (sub) sub.textContent = `LEGENDARIES: ${foundLeg}/${Object.keys(LEGENDARY).length} · TOTAL: ${total}`;
   const body = document.getElementById('book-body');
   body.innerHTML = '';
-  // Progressive hints by total: <10=1 id, 10-29=2 ids, >=30=all + desc, found=full
-  const HINT = total >= 30 ? 3 : (total >= 10 ? 2 : 1);
+  // Progressive hints by total: <8=1 id, 8-19=2 ids, >=20=all + desc, found=full
+  // Round 2: lowered thresholds — the recipe book felt useless until very late
+  const HINT = total >= 20 ? 3 : (total >= 8 ? 2 : 1);
   let idx = 0;
   for (const key of Object.keys(LEGENDARY)) {
     const recipe = LEGENDARY[key];
@@ -1877,7 +2277,7 @@ function openRecipeBook() {
     const ids = key.split(',');
     const shownIds = found ? ids : (HINT === 1 ? [ids[idx % ids.length]] : ids.slice(0, HINT));
     const nameLabel = found ? recipe.name : '???';
-    const descShown = (found || total >= 30) ? recipe.desc : '';
+    const descShown = (found || total >= 20) ? recipe.desc : '';
     const entry = document.createElement('div');
     entry.className = 'lab-recipe-entry' + (found ? ' discovered' : '');
     let html = `<div class="lab-recipe-entry__name${found ? '' : ' locked'}">${nameLabel}</div><div class="lab-recipe-entry__items">`;
@@ -1926,6 +2326,20 @@ function openChallengeModal() {
   if (sub) sub.textContent = `Challenges complete: ${done}/${CHALLENGES.length}`;
   const body = document.getElementById('chall-body');
   body.innerHTML = '';
+  // === MUTATION OF THE WEEK SECTION ===
+  const motwTh = motwTheme();
+  const motw = document.createElement('div');
+  motw.className = 'lab-week-section';
+  motw.style.borderColor = motwTh.color;
+  const motwDone = motwDoneThisWeek();
+  motw.innerHTML = `
+    <div class="lab-week-section__title" style="color:${motwTh.color}">★ MUTATION OF THE WEEK · ${motwTh.label}</div>
+    <div style="font-size:0.42rem;color:var(--text-soft);text-align:center;line-height:1.5">
+      ${motwDone ? '<span style="color:#5ef38c">✓ COMPLETE THIS WEEK!</span> ' : ''}${motwTh.goal}
+    </div>
+    <div style="font-size:0.36rem;color:var(--muted);text-align:center;margin-top:4px">Rewards bigger fanfare. Resets every Monday UTC.</div>
+  `;
+  body.appendChild(motw);
   // === DAILY SECTION ===
   const daily = document.createElement('div');
   daily.className = 'lab-daily-section';
@@ -1977,6 +2391,138 @@ function openChallengeModal() {
   _challModal.classList.add('is-open');
 }
 
+// ===== ROUND 2: FUSION CHAINS — combine 2 discovered creatures into 1 hyper-creature =====
+let _chainSlots = [null, null]; // discovery keys
+let _hyperCreatures = {};        // key -> {name, parents:[k1,k2], tier, desc, discoveredAt}
+const HYPER_KEY = () => profileKey('mutation-lab:hyper');
+function loadHyper() {
+  try { _hyperCreatures = JSON.parse(localStorage.getItem(HYPER_KEY()) || '{}') || {}; } catch { _hyperCreatures = {}; }
+}
+function saveHyper() {
+  try { localStorage.setItem(HYPER_KEY(), JSON.stringify(_hyperCreatures)); } catch {}
+}
+const _chainsBtn = document.createElement('button');
+_chainsBtn.className = 'lab-chains-btn';
+_chainsBtn.textContent = '⛓ HYPER-FUSE';
+document.body.appendChild(_chainsBtn);
+const _chainsModal = document.createElement('div');
+_chainsModal.className = 'lab-chains-modal';
+_chainsModal.innerHTML = `<div class="lab-chains-modal__panel"><h2 class="lab-chains-title">⛓ HYPER-FUSE ⛓</h2><div class="lab-chains-sub">Combine 2 discovered species into 1 hyper-creature. Pick slot then a species.</div><div class="lab-chain-row"><div class="lab-chain-slot" id="chain-slot-0">+</div><div class="lab-chain-plus">+</div><div class="lab-chain-slot" id="chain-slot-1">+</div></div><button class="lab-chain-btn" id="chain-fuse-btn" disabled>⚡ HYPER-FUSE</button><div id="chain-result"></div><div class="lab-chain-discovered-list" id="chain-disc-list"></div><button class="lab-codex-close" id="chain-close">CLOSE</button></div>`;
+document.body.appendChild(_chainsModal);
+_chainsBtn.addEventListener('click', openChainsModal);
+document.getElementById('chain-close').addEventListener('click', () => _chainsModal.classList.remove('is-open'));
+_chainsModal.addEventListener('click', (e) => { if (e.target === _chainsModal) _chainsModal.classList.remove('is-open'); });
+document.getElementById('chain-fuse-btn').addEventListener('click', () => hyperFuse());
+let _chainSelectedSlot = 0;
+document.querySelectorAll('.lab-chain-slot').forEach((el, i) => {
+  el.addEventListener('click', () => {
+    if (_chainSlots[i]) { _chainSlots[i] = null; refreshChainSlots(); return; }
+    _chainSelectedSlot = i;
+    refreshChainSlots();
+  });
+});
+function refreshChainSlots() {
+  for (let i = 0; i < 2; i++) {
+    const el = document.getElementById('chain-slot-' + i);
+    if (!el) continue;
+    el.innerHTML = '';
+    const k = _chainSlots[i];
+    if (k && discoveries[k]) {
+      const d = discoveries[k];
+      el.appendChild(_makeLabPugCanvas(50, 52, { size: 48, ..._pugColorsFor(d.key || d.name || d.icon) }));
+      el.classList.add('filled');
+    } else { el.textContent = '+'; el.classList.remove('filled'); }
+    el.style.outline = (i === _chainSelectedSlot && !k) ? '2px solid #ff8e3c' : 'none';
+  }
+  const btn = document.getElementById('chain-fuse-btn');
+  if (btn) btn.disabled = !(_chainSlots[0] && _chainSlots[1] && _chainSlots[0] !== _chainSlots[1]);
+}
+function openChainsModal() {
+  _chainSlots = [null, null]; _chainSelectedSlot = 0;
+  refreshChainSlots();
+  const list = document.getElementById('chain-disc-list');
+  const arr = Object.values(discoveries).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  const hyper = Object.values(_hyperCreatures);
+  let html = `<div style="font-family:var(--font-display);font-size:.4rem;color:var(--text-soft);margin-bottom:4px">YOUR SPECIES (click to slot):</div>`;
+  if (arr.length === 0) html += '<div style="text-align:center;color:var(--muted);padding:10px;font-size:.45rem">Discover species first.</div>';
+  list.innerHTML = html;
+  for (const d of arr) {
+    const row = document.createElement('div');
+    row.className = 'lab-chain-disc-item';
+    const tier = d.tier || (d.legendary ? 'LEGENDARY' : 'COMMON');
+    row.textContent = `[${tier[0]}] ${d.name}`;
+    row.addEventListener('click', () => {
+      _chainSlots[_chainSelectedSlot] = d.key;
+      _chainSelectedSlot = _chainSelectedSlot === 0 ? 1 : 0;
+      refreshChainSlots();
+      list.querySelectorAll('.lab-chain-disc-item').forEach((r) => r.classList.remove('is-selected'));
+      row.classList.add('is-selected');
+    });
+    list.appendChild(row);
+  }
+  if (hyper.length > 0) {
+    const head = document.createElement('div');
+    head.style.cssText = 'font-family:var(--font-display);font-size:.4rem;color:#ff8e3c;margin:10px 0 4px;border-top:1px dashed var(--border);padding-top:6px';
+    head.textContent = `★ HYPER-SPECIES (${hyper.length})`;
+    list.appendChild(head);
+    for (const h of hyper) {
+      const row = document.createElement('div');
+      row.className = 'lab-chain-disc-item';
+      row.style.color = '#ffd09a';
+      row.textContent = `⚡ ${h.name}`;
+      row.title = h.desc;
+      list.appendChild(row);
+    }
+  }
+  _chainsModal.classList.add('is-open');
+}
+function hyperFuse() {
+  const [k0, k1] = _chainSlots;
+  if (!k0 || !k1 || k0 === k1) return;
+  const d0 = discoveries[k0], d1 = discoveries[k1];
+  if (!d0 || !d1) return;
+  const hkey = [k0, k1].sort().join('|');
+  if (_hyperCreatures[hkey]) {
+    const ex = _hyperCreatures[hkey];
+    showAccomplishment('ALREADY HYPER-FUSED', ex.name, '#c8c8d8');
+    return;
+  }
+  // Generate hyper-name from parent halves
+  const part0 = (d0.name || '').split(' ').slice(0, 1).join('');
+  const part1 = (d1.name || '').split(' ').slice(-1).join('');
+  const hyperName = `HYPER ${part0}-${part1}`;
+  const hyperTier = (d0.legendary || d1.legendary) ? 'LEGENDARY' : 'EPIC';
+  const HYPER_DESCS = [
+    'A fusion beyond all natural law.',
+    'Two minds, one bork. Unstoppable.',
+    'The vet has many questions.',
+    'Now with extra dimensions.',
+    'Researchers wept. The pug snored.',
+    'Banned in 3 districts.',
+  ];
+  const desc = HYPER_DESCS[(_hashKey(hkey)) % HYPER_DESCS.length];
+  _hyperCreatures[hkey] = {
+    key: hkey, name: hyperName, parents: [k0, k1],
+    tier: hyperTier, desc, discoveredAt: Date.now(),
+  };
+  saveHyper();
+  // Show result
+  const resEl = document.getElementById('chain-result');
+  if (resEl) {
+    resEl.className = 'lab-chain-result';
+    resEl.innerHTML = `★ DISCOVERED: <span style="color:#ffd23f">${hyperName}</span><div style="font-size:0.42rem;color:var(--text-soft);margin-top:4px">"${desc}"</div>`;
+  }
+  showAccomplishment('★ HYPER-FUSION! ★', hyperName, '#ff8e3c');
+  sfx.arp([523, 880, 1320, 1760, 2093], 'triangle', 0.08, 0.28, 0.32);
+  // Celebration sparkles
+  const rect = _chainsModal.getBoundingClientRect();
+  sparkleBurst(rect.left + rect.width / 2, rect.top + rect.height * 0.4, 40, '#ff8e3c');
+  setTimeout(() => sparkleBurst(rect.left + rect.width / 2, rect.top + rect.height * 0.4, 24, '#ffd23f'), 200);
+  _chainSlots = [null, null];
+  refreshChainSlots();
+  evaluateChallenges();
+}
+
 // ===== WAVE 1F: THEME SWITCHER BUTTON =====
 const _themeBtn = document.createElement('button');
 _themeBtn.className = 'lab-codex-btn lab-theme-btn';
@@ -2022,6 +2568,7 @@ document.getElementById('start-btn').addEventListener('click', () => {
   loadTierUnlocks();
   loadChallenges();
   loadTheme();
+  loadHyper();
   recomputeScore();
   renderIngredients();
   applyIngredientFilter(); // honour current filter state on re-render
@@ -2029,6 +2576,8 @@ document.getElementById('start-btn').addEventListener('click', () => {
   refreshShelfBg();
   updateHud();
   syncBeaker(); // ensures bubble + glow state reflects empty beaker
+  setupBackupBeaker();
+  refreshBackupBeaker();
   updateAssistantCostume();
   // Pulse the daily-challenge button if today's daily hasn't been done yet
   if (_dailyBtn) {

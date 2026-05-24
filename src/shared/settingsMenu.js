@@ -297,6 +297,24 @@ function _ensureStyles() {
     body.high-contrast .wg-settings-action--danger{background:#600 !important;border-color:#fff !important;color:#fff !important}
     body.high-contrast :focus-visible{outline:4px solid #ff0 !important;outline-offset:3px !important}
     body.high-contrast .wg-settings-row input[type=range]{accent-color:#fff !important}
+    /* === MOBILE — bigger tap targets, thicker sliders =====================
+       Phones get full-width controls, a chunky 32px slider track for easier
+       thumb-drag, and 56px high checkboxes (was 18px — too small to tap). */
+    @media (max-width:640px){
+      .wg-settings-panel{padding:18px 16px;width:94vw;max-width:none;max-height:92vh;max-height:92dvh;}
+      .wg-settings-row{margin:12px 0;font-size:.55rem;flex-wrap:wrap;gap:8px;}
+      .wg-settings-row label{flex:1 1 50%;min-height:32px;display:flex;align-items:center;}
+      .wg-settings-row input[type=range]{flex:1 1 100%;max-width:none;height:32px;}
+      .wg-settings-row input[type=range]::-webkit-slider-thumb{width:24px;height:24px;}
+      .wg-settings-row input[type=range]::-moz-range-thumb{width:24px;height:24px;}
+      .wg-settings-row input[type=checkbox]{width:28px;height:28px;}
+      .wg-mute-switch{width:52px;height:28px;}
+      .wg-mute-switch i::after{width:22px;height:22px;}
+      .wg-mute-switch input:checked + i::after{transform:translateX(24px);}
+      .wg-settings-action{padding:14px 16px;font-size:.6rem;min-height:48px;}
+      .wg-settings-close{font-size:1.4rem;padding:10px 14px;min-width:44px;min-height:44px;top:4px;right:4px;}
+      .wg-settings-btn,.wg-help-btn{width:48px;height:48px;font-size:20px;}
+    }
     /* === LARGE TEXT mode ===
        Bumps every font-size by 1.25× via a relative cascade so layouts still
        breathe instead of clipping. */

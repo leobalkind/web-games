@@ -168,6 +168,12 @@ let mechBannerT = 0;
 
 let pug, buildings, vehicles, helicopters, missiles, particles, powerups, score, smashed, eaten, hp, formIdx, borkCd, cam, running;
 let jets = [], tanks = [], buses = [];
+// Polish R2: STEALTH BOMBER (threat 9+) + homing missiles
+let bombers = [];
+// Polish R2: RAMPAGE METER (separate from rage). Fills from score.
+// Full = 3s of unlimited bork (no cooldown).
+let rampageMeter = 0;
+let rampageUnlimitedT = 0;
 let fireTrail = []; // {x,y,t,life}
 let evoCelebrateT = 0, evoCelebrateName = '';
 let combo = 0, comboT = 0, dmgBoostT = 0;
@@ -235,6 +241,8 @@ const BUILDING_TYPES = {
   bank:     { color: '#5ef38c', val: 200, hp: 4, label: '$',  style: 'bank',     special: 'bank' },
   gas:      { color: '#ff8e3c', val: 80,  hp: 1, label: '⛽', style: 'gas',      special: 'gas' },
   hospital: { color: '#e0e0e8', val: 120, hp: 3, label: '+',  style: 'hospital' },
+  // Polish R2: NUCLEAR REACTOR — huge HP, big area-damage explosion on death.
+  reactor:  { color: '#5ef3c0', val: 500, hp: 4, label: '☢',  style: 'reactor', special: 'reactor' },
 };
 
 function reset() {
@@ -243,7 +251,8 @@ function reset() {
   buildings = [];
   for (let i = 0; i < 80; i++) buildings.push(makeBuilding());
   vehicles = []; helicopters = []; missiles = []; particles = []; powerups = [];
-  jets = []; tanks = []; buses = [];
+  jets = []; tanks = []; buses = []; bombers = [];
+  rampageMeter = 0; rampageUnlimitedT = 0;
   for (let i = 0; i < 18; i++) spawnVehicle();
   // Suburbs starts with no helicopter; downtown with 3; docks with 1
   const heliN = chosenEnvId === 'suburbs' ? 0 : (chosenEnvId === 'docks' ? 1 : 3);
@@ -274,6 +283,19 @@ function reset() {
   // Clear any building too close to the tower
   buildings = buildings.filter((b) => Math.hypot(b.x + b.w / 2 - broadcastTower.x, b.y + b.h / 2 - broadcastTower.y) > 120);
   while (buildings.length < 80) buildings.push(makeBuilding());
+  // Polish R2: place 1 NUCLEAR REACTOR per match on the far side of the world
+  {
+    const rx = WORLD_W - 600 + Math.random() * 200;
+    const ry = WORLD_H - 600 + Math.random() * 200;
+    const rt = BUILDING_TYPES.reactor;
+    buildings = buildings.filter((b) => Math.hypot(b.x + b.w / 2 - rx, b.y + b.h / 2 - ry) > 130);
+    buildings.push({
+      x: rx, y: ry, w: 140, h: 140, hp: rt.hp, typeId: 'reactor',
+      color: rt.color, val: rt.val, label: rt.label, style: rt.style, special: rt.special,
+      isReactor: true,
+    });
+    while (buildings.length < 80) buildings.push(makeBuilding());
+  }
   // Civilians — 1-2 per existing building
   civilians = [];
   for (const b of buildings) {
@@ -340,6 +362,8 @@ function makeBuilding() {
 }
 
 function spawnCiviliansAt(b, count) {
+  // Polish R2: random shape per civilian (adult/suit/dress/kid) for variety
+  const shapes = ['adult', 'suit', 'dress', 'kid', 'adult', 'suit'];
   for (let i = 0; i < count; i++) {
     const ang = Math.random() * Math.PI * 2;
     civilians.push({
@@ -349,6 +373,7 @@ function spawnCiviliansAt(b, count) {
       screamT: 0,
       color: ['#ff5050', '#5acaff', '#e0e0e8', '#ffd23f', '#ff8ec8'][Math.floor(Math.random() * 5)],
       ang: ang,
+      shape: shapes[Math.floor(Math.random() * shapes.length)],
     });
   }
 }
@@ -396,6 +421,18 @@ function spawnTank() {
     fireCd: 2.5,
     hp: 4,
   });
+}
+// Polish R2: STEALTH BOMBER — threat 9+, fires 1 homing missile (3s track)
+function spawnBomber() {
+  const side = Math.random() < 0.5 ? -1 : 1;
+  bombers.push({
+    x: side < 0 ? -80 : WORLD_W + 80,
+    y: rand(80, WORLD_H - 280),
+    vx: -side * 160, hp: 2,
+    fireCd: 1.6 + Math.random() * 0.8,
+    fired: false,
+  });
+  try { __pugzillaFeed.push('⚠ STEALTH BOMBER INBOUND', '#5a5a8a'); } catch {}
 }
 // BUS — chunky civilian vehicle, 2 hits to eat, gives +60 score.
 function spawnBus() {
@@ -503,6 +540,8 @@ function updateMech(dt) {
       particles.push({ ring: true, x: mech.x, y: mech.y, t: 0, maxR: 320 });
       try { __pugzillaFeed.push('SUPER MECH ★ DESTROYED +$2000', '#ffd23f'); } catch {}
       bumpCombo();
+      // Polish R2: mech kill instantly fills rampage meter to full
+      if (typeof addRampage === 'function') addRampage(100);
     }
   }
 }
@@ -667,8 +706,14 @@ function spawnReplacementBuilding() {
 }
 
 function doBork() {
-  if (!running || shopOpen || borkCd > 0) return;
-  borkCd = 4;
+  if (!running || shopOpen) return;
+  // Polish R2: rampage-meter unlimited window skips cooldown
+  if (rampageUnlimitedT > 0) {
+    borkCd = 0;
+  } else {
+    if (borkCd > 0) return;
+    borkCd = 4;
+  }
   sfx.sweep(220, 80, 'sawtooth', 0.5, 0.3);
   addShake(8, 0.32);
   // Shockwave: push everything outward + damage helicopters; rage = +50% radius
@@ -778,6 +823,8 @@ function smashBuilding(b, idx) {
   const gain = Math.floor(b.val * mult * skinScoreMul);
   score += gain;
   smashed++;
+  // Polish R2: feed rampage meter from score gain
+  addRampage(Math.max(1, Math.floor(gain / 30)));
   // Lifetime smashed count (for VOID skin unlock).
   skinState.buildingsEverSmashed = (skinState.buildingsEverSmashed || 0) + 1;
   try {
@@ -815,6 +862,44 @@ function smashBuilding(b, idx) {
     }
     sfx.arp([523, 659, 784, 1047, 1319], 'triangle', 0.07, 0.25, 0.25);
     if (Math.random() < 0.5) spawnPowerup(b.x + b.w / 2, b.y + b.h / 2);
+  } else if (b.special === 'reactor') {
+    // Polish R2: NUCLEAR REACTOR — huge area-damage explosion + $500 bonus
+    const cx2 = b.x + b.w / 2, cy2 = b.y + b.h / 2;
+    sfx.sweep(880, 30, 'sawtooth', 1.4, 0.5);
+    sfx.tone(40, 'sine', 1.0, 0.7);
+    addShake(28, 1.2);
+    _evoFlashT = 0.6; _zillaHitstopT = 0.22;
+    for (let r2 = 0; r2 < 5; r2++) particles.push({ ring: true, x: cx2, y: cy2, t: -r2 * 0.08, maxR: 480 });
+    const rCols = ['#5ef3c0', '#ffd23f', '#ff8e3c', '#fff'];
+    for (let k = 0; k < 90; k++) {
+      const a = (k / 90) * Math.PI * 2, s = 200 + Math.random() * 400;
+      particles.push({ x: cx2, y: cy2, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 80,
+        color: rCols[k % 4], life: 1.6, t: 0, size: 7, gravity: 220 });
+    }
+    smokeColumns.push({ x: cx2, y: cy2, t: 0, life: 8, mag: 240 });
+    addPopup(cx2, cy2 - 30, '☢ MELTDOWN +$500 ☢', '#5ef3c0');
+    score += 500; addRampage(40);
+    try { __pugzillaFeed.push('☢ NUCLEAR MELTDOWN +$1000', '#5ef3c0'); } catch {}
+    // AOE 320 radius: buildings, vehicles, helis, jets, tanks, missiles
+    const rad = 320;
+    for (let j = buildings.length - 1; j >= 0; j--) {
+      const o = buildings[j], ox = o.x + o.w / 2, oy = o.y + o.h / 2;
+      if (Math.hypot(ox - cx2, oy - cy2) < rad) { o.hp -= 3; if (o.hp <= 0) smashBuilding(o, j); }
+    }
+    const aoeKill = (arr, val, col) => {
+      for (let j = arr.length - 1; j >= 0; j--) {
+        const a = arr[j];
+        if (Math.hypot(a.x - cx2, a.y - cy2) < rad) { score += val; if (col) spawnDust(a.x, a.y, col); arr.splice(j, 1); }
+      }
+    };
+    aoeKill(vehicles, 20, null);
+    aoeKill(helicopters, 200, '#ff8e3c');
+    aoeKill(jets, 250, '#4cc9f0');
+    aoeKill(tanks, 350, '#3a3a3a');
+    for (let j = missiles.length - 1; j >= 0; j--) {
+      const m = missiles[j];
+      if (Math.hypot(m.x - cx2, m.y - cy2) < rad) missiles.splice(j, 1);
+    }
   } else if (b.special === 'gas') {
     // Chain explosion — radius 120
     const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
@@ -850,6 +935,21 @@ function smashBuilding(b, idx) {
   if (Math.random() < 0.2 && buildings.length < 100) spawnReplacementBuilding();
 }
 
+// Polish R2: RAMPAGE METER — separate from rage. Fills with score gained.
+// Full = 3s of unlimited bork (no cooldown).
+function addRampage(amount) {
+  if (rampageUnlimitedT > 0) return;
+  rampageMeter = Math.min(100, rampageMeter + amount);
+  if (rampageMeter >= 100) {
+    rampageMeter = 0;
+    rampageUnlimitedT = 3.0;
+    addPopup(pug.x, pug.y - form().r - 24, '★ RAMPAGE METER FULL — UNLIMITED BORK ★', '#ff3a3a');
+    sfx.arp([440, 660, 880, 1320], 'sawtooth', 0.08, 0.32, 0.35);
+    addShake(14, 0.5);
+    try { __pugzillaFeed.push('★ UNLIMITED BORK 3s', '#ff3a3a'); } catch {}
+  }
+}
+
 function addRage(amount) {
   if (rampageT > 0) return; // locked during rampage
   // VOID skin: gains rage 2× faster
@@ -868,25 +968,33 @@ function addRage(amount) {
 }
 
 function spawnDust(x, y, color) {
-  // Bumped from 12 → 18 sparks + 6 large chunky debris with gravity so smashed
-  // buildings throw real debris (not just colored dots).
-  for (let i = 0; i < 18; i++) {
-    const a = Math.random() * Math.PI * 2;
-    const s = 70 + Math.random() * 170;
-    particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 40, color, life: 0.75, t: 0, size: 4, gravity: 320 });
+  // Polish R2: bigger debris — sparks + rotating chunks + smoke + ring
+  for (let i = 0; i < 22; i++) {
+    const a = Math.random() * Math.PI * 2, s = 70 + Math.random() * 180;
+    particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 40, color, life: 0.8, t: 0, size: 4, gravity: 320 });
   }
-  // Big debris chunks — alternate building color + dark gray for variety.
+  // Rotating debris chunks with bounce
+  for (let i = 0; i < 10; i++) {
+    const a = Math.random() * Math.PI * 2, s = 100 + Math.random() * 220;
+    const c = i % 3 === 0 ? color : (i % 3 === 1 ? '#3a3a48' : '#5a4a3a');
+    particles.push({
+      x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 90,
+      color: c, life: 1.4, t: 0, size: 8 + Math.random() * 6,
+      gravity: 380, chunk: true,
+      rot: Math.random() * Math.PI * 2,
+      rotSpd: (Math.random() - 0.5) * 10,
+    });
+  }
+  // Smoke puffs
   for (let i = 0; i < 6; i++) {
     const a = Math.random() * Math.PI * 2;
-    const s = 100 + Math.random() * 180;
-    const c = i % 2 === 0 ? color : '#3a3a48';
-    particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 70, color: c, life: 1.0, t: 0, size: 7, gravity: 380 });
+    particles.push({
+      x: x + Math.cos(a) * 18, y: y + Math.sin(a) * 10,
+      vx: Math.cos(a) * 30, vy: -50 - Math.random() * 30,
+      color: '#aaaab8', life: 1.2, t: 0, size: 8, smoke: true,
+    });
   }
-  // Soft gray smoke puffs floating up.
-  for (let i = 0; i < 4; i++) {
-    const a = Math.random() * Math.PI * 2;
-    particles.push({ x: x + Math.cos(a) * 14, y: y + Math.sin(a) * 8, vx: Math.cos(a) * 25, vy: -40 - Math.random() * 20, color: '#aaaab8', life: 0.9, t: 0, size: 6 });
-  }
+  particles.push({ ring: true, x, y, t: 0, maxR: 70, color: 'rgba(180,170,160,0.6)' });
 }
 
 function drawBuilding(b) {
@@ -978,6 +1086,38 @@ function drawBuilding(b) {
       ctx.fillText('GAS', x + w / 2, y + 6);
       break;
     }
+    case 'reactor': {
+      // Polish R2: NUCLEAR REACTOR — concrete + dome + cooling tower + steam
+      ctx.fillStyle = '#888'; ctx.fillRect(x, y + 40, w, h - 40);
+      ctx.fillStyle = '#5a5a5a'; ctx.fillRect(x, y + h - 8, w, 8);
+      ctx.fillStyle = b.color;
+      ctx.beginPath(); ctx.ellipse(x + w / 2, y + 40, w * 0.42, 36, 0, Math.PI, Math.PI * 2); ctx.fill();
+      // cooling tower
+      ctx.fillStyle = '#aaa';
+      ctx.beginPath();
+      ctx.moveTo(x + w - 18, y + 40); ctx.lineTo(x + w - 12, y - 18); ctx.lineTo(x + w + 2, y - 18); ctx.lineTo(x + w + 8, y + 40);
+      ctx.closePath(); ctx.fill();
+      // steam puffs
+      const t = performance.now() / 600;
+      ctx.fillStyle = 'rgba(220,220,255,0.55)';
+      for (let i = 0; i < 4; i++) {
+        ctx.beginPath();
+        ctx.arc(x + w - 4 + Math.sin(t + i) * 6, y - 24 - i * 8, 8 + i * 2, 0, Math.PI * 2); ctx.fill();
+      }
+      const pulse = 0.7 + Math.sin(performance.now() / 200) * 0.3;
+      ctx.fillStyle = `rgba(255,210,63,${pulse})`;
+      ctx.font = "bold 24px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+      ctx.fillText('☢', x + w / 2, y + 36);
+      ctx.strokeStyle = '#ffd23f'; ctx.lineWidth = 2;
+      ctx.strokeRect(x, y, w, h);
+      // hp pips
+      ctx.fillStyle = '#1a1a22'; ctx.fillRect(x + 10, y - 8, 60, 5);
+      for (let i = 0; i < 4; i++) {
+        ctx.fillStyle = (i < b.hp) ? '#5ef38c' : '#5a1a1a';
+        ctx.fillRect(x + 12 + i * 14, y - 7, 12, 3);
+      }
+      break;
+    }
     case 'hospital': {
       ctx.fillStyle = b.color; ctx.fillRect(x, y, w, h);
       ctx.fillStyle = 'rgba(0,0,0,0.2)'; ctx.fillRect(x, y + h - 6, w, 6);
@@ -1013,26 +1153,38 @@ function drawBuilding(b) {
 }
 
 function drawCivilians() {
+  // Polish R2: panic sprite — raised arms, bob, exclamation when close
+  const now = performance.now();
+  const skin = '#e0c89a';
   for (const c of civilians) {
-    // body
-    ctx.fillStyle = c.color; ctx.fillRect(c.x - 2, c.y - 4, 4, 6);
-    // head
-    ctx.fillStyle = '#e0c89a'; ctx.fillRect(c.x - 2, c.y - 8, 4, 4);
-    // panic arms (waving)
-    const wave = Math.sin(performance.now() / 100 + c.x) > 0;
-    ctx.fillStyle = '#e0c89a';
-    if (wave) {
-      ctx.fillRect(c.x - 4, c.y - 6, 2, 2); ctx.fillRect(c.x + 2, c.y - 6, 2, 2);
-    } else {
-      ctx.fillRect(c.x - 4, c.y - 4, 2, 2); ctx.fillRect(c.x + 2, c.y - 4, 2, 2);
-    }
-    // legs (alternating)
-    const step = (Math.floor(performance.now() / 100 + c.x) % 2 === 0);
+    const d2 = Math.hypot(c.x - pug.x, c.y - pug.y);
+    const bob = d2 < 220 ? Math.sin(now / 70 + c.x) * 1.2 : 0;
+    const shape = c.shape || 'adult';
+    const bw = shape === 'kid' ? 4 : 5;
+    const bh = shape === 'kid' ? 5 : 7;
+    ctx.fillStyle = c.color;
+    ctx.fillRect(c.x - bw / 2, c.y - 3 + bob, bw, bh);
+    ctx.fillStyle = skin;
+    ctx.fillRect(c.x - 2, c.y - 9 + bob, 4, 4);
+    // ARMS raised
+    const aP = Math.sin(now / 80 + c.x * 0.1);
+    const lY = c.y - 11 + bob + (aP > 0 ? -1 : 0);
+    const rY = c.y - 11 + bob + (aP < 0 ? -1 : 0);
+    ctx.fillRect(c.x - 4, lY, 2, 4); ctx.fillRect(c.x - 5, lY - 1, 2, 2);
+    ctx.fillRect(c.x + 2, rY, 2, 4); ctx.fillRect(c.x + 3, rY - 1, 2, 2);
+    // detail
+    if (shape === 'suit') { ctx.fillStyle = '#1a0d05'; ctx.fillRect(c.x - 3, c.y - 11 + bob, 6, 2); }
+    else if (shape === 'dress') { ctx.fillStyle = c.color; ctx.fillRect(c.x - 4, c.y + 3 + bob, 8, 2); }
+    // legs
+    const stepNow = (Math.floor(now / 90 + c.x) % 2 === 0);
     ctx.fillStyle = '#1a1a22';
-    if (step) {
-      ctx.fillRect(c.x - 2, c.y + 2, 2, 3); ctx.fillRect(c.x + 1, c.y + 2, 2, 2);
-    } else {
-      ctx.fillRect(c.x - 2, c.y + 2, 2, 2); ctx.fillRect(c.x + 1, c.y + 2, 2, 3);
+    ctx.fillRect(c.x - 2, c.y + 4 + bob, 2, stepNow ? 3 : 2);
+    ctx.fillRect(c.x + 1, c.y + 4 + bob, 2, stepNow ? 2 : 3);
+    // exclamation when close
+    if (d2 < 140) {
+      const eY = c.y - 16 + bob + Math.sin(now / 90 + c.x) * 1.5;
+      ctx.fillStyle = '#ff3a3a';
+      ctx.fillRect(c.x - 1, eY, 2, 4); ctx.fillRect(c.x - 1, eY + 5, 2, 2);
     }
   }
 }
@@ -1120,6 +1272,7 @@ function tick(dt) {
   // Hit-pause — freeze world for a few frames after evolve / big event.
   if (_zillaHitstopT > 0) { _zillaHitstopT -= dt; return; }
   borkCd = Math.max(0, borkCd - dt);
+  if (rampageUnlimitedT > 0) rampageUnlimitedT = Math.max(0, rampageUnlimitedT - dt);
   comboT = Math.max(0, comboT - dt);
   if (comboT <= 0) { combo = 0; _comboTier = 0; }
   if (comboDoubleBorkT > 0) comboDoubleBorkT = Math.max(0, comboDoubleBorkT - dt);
@@ -1254,6 +1407,37 @@ function tick(dt) {
       addRage(8);
     }
   }
+  // Polish R2: STEALTH BOMBER — fires homing missile
+  for (let i = bombers.length - 1; i >= 0; i--) {
+    const b = bombers[i];
+    b.x += b.vx * dt;
+    b.fireCd -= dt;
+    if (b.fireCd <= 0 && !b.fired && Math.abs(b.x - pug.x) < 600) {
+      b.fired = true;
+      missiles.push({
+        x: b.x, y: b.y + 4,
+        vx: 0, vy: 60,
+        life: 5, big: true, homing: true, homingT: 3,
+      });
+      sfx.tone(330, 'sawtooth', 0.18, 0.32);
+    }
+    if (b.x < -160 || b.x > WORLD_W + 160) { bombers.splice(i, 1); continue; }
+    if (Math.hypot(b.x - pug.x, b.y - pug.y) < form().r + 22) {
+      b.hp -= form().smash;
+      if (b.hp <= 0) {
+        score += 800;
+        addPopup(b.x, b.y - 12, '+800 BOMBER', '#dde6f0');
+        spawnDust(b.x, b.y, '#5a5a8a');
+        spawnDust(b.x, b.y, '#dde6f0');
+        addShake(10, 0.4);
+        try { __pugzillaFeed.push('★ BOMBER DOWN +$800', '#dde6f0'); } catch {}
+        bombers.splice(i, 1);
+        bumpCombo();
+        addRage(18);
+        addRampage(10);
+      }
+    }
+  }
   // TANKS — slow ground unit, fires slow missile
   for (let i = tanks.length - 1; i >= 0; i--) {
     const t = tanks[i];
@@ -1330,6 +1514,8 @@ function tick(dt) {
   if (threatLevel >= 3 && tanks.length < Math.min(3, Math.floor(threatLevel / 2)) && Math.random() < dt * 0.08) spawnTank();
   // Jets appear at threat 5+
   if (threatLevel >= 5 && jets.length < 2 && Math.random() < dt * 0.05) spawnJet();
+  // Polish R2: STEALTH BOMBER spawn at threat 9+ (max 1, rare)
+  if (threatLevel >= 9 && bombers.length < 1 && Math.random() < dt * 0.04) spawnBomber();
   // Buses appear sometimes
   if (buses.length < 4 && Math.random() < dt * 0.03) spawnBus();
   // === SUPER MECH tick ===
@@ -1343,6 +1529,7 @@ function tick(dt) {
     if (fireTrail.length > 40) fireTrail.shift();
   }
   // Tick fire trail — damage nearby ground enemies (vehicles, tanks)
+  // Polish R2: fire trail also chips tanks (matches the comment)
   for (let i = fireTrail.length - 1; i >= 0; i--) {
     const f = fireTrail[i]; f.t += dt;
     if (f.t >= f.life) { fireTrail.splice(i, 1); continue; }
@@ -1355,11 +1542,37 @@ function tick(dt) {
         addPopup(v.x, v.y - 4, '+15 🔥', '#ff5a3a');
       }
     }
+    // Tank chip (rare — every ~0.6s a tank in trail loses 1 hp)
+    if ((Math.floor(f.t * 1.7) !== Math.floor((f.t - dt) * 1.7))) {
+      for (let j = tanks.length - 1; j >= 0; j--) {
+        const t = tanks[j];
+        if (Math.hypot(t.x - f.x, t.y - f.y) < 32) {
+          t.hp -= 1;
+          if (t.hp <= 0) {
+            score += 350;
+            addPopup(t.x, t.y - 6, '+350 🔥', '#ff5a3a');
+            spawnDust(t.x, t.y, '#3a3a3a');
+            tanks.splice(j, 1);
+          }
+        }
+      }
+    }
   }
 
   // Missiles
   for (let i = missiles.length - 1; i >= 0; i--) {
     const m = missiles[i];
+    // Polish R2: homing missile (bomber) — tracks pug for homingT seconds
+    if (m.homing && m.homingT > 0) {
+      m.homingT -= dt;
+      const dx = pug.x - m.x, dy = pug.y - m.y;
+      const d = Math.hypot(dx, dy) || 1;
+      const targetSpd = 240;
+      const tvx = (dx / d) * targetSpd;
+      const tvy = (dy / d) * targetSpd;
+      m.vx += (tvx - m.vx) * Math.min(1, dt * 2.4);
+      m.vy += (tvy - m.vy) * Math.min(1, dt * 2.4);
+    }
     m.x += m.vx * dt; m.y += m.vy * dt; m.life -= dt;
     if (m.life <= 0) { missiles.splice(i, 1); continue; }
     if (Math.hypot(m.x - pug.x, m.y - pug.y) < form().r) {
@@ -1410,10 +1623,16 @@ function tick(dt) {
     if (p.ring) {
       if (p.t > 0.5) particles.splice(i, 1);
     } else {
-      // Gravity (debris chunks have it) gives them a satisfying arc-and-fall.
       if (p.gravity) p.vy += p.gravity * dt;
       p.x += p.vx * dt; p.y += p.vy * dt;
-      // Less friction when gravity dominates so the arc reads.
+      // Polish R2: CHUNK particles spin while flying.
+      if (p.chunk && p.rotSpd) p.rot = (p.rot || 0) + p.rotSpd * dt;
+      // Fake-ground bounce for chunks.
+      if (p.chunk && !p.bounced && p.t > p.life * 0.55 && p.vy > 0) {
+        p.vy = -p.vy * 0.45; p.vx *= 0.6; p.rotSpd *= 0.4; p.bounced = true;
+      }
+      // Smoke puffs grow.
+      if (p.smoke) p.size += dt * 6;
       const fr = p.gravity ? 0.985 : 0.94;
       p.vx *= fr;
       if (!p.gravity) p.vy *= fr;
@@ -1454,22 +1673,95 @@ function render() {
   skyGrd.addColorStop(0.5, _env.skyMid);
   skyGrd.addColorStop(1, _env.skyBot);
   ctx.fillStyle = skyGrd; ctx.fillRect(0, 0, W, H);
-  // Distant low-parallax skyline band (screen space, before world)
+  // Polish R2: per-city skyline. DOWNTOWN gets Empire State, SUBURBS gets
+  // tract houses + church spire, DOCKS gets crane silhouettes.
   const horizonY = H * 0.22;
-  ctx.fillStyle = 'rgba(20,8,30,0.7)';
-  // Pseudo-random skyline silhouettes (parallax: shift by cam.x * 0.1)
   const px = (cam.x * 0.12) % 80;
+  const dkCol = 'rgba(20,8,30,0.7)';
+  ctx.fillStyle = dkCol;
+  // Base buildings — height/width depends on city
+  const bhBase = chosenEnvId === 'suburbs' ? 20 : (chosenEnvId === 'docks' ? 14 : 30);
+  const bhVar = chosenEnvId === 'suburbs' ? 24 : (chosenEnvId === 'docks' ? 22 : 60);
+  const bwBase = chosenEnvId === 'suburbs' ? 24 : (chosenEnvId === 'docks' ? 28 : 16);
   for (let i = -2; i < Math.floor(W / 30) + 2; i++) {
     const seed = ((i + 100) * 37) % 100;
-    const bh = 30 + (seed % 60);
-    const bw = 16 + (seed % 14);
-    ctx.fillRect(i * 30 - px, horizonY - bh, bw, bh + 4);
-    // tiny windows
-    ctx.fillStyle = 'rgba(255,210,63,0.4)';
-    for (let yy = 4; yy < bh - 4; yy += 8) {
-      if ((yy + seed) % 16 === 0) ctx.fillRect(i * 30 - px + 4, horizonY - bh + yy, 2, 3);
+    const bh = bhBase + (seed % bhVar);
+    const bw = bwBase + (seed % 14);
+    const xx = i * 30 - px;
+    ctx.fillStyle = dkCol;
+    ctx.fillRect(xx, horizonY - bh, bw, bh + 4);
+    // Suburbs: pitched roof
+    if (chosenEnvId === 'suburbs') {
+      ctx.beginPath();
+      ctx.moveTo(xx - 2, horizonY - bh);
+      ctx.lineTo(xx + bw / 2, horizonY - bh - 12);
+      ctx.lineTo(xx + bw + 2, horizonY - bh);
+      ctx.closePath(); ctx.fill();
+    } else if (chosenEnvId === 'downtown') {
+      ctx.fillStyle = 'rgba(255,210,63,0.4)';
+      for (let yy = 4; yy < bh - 4; yy += 8) {
+        if ((yy + seed) % 16 === 0) ctx.fillRect(xx + 4, horizonY - bh + yy, 2, 3);
+      }
     }
-    ctx.fillStyle = 'rgba(20,8,30,0.7)';
+  }
+  // City-specific landmark
+  if (chosenEnvId === 'suburbs') {
+    // Church spire
+    const spX = W / 2 - (cam.x * 0.12) % W;
+    for (let pass = -1; pass <= 1; pass++) {
+      const sx = spX + pass * W;
+      ctx.fillStyle = 'rgba(20,8,30,0.85)';
+      ctx.fillRect(sx - 10, horizonY - 70, 20, 70);
+      ctx.beginPath();
+      ctx.moveTo(sx - 14, horizonY - 70);
+      ctx.lineTo(sx, horizonY - 110);
+      ctx.lineTo(sx + 14, horizonY - 70);
+      ctx.closePath(); ctx.fill();
+      ctx.fillRect(sx - 1, horizonY - 122, 2, 8);
+      ctx.fillRect(sx - 4, horizonY - 118, 8, 2);
+    }
+  } else if (chosenEnvId === 'docks') {
+    // Crane silhouettes
+    const cpx = (cam.x * 0.18) % 280;
+    for (let i = -2; i < Math.floor(W / 280) + 3; i++) {
+      const cx2 = i * 280 - cpx;
+      ctx.fillStyle = 'rgba(20,8,30,0.85)';
+      ctx.fillRect(cx2 - 2, horizonY - 100, 4, 100);
+      ctx.fillRect(cx2 - 2, horizonY - 100, 70, 4);
+      ctx.fillRect(cx2 - 24, horizonY - 100, 22, 4);
+      ctx.strokeStyle = 'rgba(20,8,30,0.85)'; ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(cx2, horizonY - 100); ctx.lineTo(cx2 + 50, horizonY - 70); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(cx2 + 60, horizonY - 96); ctx.lineTo(cx2 + 60, horizonY - 50); ctx.stroke();
+      ctx.fillRect(cx2 + 56, horizonY - 50, 8, 6);
+      const strobe = Math.floor(performance.now() / 600 + i) % 2 === 0;
+      ctx.fillStyle = strobe ? '#ff3a3a' : '#5a1a1a';
+      ctx.fillRect(cx2 - 1, horizonY - 104, 2, 3);
+    }
+  } else {
+    // DOWNTOWN — Empire State silhouette landmark
+    const esX = (W * 0.62 - (cam.x * 0.12)) % (W + 200);
+    for (let pass = -1; pass <= 1; pass++) {
+      const ex = (esX + pass * (W + 200)) - 100;
+      ctx.fillStyle = 'rgba(20,8,30,0.92)';
+      ctx.fillRect(ex - 36, horizonY - 90, 72, 90);
+      ctx.fillRect(ex - 26, horizonY - 130, 52, 40);
+      ctx.fillRect(ex - 18, horizonY - 160, 36, 30);
+      ctx.fillRect(ex - 10, horizonY - 180, 20, 20);
+      ctx.fillRect(ex - 1, horizonY - 210, 2, 30);
+      const strobe = Math.floor(performance.now() / 700) % 2 === 0;
+      ctx.fillStyle = strobe ? '#ff3a3a' : '#5a1a1a';
+      ctx.fillRect(ex - 2, horizonY - 214, 4, 4);
+      ctx.fillStyle = 'rgba(255,210,63,0.6)';
+      for (let r = 0; r < 8; r++) {
+        for (let cc = 0; cc < 5; cc++) {
+          if (((r * 7 + cc * 11) % 5) > 1) {
+            ctx.fillRect(ex - 28 + cc * 12, horizonY - 80 + r * 10, 4, 5);
+          }
+        }
+      }
+    }
   }
   // Distant choppers (parallax silhouette)
   ctx.fillStyle = 'rgba(0,0,0,0.55)';
@@ -1596,19 +1888,22 @@ function render() {
       ctx.beginPath(); ctx.moveTo(b.x - 18, b.y); ctx.lineTo(b.x + 14, b.y); ctx.stroke();
     }
   }
-  // Tanks
+  // Tanks — Polish R2: animated treads scrolling with direction
   for (const t of tanks) {
-    // body
+    const scr = (performance.now() / 80 * Math.sign(t.vx || 1)) % 6;
     ctx.fillStyle = '#3a4a2a'; ctx.fillRect(t.x - 16, t.y - 10, 32, 20);
-    // treads
     ctx.fillStyle = '#1a1a1a';
     ctx.fillRect(t.x - 18, t.y - 12, 4, 24); ctx.fillRect(t.x + 14, t.y - 12, 4, 24);
-    // turret
+    // scrolling cleats
+    ctx.fillStyle = '#5a5a5a';
+    for (let i = 0; i < 5; i++) {
+      const ty = t.y - 12 + ((i * 6 + scr + 24) % 24);
+      ctx.fillRect(t.x - 18, ty, 4, 2); ctx.fillRect(t.x + 14, ty, 4, 2);
+    }
     ctx.fillStyle = '#5a6a4a';
     ctx.beginPath(); ctx.arc(t.x, t.y, 8, 0, Math.PI * 2); ctx.fill();
-    // barrel pointing at pug
+    ctx.fillStyle = '#1a2a1a'; ctx.fillRect(t.x - 2, t.y - 2, 4, 4);
     const a = Math.atan2(pug.y - t.y, pug.x - t.x);
-    ctx.fillStyle = '#1a2a1a';
     ctx.save(); ctx.translate(t.x, t.y); ctx.rotate(a);
     ctx.fillRect(0, -2, 18, 4);
     ctx.restore();
@@ -1626,6 +1921,20 @@ function render() {
     // streak
     ctx.fillStyle = 'rgba(220,230,240,0.45)';
     ctx.fillRect(j.x - (j.vx > 0 ? 50 : -8), j.y - 1, j.vx > 0 ? 36 : 36, 2);
+  }
+  // Polish R2: STEALTH BOMBER — translucent wedge silhouette + warning ring
+  for (const b of bombers) {
+    _depthShadow(ctx, b.x, b.y + 40, 40, { alpha: 0.4, ratio: 0.5 });
+    ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(b.vx > 0 ? 0 : Math.PI);
+    ctx.fillStyle = 'rgba(40,40,60,0.85)';
+    ctx.beginPath();
+    ctx.moveTo(34, 0); ctx.lineTo(-26, 22); ctx.lineTo(-12, 0); ctx.lineTo(-26, -22);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = 'rgba(76,201,240,0.4)'; ctx.fillRect(8, -2, 4, 4);
+    ctx.restore();
+    const pulse = 0.4 + Math.sin(performance.now() / 150) * 0.3;
+    ctx.strokeStyle = `rgba(220,40,40,${pulse * 0.4})`; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(b.x, b.y, 50, 0, Math.PI * 2); ctx.stroke();
   }
   // Fire trail (drawn under pug)
   for (const f of fireTrail) {
@@ -1663,36 +1972,88 @@ function render() {
     ctx.fillStyle = '#fff'; ctx.font = "7px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
     ctx.fillText('SUPER MECH', mech.x, mech.y - 42);
   }
-  // Helicopters — depth-sort + drop shadow on the ground beneath each.
+  // Helicopters — Polish R2: rotor blur (translucent disc + 6 spinning spokes)
   _depthSort(helicopters);
+  const _bT = performance.now() / 1000;
   for (const h of helicopters) {
-    // shadow on the street below (offset downward like sun-cast)
     _depthShadow(ctx, h.x, h.y + 26, 22, { alpha: 0.32, ratio: 0.35 });
-    ctx.fillStyle = '#3a3a4a';
-    ctx.fillRect(h.x - 14, h.y - 8, 28, 16);
-    ctx.fillStyle = '#1a0d05';
-    ctx.fillRect(h.x - 18, h.y - 1, 36, 2); // rotor
-    ctx.fillStyle = '#ff3a3a';
-    ctx.fillRect(h.x - 2, h.y - 2, 4, 4); // light
+    ctx.fillStyle = '#2a2a3a'; ctx.fillRect(h.x + (h.vx < 0 ? -22 : 14), h.y - 1, 12, 2);
+    ctx.fillStyle = '#3a3a4a'; ctx.fillRect(h.x - 14, h.y - 8, 28, 16);
+    ctx.fillStyle = 'rgba(76,201,240,0.6)';
+    ctx.fillRect(h.x + (h.vx < 0 ? -12 : 4), h.y - 6, 8, 6);
+    // rotor disc + spokes
+    ctx.fillStyle = 'rgba(20,20,30,0.35)';
+    ctx.beginPath(); ctx.ellipse(h.x, h.y - 4, 22, 3, 0, 0, Math.PI * 2); ctx.fill();
+    const sp = _bT * 28 + h.x * 0.01;
+    for (let s = 0; s < 6; s++) {
+      const a = (s / 6) * Math.PI * 2 + sp, ca = Math.cos(a), sa = Math.sin(a);
+      ctx.strokeStyle = `rgba(20,15,5,${0.25 + Math.abs(ca) * 0.35})`;
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(h.x + ca * 22, h.y - 4 + sa * 2);
+      ctx.lineTo(h.x - ca * 22, h.y - 4 - sa * 2);
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#1a0d05'; ctx.beginPath(); ctx.arc(h.x, h.y - 4, 2, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#1a1a22'; ctx.fillRect(h.x - 14, h.y + 8, 28, 2);
+    ctx.fillStyle = (Math.floor(performance.now() / 250) % 2 === 0) ? '#ff3a3a' : '#5a1a1a';
+    ctx.fillRect(h.x - 2, h.y + 6, 4, 2);
   }
   // Missiles
   for (const m of missiles) {
-    ctx.fillStyle = '#ff8e3c';
-    ctx.fillRect(m.x - 3, m.y - 3, 6, 6);
-    ctx.fillStyle = '#ffd23f';
-    ctx.fillRect(m.x - 6, m.y - 1, 4, 2);
+    if (m.homing) {
+      // Polish R2: HOMING missile (bomber)
+      ctx.fillStyle = 'rgba(255,58,58,0.7)';
+      ctx.beginPath(); ctx.arc(m.x, m.y, 6, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#ffd23f';
+      ctx.fillRect(m.x - 4, m.y - 4, 8, 8);
+      ctx.fillStyle = '#ff3a3a';
+      ctx.fillRect(m.x - 2, m.y - 2, 4, 4);
+      const ang = Math.atan2(m.vy, m.vx);
+      for (let i = 1; i <= 4; i++) {
+        ctx.fillStyle = `rgba(180,180,200,${0.4 - i * 0.08})`;
+        ctx.beginPath();
+        ctx.arc(m.x - Math.cos(ang) * i * 6, m.y - Math.sin(ang) * i * 6, 3 - i * 0.4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else {
+      ctx.fillStyle = '#ff8e3c';
+      ctx.fillRect(m.x - 3, m.y - 3, 6, 6);
+      ctx.fillStyle = '#ffd23f';
+      ctx.fillRect(m.x - 6, m.y - 1, 4, 2);
+    }
   }
   // Particles
   for (const p of particles) {
     if (p.ring) {
-      ctx.strokeStyle = `rgba(255,210,63,${1 - p.t / 0.5})`;
-      ctx.lineWidth = 6;
+      ctx.strokeStyle = p.color || `rgba(255,210,63,${1 - p.t / 0.5})`;
+      if (p.color) ctx.globalAlpha = 1 - p.t / 0.5;
+      ctx.lineWidth = p.color ? 4 : 6;
       ctx.beginPath(); ctx.arc(p.x, p.y, p.maxR * (p.t / 0.5), 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = 1;
     } else if (p.scream) {
       ctx.globalAlpha = 1 - p.t / p.life;
       ctx.fillStyle = '#fff';
       ctx.font = "bold 8px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
       ctx.fillText('AAA', p.x, p.y);
+      ctx.globalAlpha = 1;
+    } else if (p.chunk) {
+      // Polish R2: rotating debris chunk
+      const lifeMul = 1 - p.t / p.life;
+      ctx.globalAlpha = Math.max(0, lifeMul);
+      ctx.save();
+      ctx.translate(p.x, p.y); ctx.rotate(p.rot || 0);
+      ctx.fillStyle = p.color;
+      ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size);
+      ctx.fillStyle = 'rgba(0,0,0,0.45)';
+      ctx.fillRect(-p.size / 2, p.size / 2 - 2, p.size, 2);
+      ctx.restore();
+      ctx.globalAlpha = 1;
+    } else if (p.smoke) {
+      const k = 1 - p.t / p.life;
+      ctx.globalAlpha = k * 0.55;
+      ctx.fillStyle = p.color;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx.fill();
       ctx.globalAlpha = 1;
     } else {
       ctx.globalAlpha = 1 - p.t / p.life;
@@ -1723,6 +2084,35 @@ function render() {
     ear: _sk.ear,
     tongueOut: true,
   });
+  // Polish R2: per-form posture additions
+  if (formIdx === 1) {
+    ctx.fillStyle = '#1a0d05';
+    for (let i = -1; i <= 1; i++) ctx.fillRect(pug.x + i * 8 - 2, pug.y + r * 0.55, 4, 5);
+  } else if (formIdx === 2) {
+    ctx.fillStyle = _sk.ear || '#8a5a2c';
+    for (let i = -1; i <= 1; i++) {
+      const sx2 = pug.x + i * 12;
+      ctx.beginPath();
+      ctx.moveTo(sx2 - 4, pug.y - r * 0.55); ctx.lineTo(sx2 + 4, pug.y - r * 0.55);
+      ctx.lineTo(sx2, pug.y - r * 0.8 - 6); ctx.closePath(); ctx.fill();
+    }
+  } else if (formIdx === 3) {
+    ctx.fillStyle = '#1a0d05';
+    for (const sgn of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(pug.x + sgn * r * 0.45, pug.y - r * 0.75);
+      ctx.lineTo(pug.x + sgn * r * 0.25, pug.y - r * 0.95);
+      ctx.lineTo(pug.x + sgn * r * 0.2, pug.y - r * 0.7);
+      ctx.closePath(); ctx.fill();
+    }
+    const t2 = performance.now() / 100, ang = pug.vx >= 0 ? 0 : Math.PI;
+    for (let i = 0; i < 3; i++) {
+      ctx.fillStyle = `rgba(255,142,60,${0.55 - i * 0.15})`;
+      ctx.beginPath();
+      ctx.arc(pug.x + Math.cos(ang) * (r * 0.6 + i * 8), pug.y + Math.sin(t2 + i) * 2, 3 + i, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
   if (_ghostAlpha < 1) ctx.globalAlpha = 1;
   // Smoke columns (drawn in world, rise upward from smash sites)
   for (const s of smokeColumns) {
@@ -1889,15 +2279,71 @@ function render() {
   ctx.strokeStyle = 'rgba(255,210,63,0.2)';
   ctx.lineWidth = 2;
   ctx.beginPath(); ctx.arc(W / 2 + (pug.x - cam.x), H / 2 + (pug.y - cam.y), r + 100, 0, Math.PI * 2); ctx.stroke();
-  // THREAT LEVEL meter (top-left)
-  ctx.fillStyle = 'rgba(0,0,0,0.7)';
-  ctx.fillRect(10, 30, 130, 18);
-  ctx.fillStyle = '#ff5050';
-  ctx.font = "8px 'Press Start 2P', monospace"; ctx.textAlign = 'left';
+  // Polish R2: THREAT meter + descriptive subtitle
+  ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(10, 30, 130, 30);
+  ctx.fillStyle = '#ff5050'; ctx.font = "8px 'Press Start 2P', monospace"; ctx.textAlign = 'left';
   ctx.fillText('THREAT', 14, 42);
   for (let i = 0; i < 10; i++) {
     ctx.fillStyle = i < threatLevel ? (i >= 7 ? '#ff3a3a' : (i >= 4 ? '#ffd23f' : '#5ef38c')) : 'rgba(255,255,255,0.18)';
     ctx.fillRect(64 + i * 7, 35, 5, 8);
+  }
+  const THREAT_DESC = ['', 'choppers', 'choppers+', 'tanks roll', 'tanks+', 'jets cleared', 'air strike', 'mech rumored', 'bombers seen', 'stealth bomber!', 'SUPER MECH'];
+  ctx.fillStyle = '#ffd23f'; ctx.font = "6px 'Press Start 2P', monospace";
+  ctx.fillText('LV' + threatLevel + ': ' + (THREAT_DESC[Math.min(10, threatLevel)] || ''), 14, 54);
+  // Polish R2: BORK charge meter + RAMPAGE METER
+  {
+    const bX = W / 2 - 100, bY = 26;
+    ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(bX, bY, 200, 4);
+    let bColor, bTxt, bFill;
+    if (rampageUnlimitedT > 0) {
+      bColor = `rgba(255,58,58,${0.6 + Math.sin(performance.now() / 80) * 0.4})`;
+      bTxt = '★ UNLIMITED BORK ' + rampageUnlimitedT.toFixed(1) + 's ★'; bFill = 200;
+    } else if (borkCd > 0) {
+      bColor = '#888'; bTxt = 'BORK ' + borkCd.toFixed(1) + 's'; bFill = 200 * (1 - borkCd / 4);
+    } else {
+      bColor = '#5ef38c'; bTxt = 'BORK READY (SPACE)'; bFill = 200;
+    }
+    ctx.fillStyle = bColor; ctx.fillRect(bX, bY, bFill, 4);
+    ctx.font = "6px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText(bTxt, W / 2, bY - 1);
+  }
+  // Rampage meter
+  {
+    const rmX = 10, rmY = 66;
+    ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(rmX, rmY, 130, 14);
+    ctx.fillStyle = '#ff8e3c'; ctx.fillRect(rmX, rmY, 130 * rampageMeter / 100, 14);
+    ctx.strokeStyle = rampageUnlimitedT > 0 ? '#ff3a3a' : '#ff8e3c'; ctx.lineWidth = 1;
+    ctx.strokeRect(rmX + 0.5, rmY + 0.5, 129, 13);
+    ctx.fillStyle = '#fff'; ctx.font = "7px 'Press Start 2P', monospace"; ctx.textAlign = 'left';
+    ctx.fillText('RAMPAGE', rmX + 4, rmY + 10);
+    ctx.textAlign = 'right';
+    ctx.fillText(Math.round(rampageMeter) + '%', rmX + 126, rmY + 10);
+  }
+  // Polish R2: MINIMAP — buildings + military positions
+  {
+    const mmW = 110, mmH = 80, mmX = W - mmW - 12, mmY = 90;
+    ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(mmX, mmY, mmW, mmH);
+    ctx.strokeStyle = '#5ef38c'; ctx.lineWidth = 1;
+    ctx.strokeRect(mmX + 0.5, mmY + 0.5, mmW - 1, mmH - 1);
+    const sx = mmW / WORLD_W, sy = mmH / WORLD_H;
+    for (const b of buildings) {
+      if (b.isReactor) { ctx.fillStyle = '#5ef3c0'; ctx.fillRect(mmX + (b.x + b.w / 2) * sx - 2, mmY + (b.y + b.h / 2) * sy - 2, 4, 4); }
+      else { ctx.fillStyle = '#3a4a3a'; ctx.fillRect(mmX + (b.x + b.w / 2) * sx, mmY + (b.y + b.h / 2) * sy, 1, 1); }
+    }
+    if (broadcastTower && !broadcastTower.smashed) {
+      ctx.fillStyle = '#ffd23f';
+      ctx.fillRect(mmX + broadcastTower.x * sx - 1, mmY + broadcastTower.y * sy - 1, 3, 3);
+    }
+    ctx.fillStyle = '#ff3a3a';
+    const military = [helicopters, jets, tanks];
+    for (const arr of military) for (const a of arr) ctx.fillRect(mmX + a.x * sx, mmY + a.y * sy, 2, 2);
+    ctx.fillStyle = '#dde6f0';
+    for (const b of bombers) ctx.fillRect(mmX + b.x * sx - 1, mmY + b.y * sy - 1, 3, 3);
+    if (mech) { ctx.fillStyle = '#b055ff'; ctx.fillRect(mmX + mech.x * sx - 2, mmY + mech.y * sy - 2, 4, 4); }
+    ctx.fillStyle = '#4cc9f0';
+    ctx.fillRect(mmX + pug.x * sx - 2, mmY + pug.y * sy - 2, 4, 4);
+    ctx.fillStyle = '#5ef38c'; ctx.font = "6px 'Press Start 2P', monospace"; ctx.textAlign = 'left';
+    ctx.fillText('CITY · ' + buildings.length + ' bldgs', mmX + 4, mmY - 2);
   }
   // SUPER MECH banner
   if (mechBannerT > 0) {

@@ -71,8 +71,8 @@
   <p class="overlay__sub">Combine 3 ingredients. Get a cursed pug. Some are legendary. Some are abominations. Collect them all.</p>
   <ul class="overlay__controls">
     <li>Tap 3 ingredients → tap FUSE → see what crawls out</li>
-    <li>Each unique 3-ingredient combo only works ONCE — 1140 combos to find</li>
-    <li>60+ unique pug species · 13 named LEGENDARIES hidden in the recipes</li>
+    <li>Each unique 3-ingredient combo only works ONCE · 23 ingredients · drag-and-drop supported</li>
+    <li>69 unique pug species · 15 LEGENDARIES · ⛓ HYPER-FUSE 2 species into 1</li>
   </ul>
   <p class="wg-last-best" id="start-best" hidden></p>
   <button id="start-btn" class="overlay__btn">PLAY</button>
@@ -80,8 +80,8 @@
   <div class="wg-fun-facts" id="wg-fun-facts"></div>
 </div></div>
 <div id="hud" hidden><div class="hud-card">
-  <div class="hud-row"><b>DISCOVERED</b> <span id="hud-discovered">0/60</span></div>
-  <div class="hud-row"><b>LEGENDARY</b> <span id="hud-legendary">0/13</span></div>
+  <div class="hud-row"><b>DISCOVERED</b> <span id="hud-discovered">0/69</span></div>
+  <div class="hud-row"><b>LEGENDARY</b> <span id="hud-legendary">0/15</span></div>
   <div class="hud-row hud-row--small"><b>EXP. (COMBOS)</b> <span id="hud-exp">0</span></div>
 </div></div>
 <div id="lab" hidden>
@@ -99,6 +99,14 @@
       <div class="lab-slot" data-slot="2">+</div>
     </div>
     <button id="lab-fuse" class="lab-fuse" disabled>⚗ FUSE</button>
+    <div class="lab-room2 is-locked" id="lab-room2">
+      <span class="lab-room2__title">BACKUP BEAKER (LAB ROOM 2)</span>
+      <div class="lab-room2-mini-slot" data-mslot="0">+</div>
+      <div class="lab-room2-mini-slot" data-mslot="1">+</div>
+      <div class="lab-room2-mini-slot" data-mslot="2">+</div>
+      <button class="lab-room2__btn" id="lab-room2-stash">STASH</button>
+      <button class="lab-room2__btn" id="lab-room2-swap">SWAP</button>
+    </div>
   </div>
   <div id="result" style="display:flex;justify-content:center;"></div>
 </div>

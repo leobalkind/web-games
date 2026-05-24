@@ -45,6 +45,11 @@
 .fl-outfit-row { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; margin: 8px 0; }
 .fl-outfit-btn { background: rgba(0,0,0,0.5); color: var(--text-soft); border: 2px solid var(--border); border-radius: 6px; padding: 6px 10px; cursor: pointer; font-family: var(--font-display); font-size: 0.4rem; }
 .fl-outfit-btn.is-active { border-color: var(--neon-pink); background: rgba(255,58,161,0.18); color: var(--neon-pink); }
+.fl-achievements { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 4px; margin: 10px auto; max-width: 580px; }
+.fl-ach { background: rgba(0,0,0,0.4); border: 2px solid var(--border); border-radius: 4px; padding: 6px 8px; font-family: var(--font-display); font-size: 0.36rem; letter-spacing: 0.05em; color: var(--muted); opacity: 0.55; text-align: left; line-height: 1.5; }
+.fl-ach.is-unlocked { border-color: var(--neon-yellow); color: var(--neon-yellow); opacity: 1; background: rgba(255,210,63,0.08); box-shadow: 0 0 8px rgba(255,210,63,0.2); }
+.fl-ach__title { display: block; font-size: 0.42rem; margin-bottom: 2px; }
+.fl-ach__desc { display: block; font-size: 0.32rem; color: var(--text-soft); opacity: 0.7; }
 </style>
 </head><body>
 <canvas id="game-canvas"></canvas>
@@ -57,7 +62,7 @@
   <ul class="overlay__controls">
     <li><b>A/D</b> or arrows: move · <b>SPACE/W</b>: jump · jump again midair = double jump</li>
     <li>Touch: drag to move, tap JUMP</li>
-    <li>4 BIOMES: Cave → Magma → Hell → Voidspace · jump-through HAUNTS at altitude</li>
+    <li>5 BIOMES: Cave → Magma → Abyss → Hell → Voidspace · TELEPORTER pads · WIND CURRENTS · 5 achievements · PRESS P to pause</li>
   </ul>
   <div class="fl-mode-row" id="fl-mode-row"></div>
   <div class="fl-toggles">
@@ -65,6 +70,7 @@
     <label><input type="checkbox" id="fl-daily"> Use daily seed (same world for everyone)</label>
   </div>
   <div class="fl-outfit-row" id="fl-outfit-row"></div>
+  <div class="fl-achievements" id="fl-achievements"></div>
   <p class="wg-last-best" id="start-best" hidden></p>
   <button id="start-btn" class="overlay__btn">CLIMB</button>
   <a class="overlay__back" href="../../index.html">← BACK TO HUB</a>

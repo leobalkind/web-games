@@ -59,13 +59,15 @@ let lastPlat = null;  // platform reference last landed on (so re-landing same p
 let comboJumps = 0;   // consecutive distinct-platform landings without resting
 let comboRestT = 0;   // seconds spent stationary on the SAME platform (resets combo after 0.7s)
 // === Geometry Dash biome-shift checkpoints (every 500m) ===
-// Four palettes: cave-grey (default), magma-orange, hellscape-red, voidspace.
+// Round 2: 5 palettes — cave-grey, magma-orange, ABYSS (deep blue), hellscape-red, voidspace.
 const BIOMES = [
   { name: 'CAVE',      sky0: '#0a0716', sky1: '#3a1a14', stratoR: 40, stratoG: 20, stratoB: 20, glow: '180,30,20', rockA: 'rgba(60,18,18,0.55)',  rockB: 'rgba(90,30,20,0.6)',  lava0: '#ff8e3c', lava1: '#ff3a3a', lava2: '#7a0a0a' },
   { name: 'MAGMA',     sky0: '#1a0510', sky1: '#5a2010', stratoR: 80, stratoG: 30, stratoB: 12, glow: '230,90,30',  rockA: 'rgba(90,30,12,0.6)',   rockB: 'rgba(130,50,20,0.62)', lava0: '#ffb04a', lava1: '#ff5a3a', lava2: '#8a1a08' },
+  // ABYSS — eerie deep-blue/black inserted between MAGMA and HELLSCAPE. Background features floating eyes.
+  { name: 'ABYSS',     sky0: '#020410', sky1: '#0a1830', stratoR: 18, stratoG: 30, stratoB: 70, glow: '60,130,220',  rockA: 'rgba(14,22,50,0.6)',   rockB: 'rgba(20,40,80,0.62)',  lava0: '#9adfff', lava1: '#3a7ad6', lava2: '#08163a' },
   { name: 'HELLSCAPE', sky0: '#1a0008', sky1: '#6a0810', stratoR: 130, stratoG: 18, stratoB: 22, glow: '255,40,40', rockA: 'rgba(120,16,18,0.62)', rockB: 'rgba(160,30,20,0.65)', lava0: '#ffd66a', lava1: '#ff2020', lava2: '#400000' },
   // VOIDSPACE — purple/black cosmic biome with low gravity + meteor showers.
-  // Triggered above 2000m. Anti-gravity sections + falling meteors as hazards.
+  // Triggered above 2500m. Anti-gravity sections + falling meteors as hazards.
   { name: 'VOIDSPACE', sky0: '#04000f', sky1: '#1a0030', stratoR: 60, stratoG: 30, stratoB: 90, glow: '160,100,255', rockA: 'rgba(40,20,80,0.6)', rockB: 'rgba(60,30,100,0.6)', lava0: '#ff8aff', lava1: '#b055ff', lava2: '#2a0040' },
 ];
 // VOIDSPACE altitude — biome 3 unlocks at 1500m (so it falls within "biome 4 unlocks > 2000m" feel after the standard 500m gates: 500, 1000, 1500).
@@ -102,6 +104,35 @@ let shieldT = 0, doubleJumpExtraT = 0, slowMoT = 0, multiplierT = 0;
 let bestAltitudeLineY = null, bestAltitudeM = 0;
 try { bestAltitudeM = parseInt(localStorage.getItem('lava:bestAlt') || '0', 10) || 0; } catch {}
 function saveBestAlt() { try { localStorage.setItem('lava:bestAlt', String(bestAltitudeM)); } catch {} }
+// === Round 2: Achievement system (5 achievements) ===
+const ACHIEVEMENTS = [
+  { id: 'km_club',           name: '1KM CLUB',           desc: 'Reach 1000m altitude' },
+  { id: 'perfect_biome',     name: 'PERFECT BIOME',      desc: 'Clear a biome with no damage' },
+  { id: 'combo_master',      name: 'COMBO MASTER',       desc: 'Hit a 20+ landing combo' },
+  { id: 'powerup_collector', name: 'POWERUP COLLECTOR',  desc: 'Grab 5 powerups in one run' },
+  { id: 'speedrunner',       name: 'SPEEDRUNNER',        desc: 'Reach 500m in under 30 sec' },
+];
+let achievementsUnlocked = {};
+try { achievementsUnlocked = JSON.parse(localStorage.getItem('lava:achievements') || '{}') || {}; } catch {}
+function saveAchievements() { try { localStorage.setItem('lava:achievements', JSON.stringify(achievementsUnlocked)); } catch {} }
+function unlockAchievement(id) {
+  if (achievementsUnlocked[id]) return;
+  const a = ACHIEVEMENTS.find((x) => x.id === id); if (!a) return;
+  achievementsUnlocked[id] = Date.now(); saveAchievements();
+  toasts_push(`★ ACHIEVEMENT: ${a.name}`);
+  try { sfx.arp([659, 880, 1175, 1568], 'triangle', 0.07, 0.22, 0.28); } catch {}
+}
+let runStartT = 0, runPowerupsGrabbed = 0, biomeStartDamage = false;
+// === Round 2: WIND CURRENTS — drift zones that push the player ===
+let windCurrents = [];
+let windSpawnT = 5;
+// === Round 2: TELEPORTER global cooldown ===
+let teleportCooldownT = 0;
+// === Round 2: Pause + resume countdown ===
+let paused = false;
+let resumeCountdownT = 0;
+// === Round 2: Pug visual animation state ===
+let pugBobT = 0, pugSquashT = 0, pugStretchT = 0, lastWasOnGround = false;
 let biomeIdx = 0;            // currently fully-applied biome index
 let nextBiomeAtHeight = 500; // height in m at which the next shift starts
 let biomeShiftT = 0;         // seconds remaining in active 2s shift transition
@@ -152,6 +183,10 @@ function reset() {
   iceDrops = []; fallingDebris = []; haunts = []; meteors = [];
   iceFrozenT = new WeakMap();
   batSpawnT = 4; fireSpawnT = 6;
+  windCurrents = []; windSpawnT = 5; teleportCooldownT = 0;
+  paused = false; resumeCountdownT = 0;
+  pugBobT = 0; pugSquashT = 0; pugStretchT = 0; lastWasOnGround = false;
+  runStartT = performance.now(); runPowerupsGrabbed = 0; biomeStartDamage = false;
   lastPlat = null; comboJumps = 0; comboRestT = 0;
   biomeIdx = 0; nextBiomeAtHeight = 500; biomeShiftT = 0; biomeShiftTarget = 0;
   nextMilestone = 5;
@@ -215,6 +250,21 @@ function spawnJumpDust(x, y) {
     });
   }
 }
+// Round 2: landing puff — wider dust spread on hard landings
+function spawnLandingPuff(x, y) {
+  for (let i = 0; i < 8; i++) {
+    if (embers.length > 170) break;
+    const ang = Math.PI + (Math.random() - 0.5) * 1.4;
+    const sp = 60 + Math.random() * 80;
+    embers.push({
+      x: x + (Math.random() - 0.5) * 18, y: y - 4,
+      vx: Math.cos(ang) * sp + (Math.random() - 0.5) * 60,
+      vy: Math.sin(ang) * sp * 0.5 - 10,
+      life: 0, max: 0.55, r: 1.5 + Math.random() * 2.2,
+      color: 'rgba(210,195,170,0.7)', dust: true,
+    });
+  }
+}
 // Round 2C: feather burst on bat death (small dark-grey feathers spray out)
 function spawnFeathers(x, y) {
   for (let i = 0; i < 10; i++) {
@@ -242,15 +292,16 @@ function addPlatformAbove() {
   const r = dailyRand();
   const depth = (H - lastPlatY) / 100;
   let kind = 'normal';
-  // New platform types (Wave 1E): SPRING (bouncy ×3), DISAPPEARING, MOVING, ROTATING, CONVEYOR, SAFE.
-  if (depth > 8 && r < 0.04) kind = 'safe';      // rare safe haven (glows green) — 0.7s rest fully refills jumps + 1.0s safe
-  else if (depth > 6 && r < 0.10) kind = 'conveyor';   // pushes off if you stand still
-  else if (depth > 5 && r < 0.16) kind = 'rotating';   // spin around center (decorative — still a platform)
-  else if (depth > 4 && r < 0.22) kind = 'moving';     // strong horizontal slide (bigger amp)
-  else if (depth > 4 && r < 0.30) kind = 'disappearing'; // vanishes 1s after touch
-  else if (depth > 3 && r < 0.40) kind = 'spring';     // 3x bounce
-  else if (depth > 3 && r < 0.48) kind = 'crumble';
-  else if (depth > 2 && r < 0.56) kind = 'bouncy';
+  // Platform types: SPRING, DISAPPEARING, MOVING, ROTATING, CONVEYOR, SAFE, TELEPORTER (Round 2).
+  if (depth > 8 && r < 0.04) kind = 'safe';
+  else if (depth > 9 && r < 0.07) kind = 'teleporter'; // paired pads — touching one warps you to the other
+  else if (depth > 6 && r < 0.13) kind = 'conveyor';
+  else if (depth > 5 && r < 0.19) kind = 'rotating';
+  else if (depth > 4 && r < 0.25) kind = 'moving';
+  else if (depth > 4 && r < 0.32) kind = 'disappearing';
+  else if (depth > 3 && r < 0.42) kind = 'spring';
+  else if (depth > 3 && r < 0.50) kind = 'crumble';
+  else if (depth > 2 && r < 0.58) kind = 'bouncy';
   // ~25% of new platforms drift left-right (skip if it's the very first ground platform)
   const drifts = dailyRand() < 0.25 && lastPlatY < H - 150;
   const baseX = x;
@@ -264,14 +315,30 @@ function addPlatformAbove() {
   const hasSpike = lastPlatY < H - 200 && dailyRand() < 0.05 && kind === 'normal';
   // 1/40 chance to spawn WINGS powerup
   const wingsHere = dailyRand() < 1 / 40 && !hasSpike;
-  plats.push({
+  const platRef = {
     x, y: lastPlatY, w, h: 14, kind, t: 0, alive: true,
     baseX, driftAmp, driftPhase, hasSpike, vine: dailyRand() < 0.18,
     crumbleStartT: 0,
     conveyorDir, rotateSpeed, rotateAng: 0,
     disappearT: 0, touched: false,
     safeRestT: 0,
-  });
+    teleportPair: null, teleportHue: 0,
+  };
+  plats.push(platRef);
+  // TELEPORTER pairing — link with most recent unpaired teleporter.
+  if (kind === 'teleporter') {
+    let mate = null;
+    for (let i = plats.length - 2; i >= 0; i--) {
+      const q = plats[i];
+      if (q.kind === 'teleporter' && !q.teleportPair) { mate = q; break; }
+    }
+    if (mate) {
+      platRef.teleportPair = mate;
+      mate.teleportPair = platRef;
+      platRef.teleportHue = 1; // pink
+      mate.teleportHue = 0;     // cyan
+    }
+  }
   if (!hasSpike && dailyRand() < 0.45) treats.push({ x: x + w / 2, y: lastPlatY - 24, baseX: x + w / 2, plat: plats[plats.length - 1] });
   // Wings powerup (rare). DEATH_RUN suppresses ALL powerups at spawn time
   // (was only filtered at pickup) so the world isn't littered with un-grabbable
@@ -299,7 +366,19 @@ const keys = new Set();
 window.addEventListener('keydown', (e) => {
   keys.add(e.key.toLowerCase());
   if (e.key === ' ' || e.key === 'w' || e.code === 'Space' || e.key === 'ArrowUp') jump();
+  if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') togglePause();
 });
+function togglePause() {
+  if (!running && !paused) return;
+  if (paused) {
+    // Resume countdown — actual unpause happens when countdown hits 0
+    resumeCountdownT = 3;
+  } else {
+    paused = true;
+    resumeCountdownT = 0;
+    try { sfx.tone(330, 'sine', 0.1, 0.18); } catch {}
+  }
+}
 window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 let touchX = null;
 canvas.addEventListener('touchstart', (e) => { touchX = e.touches[0].clientX; e.preventDefault(); }, { passive: false });
@@ -336,10 +415,23 @@ function checkComboThreshold() {
   pop(pug.x, pug.y - 30, `+${bonus}`, '#ff3aa1');
   sfx.arp([659, 880, 1320], 'triangle', 0.06, 0.2, 0.22);
   shake(4, 0.22);
+  if (comboJumps >= 20) unlockAchievement('combo_master');
 }
 
 function tick(dt) {
   if (!running) return;
+  // Paused — handle resume countdown
+  if (paused) {
+    if (resumeCountdownT > 0) {
+      resumeCountdownT -= dt;
+      if (resumeCountdownT <= 0) {
+        paused = false;
+        resumeCountdownT = 0;
+        try { sfx.tone(880, 'triangle', 0.08, 0.18); } catch {}
+      }
+    }
+    return;
+  }
   // Movement
   let mx = 0;
   if (keys.has('a') || keys.has('arrowleft')) mx -= 1;
@@ -370,6 +462,12 @@ function tick(dt) {
     sfx.arp([523, 880, 1320], 'triangle', 0.06, 0.2, 0.22);
     shake(4, 0.22);
   }
+  // Round 2: pug animation decay
+  lastWasOnGround = pug.onGround;
+  pugBobT += dt;
+  pugSquashT = Math.max(0, pugSquashT - dt * 4);
+  if (pug.vy < -200) pugStretchT = Math.min(1, pugStretchT + dt * 4);
+  else pugStretchT = Math.max(0, pugStretchT - dt * 4);
   // Round 2C: decay squash on bouncy platforms
   for (const p of plats) {
     if (p.squashT > 0) p.squashT = Math.max(0, p.squashT - dt);
@@ -416,8 +514,11 @@ function tick(dt) {
   }
   pug.vx += mx * 1200 * dt;
   pug.vx *= Math.pow(0.5, dt * 5);
-  // VOIDSPACE biome (idx 3) → anti-gravity (40% gravity). Jetpack still wins.
-  const gravMul = (biomeIdx === 3 || biomeShiftTarget === 3) ? 0.45 : 1;
+  // VOIDSPACE biome (idx 4) → 55% gravity. ABYSS (idx 2) → 85% buoyancy. Jetpack still wins.
+  let gravMul = 1;
+  const _bIdx = biomeShiftT > 0 ? biomeShiftTarget : biomeIdx;
+  if (_bIdx === 4) gravMul = 0.55;
+  else if (_bIdx === 2) gravMul = 0.85;
   pug.vy += (jetpackT > 0 ? GRAV * 0.15 : GRAV * gravMul) * dt;
   if (jetpackT > 0 && keys.has(' ')) pug.vy = Math.max(pug.vy, -200); // hover
   pug.x += pug.vx * dt;
@@ -462,6 +563,12 @@ function tick(dt) {
               checkComboThreshold();
             }
           } else {
+            // Round 2: hard-landing puff
+            if (!lastWasOnGround && pug.vy > 250) {
+              spawnLandingPuff(pug.x, p.y);
+              pugSquashT = 1;
+              shake(2, 0.12);
+            }
             pug.y = p.y - pug.h / 2;
             pug.vy = 0;
             pug.onGround = true;
@@ -475,6 +582,24 @@ function tick(dt) {
             }
             // DISAPPEARING — touched marker so it starts vanishing 1s
             if (p.kind === 'disappearing') p.touched = true;
+            // TELEPORTER — warp to paired pad if it exists and off cooldown
+            if (p.kind === 'teleporter' && p.teleportPair && p.teleportPair.alive && teleportCooldownT <= 0) {
+              const dest = p.teleportPair;
+              pug.x = dest.x + dest.w / 2;
+              pug.y = dest.y - pug.h / 2 - 4;
+              pug.vy = JUMP_V * 0.3;
+              teleportCooldownT = 0.7;
+              pop(dest.x + dest.w / 2, dest.y - 20, 'WARP!', '#4cc9f0');
+              shake(4, 0.2);
+              try { sfx.arp([880, 1320, 1760], 'triangle', 0.04, 0.16, 0.2); } catch {}
+              for (let i = 0; i < 10; i++) {
+                if (embers.length > 180) break;
+                const a = Math.random() * Math.PI * 2;
+                embers.push({ x: p.x + p.w / 2, y: p.y - 4, vx: Math.cos(a) * 80, vy: Math.sin(a) * 80, life: 0, max: 0.45, r: 2 + Math.random() * 2, color: p.teleportHue ? '#ff3aa1' : '#4cc9f0', glow: true });
+                embers.push({ x: dest.x + dest.w / 2, y: dest.y - 4, vx: Math.cos(a) * 80, vy: Math.sin(a) * 80, life: 0, max: 0.45, r: 2 + Math.random() * 2, color: dest.teleportHue ? '#ff3aa1' : '#4cc9f0', glow: true });
+              }
+              break;
+            }
             // SAFE — resting on safe platform earns small "REST" bonus
             if (p.kind === 'safe') {
               p.safeRestT += dt;
@@ -523,6 +648,15 @@ function tick(dt) {
       else if (p.type === 'slowMo') { slowMoT = 4; pop(p.x, p.y - 10, 'SLOW-MO!', '#b055ff'); }
       else if (p.type === 'multiplier') { multiplierT = 8; pop(p.x, p.y - 10, '×2 SCORE!', '#ffd23f'); }
       sfx.tone(1320, 'triangle', 0.12, 0.22);
+      // Round 2: powerup_collector achievement + chain hint banners
+      runPowerupsGrabbed++;
+      if (runPowerupsGrabbed >= 5) unlockAchievement('powerup_collector');
+      if (rocketBootT <= 0) {
+        if (jetpackT > 0 && shieldT > 0) toasts_push('★ COMBO: ROCKETBOOT! ★');
+        else if (doubleJumpExtraT > 0 && shieldT > 0) toasts_push('★ COMBO: BUNKER BOOTS!');
+        else if (wingsT > 0 && slowMoT > 0) toasts_push('★ COMBO: FLOAT MODE!');
+        else if (multiplierT > 0 && jetpackT > 0) toasts_push('★ COMBO: JACKPOT JET!');
+      }
     }
   }
   // Pet bird companion (Wave 1E) — auto-collects nearby treats
@@ -558,7 +692,7 @@ function tick(dt) {
     const d = fallingDebris[i]; d.y += d.vy * dt;
     if (d.y > H + 30) { fallingDebris.splice(i, 1); continue; }
     if (rocketBootT <= 0 && Math.abs(d.x - pug.x) < d.sz + 10 && Math.abs(d.y - pug.y) < d.sz + 10) {
-      if (shieldT > 0) { shieldT = 0; pop(d.x, d.y, 'SHIELD!', '#4cc9f0'); fallingDebris.splice(i, 1); continue; }
+      if (shieldT > 0) { shieldT = 0; biomeStartDamage = true; pop(d.x, d.y, 'SHIELD!', '#4cc9f0'); fallingDebris.splice(i, 1); continue; }
       return die();
     }
   }
@@ -566,8 +700,32 @@ function tick(dt) {
   for (let i = haunts.length - 1; i >= 0; i--) {
     const h = haunts[i]; h.ampT += dt * 1.5; h.alpha = Math.min(1, h.alpha + dt); h.y = h.baseY + Math.sin(h.ampT) * 30;
     if (Math.abs(h.x - pug.x) < 18 && Math.abs(h.y - pug.y) < 18 && Math.abs(pug.vy) < 100 && rocketBootT <= 0) {
-      if (shieldT > 0) { shieldT = 0; pop(h.x, h.y, 'SHIELD!', '#4cc9f0'); haunts.splice(i, 1); continue; }
+      if (shieldT > 0) { shieldT = 0; biomeStartDamage = true; pop(h.x, h.y, 'SHIELD!', '#4cc9f0'); haunts.splice(i, 1); continue; }
       return die();
+    }
+  }
+  // Round 2: WIND CURRENT spawn + push logic. Spawns above 600m.
+  teleportCooldownT = Math.max(0, teleportCooldownT - dt);
+  if (height >= 600 && windCurrents.length < 4) {
+    windSpawnT -= dt;
+    if (windSpawnT <= 0) {
+      windSpawnT = 6 + Math.random() * 5;
+      const ww = 90 + Math.random() * 100;
+      windCurrents.push({
+        x: Math.random() * (W - ww),
+        y: -40, w: ww, h: 140 + Math.random() * 80,
+        dir: Math.random() < 0.5 ? -1 : 1, ampT: 0,
+        vy: 30 + Math.random() * 20, alive: true,
+        life: 0, max: 14 + Math.random() * 4,
+      });
+    }
+  }
+  for (let i = windCurrents.length - 1; i >= 0; i--) {
+    const w = windCurrents[i];
+    w.life += dt; w.y += w.vy * dt; w.ampT += dt * 2.4;
+    if (w.life >= w.max || w.y > H + 40) { windCurrents.splice(i, 1); continue; }
+    if (pug.x > w.x && pug.x < w.x + w.w && pug.y > w.y && pug.y < w.y + w.h && rocketBootT <= 0) {
+      pug.vx += w.dir * 380 * dt;
     }
   }
   if (height >= 1500 && Math.random() < dt * 0.3) meteors.push({ x: Math.random() * W, y: -30, vx: (Math.random() - 0.5) * 60, vy: 320 + Math.random() * 120, sz: 10 + Math.random() * 6 });
@@ -575,7 +733,7 @@ function tick(dt) {
     const m = meteors[i]; m.x += m.vx * dt; m.y += m.vy * dt;
     if (m.y > H + 30) { meteors.splice(i, 1); continue; }
     if (rocketBootT <= 0 && Math.abs(m.x - pug.x) < m.sz + 10 && Math.abs(m.y - pug.y) < m.sz + 10) {
-      if (shieldT > 0) { shieldT = 0; pop(m.x, m.y, 'SHIELD!', '#4cc9f0'); meteors.splice(i, 1); continue; }
+      if (shieldT > 0) { shieldT = 0; biomeStartDamage = true; pop(m.x, m.y, 'SHIELD!', '#4cc9f0'); meteors.splice(i, 1); continue; }
       return die();
     }
     if (Math.random() < 0.5 && embers.length < 200) embers.push({ x: m.x, y: m.y, vx: -m.vx * 0.2, vy: -m.vy * 0.2, life: 0, max: 0.4, r: 2 + Math.random() * 2, color: '#b055ff', glow: true });
@@ -726,14 +884,20 @@ function tick(dt) {
       biomeIdx = biomeShiftTarget;
       biomeShiftT = 0;
       nextBiomeAtHeight += 500;
+      // Round 2: PERFECT_BIOME — cleared a 500m biome with no damage
+      if (!biomeStartDamage) unlockAchievement('perfect_biome');
+      biomeStartDamage = false;
       // Unlock new powerup on each biome reached (cosmetic + functional)
-      const unlockMap = { 1: 'shield', 2: 'doubleJumpExtra', 3: 'slowMo' };
+      const unlockMap = { 1: 'shield', 2: 'doubleJumpExtra', 3: 'slowMo', 4: 'multiplier' };
       if (unlockMap[biomeIdx] && !unlockedPowerups[unlockMap[biomeIdx]]) {
         unlockedPowerups[unlockMap[biomeIdx]] = true; saveUnlocks();
         toasts_push(`★ UNLOCKED: ${unlockMap[biomeIdx].toUpperCase()}`);
       }
     }
   }
+  // Round 2: altitude + speedrun achievements
+  if (height >= 1000) unlockAchievement('km_club');
+  if (height >= 500 && ((performance.now() - runStartT) / 1000) < 30) unlockAchievement('speedrunner');
   // VOIDSPACE anti-gravity sections — lower gravity if in VOIDSPACE biome (biome 3)
   // Done as a soft multiplier already applied in pug movement code via biome check.
   const lavaSpeed = (freezeT > 0 ? 0 : 40 + height * 0.38);
@@ -748,6 +912,7 @@ function tick(dt) {
     for (const pw of powerups) pw.y += dy;
     for (const s of caveSpikes) s.y += dy;
     for (const b of strataBands) b.y += dy;
+    for (const w of windCurrents) w.y += dy;
     lastPlatY += dy;
     // Seed new cave decor as we scroll up. Fall back to player y when the
     // array has been fully spliced so spawning never silently stops.
@@ -877,6 +1042,32 @@ function render() {
     ctx.fillStyle = sb.color;
     ctx.fillRect(0, sb.y, W, 6);
   }
+  // Round 2: ABYSS biome — floating watching eyes (compact)
+  if (biome.name === 'ABYSS' || (biomeShiftT > 0 && BIOMES[biomeShiftTarget].name === 'ABYSS')) {
+    const _tt = performance.now() * 0.0006;
+    for (let i = 0; i < 7; i++) {
+      const ex = (W * (i * 0.18 + 0.05)) % W + Math.sin(_tt + i * 1.7) * 18;
+      const ey = (H * ((i * 0.27 + 0.12) % 1)) + Math.cos(_tt * 0.7 + i * 1.3) * 24;
+      const open = Math.sin(_tt * 2 + i * 2.5) > -0.7 ? 1 : 0.1;
+      const irisX = ex + Math.sin(_tt + i) * 4;
+      ctx.save();
+      ctx.globalAlpha = 0.45 * open;
+      ctx.fillStyle = '#caf0ff'; ctx.beginPath(); ctx.ellipse(ex, ey, 14, 7 * open, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#1a3a6a'; ctx.beginPath(); ctx.arc(irisX, ey, 5 * open, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#000'; ctx.beginPath(); ctx.arc(irisX, ey, 2 * open, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.fillRect(irisX - 1, ey - 2, 1, 1);
+      ctx.restore();
+    }
+  }
+  // Round 2: 3rd parallax — far mountain silhouettes (compact)
+  const _parY0 = (caveOffset * 0.18) % 240;
+  ctx.fillStyle = `rgba(${(biome.stratoR*.4)|0},${(biome.stratoG*.4)|0},${(biome.stratoB*.4)|0},.55)`;
+  for (let yy = -240; yy < H + 240; yy += 240) for (let i = 0; i < 5; i++) {
+    const cx = (i / 4) * W, cy = yy + _parY0;
+    ctx.beginPath();
+    ctx.moveTo(cx - 100, cy + 30); ctx.lineTo(cx - 50, cy - 70); ctx.lineTo(cx, cy + 10);
+    ctx.lineTo(cx + 50, cy - 50); ctx.lineTo(cx + 100, cy + 30); ctx.closePath(); ctx.fill();
+  }
   // 20m level markers — when world altitude crosses a "20m line" draw small chip
   // Background parallax: distant cave walls (slow scroll, repeating)
   const parY = (caveOffset * 0.4) % 200;
@@ -976,7 +1167,7 @@ function render() {
     }
   }
   ctx.globalCompositeOperation = 'source-over';
-  // Platform palette by kind (compact lookup, Wave 1E)
+  // Platform palette by kind (compact lookup, Round 2 + TELEPORTER)
   const _PKINDS = {
     spring:    ['#3a8e4c','#5ef38c','#fff7d0'],
     conveyor:  ['#5a4a3a','#b0a070','#ffd23f'],
@@ -985,6 +1176,7 @@ function render() {
     bouncy:    ['#b055ff','#d59aff','#ff8aa8'],
     crumble:   ['#8a6a4a','#a68a6a','#ff8e3c'],
     normal:    ['#5a3a1c','#7a5a3a','#5ef38c'],
+    teleporter:['#1a4a6a','#4cc9f0','#fff7d0'],
   };
   for (const p of plats) {
     if (!p.alive) continue;
@@ -995,8 +1187,14 @@ function render() {
     const crumbleAge = p.crumbleStartT ? (performance.now() - p.crumbleStartT) : 0;
     const crumbleRed = isCrumble && crumbleAge > 500;
     let color, topColor, grassColor;
+    const isTele = p.kind === 'teleporter';
     if (frozen) { color = '#4a8aaa'; topColor = '#8acce0'; grassColor = '#caf0ff'; }
     else if (isSafe) { const k = 0.7 + 0.3 * Math.sin(performance.now() / 250); color = `rgba(40,180,80,${k})`; topColor = `rgba(160,255,180,${k})`; grassColor = '#fff7d0'; }
+    else if (isTele) {
+      const pulse = 0.7 + 0.3 * Math.sin(performance.now() / 200);
+      if (p.teleportHue === 1) { color = `rgba(140,30,90,${pulse})`; topColor = `rgba(255,90,180,${pulse})`; grassColor = '#ff3aa1'; }
+      else { color = `rgba(20,80,120,${pulse})`; topColor = `rgba(90,200,240,${pulse})`; grassColor = '#4cc9f0'; }
+    }
     else if (isDisappear) { const fade = p.touched ? 1 - p.disappearT : 1; color = `rgba(180,90,90,${fade})`; topColor = `rgba(230,150,150,${fade})`; grassColor = `rgba(255,200,200,${fade})`; }
     else if (crumbleRed) { color = '#a83830'; topColor = '#d05050'; grassColor = '#ff8e3c'; }
     else { const arr = _PKINDS[p.kind] || _PKINDS.normal; color = arr[0]; topColor = arr[1]; grassColor = arr[2]; }
@@ -1077,8 +1275,75 @@ function render() {
       ctx.fillRect(p.x + p.w - 14, p.y + 6, 4, 2);
       ctx.fillRect(p.x + p.w / 2 - 2, p.y + 3, 1, p.h - 4);
     }
+    // Round 2: per-kind decorations (CONVEYOR arrows, ROTATING gear, SPRING coil, TELEPORTER ring)
+    if (p.kind === 'conveyor' && p.conveyorDir) {
+      const flow = (performance.now() * 0.15) % 18;
+      ctx.fillStyle = '#fff7d0';
+      for (let i = -1; i < (p.w / 18 | 0) + 1; i++) {
+        const ax = p.x + (i * 18 + flow * p.conveyorDir + p.w) % (p.w + 18);
+        if (ax < p.x - 6 || ax > p.x + p.w - 4) continue;
+        ctx.beginPath();
+        if (p.conveyorDir > 0) { ctx.moveTo(ax, p.y + 5); ctx.lineTo(ax + 6, p.y + 8); ctx.lineTo(ax, p.y + 11); }
+        else { ctx.moveTo(ax + 6, p.y + 5); ctx.lineTo(ax, p.y + 8); ctx.lineTo(ax + 6, p.y + 11); }
+        ctx.closePath(); ctx.fill();
+      }
+    } else if (p.kind === 'rotating') {
+      ctx.save(); ctx.translate(p.x + p.w / 2, p.y + p.h / 2); ctx.rotate(p.rotateAng);
+      ctx.fillStyle = '#d59aff';
+      for (let i = 0; i < 6; i++) { ctx.rotate(Math.PI / 3); ctx.fillRect(-2, -7, 4, 4); }
+      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0, 0, 3, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    } else if (p.kind === 'spring') {
+      ctx.strokeStyle = '#fff7d0'; ctx.lineWidth = 2;
+      const compress = p.squashT > 0 ? (1 - p.squashT * 0.5) : 1;
+      const cx = p.x + p.w / 2;
+      ctx.beginPath();
+      for (let i = 0; i < 3; i++) { const cy = p.y - 2 - i * 3 * compress; ctx.moveTo(cx - 8, cy); ctx.lineTo(cx + 8, cy - 2); }
+      ctx.stroke();
+    } else if (p.kind === 'teleporter') {
+      const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 180);
+      const col = p.teleportHue === 1 ? '#ff3aa1' : '#4cc9f0';
+      ctx.save();
+      ctx.globalAlpha = 0.5 + pulse * 0.5;
+      ctx.strokeStyle = col; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.ellipse(p.x + p.w / 2, p.y - 4, p.w / 2 - 4, 8, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = col;
+      ctx.fillRect(p.x + p.w / 2 - 4, p.y - 6, 8, 2);
+      ctx.fillRect(p.x + p.w / 2 - 2, p.y - 4, 4, 2);
+      ctx.restore();
+    }
     // restore alpha after the depth3D fade
     if (ctx.globalAlpha !== 1) ctx.globalAlpha = 1;
+  }
+  // Round 2: WIND CURRENTS — translucent swirl bands with directional arrows
+  for (const w of windCurrents) {
+    const a = Math.min(Math.min(1, w.life / 0.8), Math.min(1, (w.max - w.life) / 1.2));
+    ctx.save();
+    ctx.globalAlpha = 0.18 * a;
+    ctx.fillStyle = '#caf0ff';
+    ctx.fillRect(w.x, w.y, w.w, w.h);
+    ctx.globalAlpha = 0.5 * a;
+    ctx.strokeStyle = '#caf0ff'; ctx.lineWidth = 1;
+    for (let i = 0; i < 6; i++) {
+      const t = (performance.now() * 0.001 + i * 0.5 + w.ampT * 0.5) % 1;
+      const sy = w.y + t * w.h;
+      ctx.beginPath();
+      for (let xi = 0; xi <= 4; xi++) {
+        const px = w.x + (xi / 4) * w.w;
+        const py = sy + Math.sin((xi / 4) * Math.PI * 2 + w.ampT) * 4;
+        if (xi === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+    }
+    // Direction arrow
+    ctx.globalAlpha = 0.85 * a;
+    ctx.fillStyle = '#fff';
+    const ax = w.dir > 0 ? w.x + w.w - 14 : w.x + 8, ay = w.y + w.h / 2;
+    ctx.beginPath();
+    if (w.dir > 0) { ctx.moveTo(ax, ay - 5); ctx.lineTo(ax + 8, ay); ctx.lineTo(ax, ay + 5); }
+    else { ctx.moveTo(ax + 8, ay - 5); ctx.lineTo(ax, ay); ctx.lineTo(ax + 8, ay + 5); }
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
   }
   // Powerups — jetpack uses pixel-art flame; freeze/shrink/wings use primitives.
   for (const p of powerups) {
@@ -1192,24 +1457,37 @@ function render() {
     ctx.strokeStyle = '#3a3a4a';
     ctx.strokeRect(d.x - d.sz / 2, d.y - d.sz / 2, d.sz, d.sz);
   }
-  // HAUNTS — translucent ghosts
+  // HAUNTS — translucent ghosts with shimmer + flowing wisp tail (Round 2)
   for (const h of haunts) {
     ctx.save();
-    ctx.globalAlpha = h.alpha * 0.75;
+    // Outer glow halo
+    ctx.globalAlpha = h.alpha * 0.22;
     ctx.fillStyle = '#caf0ff';
+    ctx.beginPath(); ctx.arc(h.x, h.y, 20, 0, Math.PI * 2); ctx.fill();
+    // Ghost body — more translucent (0.55 vs old 0.75) for ghostly read
+    ctx.globalAlpha = h.alpha * 0.55;
+    ctx.fillStyle = '#fff';
     ctx.beginPath();
     ctx.arc(h.x, h.y, 12, Math.PI, 0);
-    ctx.lineTo(h.x + 12, h.y + 8);
-    ctx.lineTo(h.x + 8, h.y + 14);
-    ctx.lineTo(h.x + 4, h.y + 8);
-    ctx.lineTo(h.x, h.y + 14);
-    ctx.lineTo(h.x - 4, h.y + 8);
-    ctx.lineTo(h.x - 8, h.y + 14);
-    ctx.lineTo(h.x - 12, h.y + 8);
+    const wobble = Math.sin(h.ampT * 2) * 1.5;
+    ctx.lineTo(h.x + 12, h.y + 8 + wobble);
+    ctx.lineTo(h.x + 8, h.y + 14 - wobble);
+    ctx.lineTo(h.x + 4, h.y + 8 + wobble);
+    ctx.lineTo(h.x, h.y + 14 - wobble);
+    ctx.lineTo(h.x - 4, h.y + 8 + wobble);
+    ctx.lineTo(h.x - 8, h.y + 14 - wobble);
+    ctx.lineTo(h.x - 12, h.y + 8 + wobble);
     ctx.closePath(); ctx.fill();
-    ctx.globalAlpha = h.alpha;
+    // Inner shimmer
+    ctx.globalAlpha = h.alpha * 0.4;
+    ctx.fillStyle = '#caf0ff';
+    ctx.beginPath(); ctx.arc(h.x - 3, h.y - 3, 4, 0, Math.PI * 2); ctx.fill();
+    // Eyes — empty sockets with red pinpricks
+    ctx.globalAlpha = h.alpha * 0.85;
     ctx.fillStyle = '#000';
-    ctx.fillRect(h.x - 5, h.y - 2, 2, 4); ctx.fillRect(h.x + 3, h.y - 2, 2, 4);
+    ctx.fillRect(h.x - 5, h.y - 2, 3, 5); ctx.fillRect(h.x + 3, h.y - 2, 3, 5);
+    ctx.fillStyle = '#ff3a3a';
+    ctx.fillRect(h.x - 4, h.y - 1, 1, 1); ctx.fillRect(h.x + 4, h.y - 1, 1, 1);
     ctx.restore();
   }
   // METEORS — VOIDSPACE purple flame ball with violet trail
@@ -1243,19 +1521,28 @@ function render() {
     ctx.fillRect(t.x - 6, t.y - 6, 12, 12);
     ctx.shadowBlur = 0;
   }
-  // Lava: gradient body (biome-tinted)
+  // Lava: gradient body with Round 2 wavy top edge
   const lgrd = ctx.createLinearGradient(0, lavaY, 0, H);
   lgrd.addColorStop(0, biome.lava0); lgrd.addColorStop(0.3, biome.lava1); lgrd.addColorStop(1, biome.lava2);
-  ctx.fillStyle = lgrd; ctx.fillRect(-8, lavaY, W + 16, H + 16 - lavaY);
+  const t = performance.now() / 600;
+  ctx.fillStyle = lgrd;
+  ctx.beginPath();
+  ctx.moveTo(-8, lavaY + 16);
+  for (let xi = 0; xi <= W + 16; xi += 12) {
+    const wy = lavaY + Math.sin((xi + t * 60) * 0.04) * 4 + Math.cos((xi + t * 50) * 0.07) * 3;
+    ctx.lineTo(xi - 8, wy);
+  }
+  ctx.lineTo(W + 8, H + 16);
+  ctx.lineTo(-8, H + 16);
+  ctx.closePath(); ctx.fill();
   // Lava swirl streaks
   ctx.fillStyle = 'rgba(255,210,63,0.35)';
-  const t = performance.now() / 600;
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 8; i++) {
     const wx = ((i * 137 + t * 30) % (W + 80)) - 40;
     const wy = lavaY + 14 + Math.sin(t + i) * 4 + i * 6;
     ctx.fillRect(wx, wy, 50, 2);
   }
-  // Bubble pops (animated arc + crown)
+  // Bubble pops (animated arc + Round 2 splash crown)
   for (const bb of lavaBubbles) {
     const k = bb.life / bb.max;
     const r = bb.r * (k < 0.5 ? k * 2 : (1 - k) * 2);
@@ -1264,9 +1551,24 @@ function render() {
     ctx.beginPath(); ctx.arc(bb.x, bb.y - r * 0.3, r, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = 'rgba(255,255,255,0.5)';
     ctx.fillRect(bb.x - r * 0.4, bb.y - r * 0.6, r * 0.4, r * 0.3);
+    // Splash crown at peak
+    if (k > 0.4 && k < 0.6) {
+      ctx.save();
+      ctx.globalAlpha = 1 - Math.abs(k - 0.5) * 2;
+      ctx.strokeStyle = '#ffd23f'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.ellipse(bb.x, bb.y, r * 1.8, r * 0.6, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = biome.lava0;
+      for (let j = 0; j < 4; j++) {
+        const a = (j / 4) * Math.PI * 2;
+        const sx2 = bb.x + Math.cos(a) * r * 1.3;
+        const sy2 = bb.y - r * 0.8 - Math.sin(j) * 4;
+        ctx.fillRect(sx2 - 1, sy2 - 1, 2, 2);
+      }
+      ctx.restore();
+    }
   }
   ctx.fillStyle = biome.lava0;
-  ctx.fillRect(-8, lavaY, W + 16, 4);
+  ctx.fillRect(-8, lavaY, W + 16, 2);
   // Surface wave bumps
   ctx.fillStyle = '#ffd23f';
   for (let i = 0; i < 14; i++) {
@@ -1275,14 +1577,21 @@ function render() {
   }
   // depth3D drop shadow under the pug — anchors him to the platform he's on.
   _depthShadow(ctx, pug.x, pug.y + 14, 14, { alpha: 0.4 });
-  // Pug — high-detail climber sprite (with hit-flash brightness overlay)
+  // Round 2: Pug — squash/stretch + idle bob
+  const _pugBob = pug.onGround ? Math.sin(pugBobT * 4) * 1.2 : 0;
+  const _pugSX = 1 + pugSquashT * 0.35 - pugStretchT * 0.18;
+  const _pugSY = 1 - pugSquashT * 0.3 + pugStretchT * 0.22;
+  ctx.save();
+  ctx.translate(pug.x, pug.y + _pugBob);
+  ctx.scale(_pugSX, _pugSY);
   if (hitFlashT > 0) {
-    ctx.save(); ctx.filter = 'brightness(2.5)';
-    drawPug(ctx, pug.x, pug.y, { size: 30 });
-    ctx.filter = 'none'; ctx.restore();
+    ctx.filter = 'brightness(2.5)';
+    drawPug(ctx, 0, 0, { size: 30 });
+    ctx.filter = 'none';
   } else {
-    drawPug(ctx, pug.x, pug.y, { size: 30 });
+    drawPug(ctx, 0, 0, { size: 30 });
   }
+  ctx.restore();
   // Outfit overlays
   if (pugOutfit === 'jumpsuit') { ctx.fillStyle = '#ff8e3c'; ctx.fillRect(pug.x - 10, pug.y - 4, 20, 14); ctx.fillStyle = '#fff'; ctx.fillRect(pug.x - 1, pug.y - 4, 2, 14); }
   else if (pugOutfit === 'hat') { ctx.fillStyle = '#4cc9f0'; ctx.fillRect(pug.x - 10, pug.y - 22, 20, 5); ctx.fillRect(pug.x - 6, pug.y - 30, 12, 8); }
@@ -1333,9 +1642,9 @@ function render() {
   chip('ROCKETBOOT', rocketBootT, '#fff7d0');
   // Vertical altitude meter (right edge) + biome zones + best-altitude line
   {
-    const mh = H - 100, mw = 18, mx = W - 28, my = 60, altMax = 2500;
+    const mh = H - 100, mw = 18, mx = W - 28, my = 60, altMax = 3000;
     ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(mx, my, mw, mh);
-    const _Z = [[0,500,'#5a3a5a','CAVE'],[500,1000,'#5a3a20','MAGMA'],[1000,1500,'#5a1018','HELL'],[1500,2500,'#3a1a5a','VOID']];
+    const _Z = [[0,500,'#5a3a5a','CAVE'],[500,1000,'#5a3a20','MAGMA'],[1000,1500,'#1a2a5a','ABYSS'],[1500,2000,'#5a1018','HELL'],[2000,3000,'#3a1a5a','VOID']];
     for (const z of _Z) {
       const y0 = my + mh - (z[1] / altMax) * mh, y1 = my + mh - (z[0] / altMax) * mh;
       ctx.fillStyle = z[2]; ctx.fillRect(mx, y0, mw, y1 - y0);
@@ -1348,8 +1657,14 @@ function render() {
     ctx.fillText(height + 'm', mx + mw / 2, currY - 6);
     if (bestAltitudeM > 0 && bestAltitudeM < altMax) {
       const bestY = my + mh - bestAltitudeM / altMax * mh;
-      ctx.strokeStyle = 'rgba(255,210,63,0.5)'; ctx.lineWidth = 1;
+      // Round 2: dashed best-altitude trail line
+      ctx.save();
+      ctx.setLineDash([6, 6]);
+      ctx.strokeStyle = `rgba(255,210,63,${0.35 + 0.15 * Math.sin(performance.now() / 800)})`;
+      ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.moveTo(0, bestY); ctx.lineTo(W - 30, bestY); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
       ctx.fillStyle = '#ffd23f'; ctx.textAlign = 'left'; ctx.fillText('BEST ' + bestAltitudeM + 'm', 12, bestY - 2);
     }
   }
@@ -1417,6 +1732,33 @@ function render() {
   if (hitFlashT > 0) {
     ctx.fillStyle = `rgba(255,58,58,${Math.min(0.6, hitFlashT * 2)})`;
     ctx.fillRect(0, 0, W, H);
+  }
+  // Round 2: PAUSE overlay + resume countdown (3-2-1)
+  if (paused) {
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.textAlign = 'center';
+    if (resumeCountdownT > 0) {
+      const n = Math.ceil(resumeCountdownT);
+      const pulse = 1 + (1 - (resumeCountdownT % 1)) * 0.4;
+      ctx.save();
+      ctx.translate(W / 2, H / 2);
+      ctx.scale(pulse, pulse);
+      ctx.fillStyle = '#ffd23f';
+      ctx.font = "64px 'Press Start 2P', monospace";
+      ctx.fillText(String(n), 0, 22);
+      ctx.restore();
+      ctx.fillStyle = '#caf0ff';
+      ctx.font = "10px 'Press Start 2P', monospace";
+      ctx.fillText('GET READY…', W / 2, H / 2 + 80);
+    } else {
+      ctx.fillStyle = '#ffd23f';
+      ctx.font = "28px 'Press Start 2P', monospace";
+      ctx.fillText('PAUSED', W / 2, H / 2);
+      ctx.fillStyle = '#caf0ff';
+      ctx.font = "10px 'Press Start 2P', monospace";
+      ctx.fillText('PRESS P / ESC TO RESUME', W / 2, H / 2 + 30);
+    }
   }
   ctx.restore();
 }
@@ -1502,7 +1844,19 @@ function renderOutfitRow() {
     row.appendChild(btn);
   }
 }
-renderModeRow(); renderOutfitRow();
+function renderAchievementsRow() {
+  const row = document.getElementById('fl-achievements');
+  if (!row) return;
+  row.innerHTML = '';
+  for (const a of ACHIEVEMENTS) {
+    const cell = document.createElement('div');
+    const unlocked = !!achievementsUnlocked[a.id];
+    cell.className = 'fl-ach' + (unlocked ? ' is-unlocked' : '');
+    cell.innerHTML = `<span class="fl-ach__title">${unlocked ? '★ ' : '· '}${a.name}</span><span class="fl-ach__desc">${a.desc}</span>`;
+    row.appendChild(cell);
+  }
+}
+renderModeRow(); renderOutfitRow(); renderAchievementsRow();
 {
   const petCb = document.getElementById('fl-pet');
   if (petCb) { petCb.checked = !!usePetBird; petCb.addEventListener('change', () => { usePetBird = petCb.checked; try { localStorage.setItem('lava:pet', usePetBird ? '1' : '0'); } catch {} }); }
@@ -1511,7 +1865,7 @@ renderModeRow(); renderOutfitRow();
   // Refresh mode row on overlay show
   const so = document.getElementById('overlay');
   if (so) new MutationObserver(() => {
-    if (!so.hidden && !so.classList.contains('is-hidden')) { renderModeRow(); renderOutfitRow(); }
+    if (!so.hidden && !so.classList.contains('is-hidden')) { renderModeRow(); renderOutfitRow(); renderAchievementsRow(); }
   }).observe(so, { attributes: true, attributeFilter: ['hidden','class'] });
 }
 
@@ -1547,7 +1901,7 @@ setInterval(() => {
 let lastT = performance.now();
 (function loop(now) {
   const dt = Math.min((now - lastT) / 1000, 0.05);
-  lastT = now; tick(dt); if (running) render();
+  lastT = now; tick(dt); if (running || paused) render();
   requestAnimationFrame(loop);
 })(performance.now());
 

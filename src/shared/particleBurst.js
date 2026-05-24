@@ -25,6 +25,29 @@ import { getShakeMul } from './screenShake.js';
 
 const TAU = Math.PI * 2;
 
+// Mobile / low-power devices halve the particle count so canvas-heavy games
+// (BORK BATTLE, PUGFORT, MUTATION LAB) keep 60fps on iPhone SE-class hardware.
+// We detect once and cache. No game code changes required — every existing
+// `burst()` call inherits the cheaper budget automatically.
+let _lowPowerCache = null;
+function _isLowPower() {
+  if (_lowPowerCache !== null) return _lowPowerCache;
+  try {
+    if (typeof window === 'undefined') { _lowPowerCache = false; return false; }
+    if (typeof window.__mcIsLowPower === 'boolean') {
+      _lowPowerCache = window.__mcIsLowPower;
+      return _lowPowerCache;
+    }
+    const touch = ('ontouchstart' in window) ||
+      (navigator.maxTouchPoints && navigator.maxTouchPoints > 0);
+    const narrow = window.innerWidth < 768;
+    let lowMem = false;
+    try { const m = navigator.deviceMemory; lowMem = (typeof m === 'number') && m <= 2; } catch {}
+    _lowPowerCache = (touch && narrow) || lowMem;
+  } catch { _lowPowerCache = false; }
+  return _lowPowerCache;
+}
+
 export function burst(x, y, opts = {}) {
   const count = opts.count || 10;
   const color = opts.color || '#ff3aa1';
@@ -34,10 +57,11 @@ export function burst(x, y, opts = {}) {
   const gravity = opts.gravity ?? (kind === 'death' ? 280 : 0);
   const sizeBase = opts.size || (kind === 'sparkle' ? 1.6 : 2.4);
   // Reduced motion still emits a TINY pop so feedback isn't lost, but smaller
-  // and shorter.
+  // and shorter. Mobile halves the count again on top of that.
   const mul = getShakeMul();
   const k = mul <= 0 ? 0.35 : Math.min(1, mul);
-  const n = Math.max(2, Math.round(count * (mul <= 0 ? 0.5 : 1)));
+  const mobileScale = _isLowPower() ? 0.5 : 1;
+  const n = Math.max(2, Math.round(count * (mul <= 0 ? 0.5 : 1) * mobileScale));
   const out = [];
   for (let i = 0; i < n; i++) {
     const a = Math.random() * TAU;

@@ -2069,6 +2069,121 @@
           <div class="card__body"><h2 class="card__title">BACKROOMS OF PUG</h2><p class="card__desc">Endless yellow hallways. A giant pug hunts you. Hold SHIFT to walk silently. Collect cans, find the exit.</p><span class="card__cta">Enter →</span></div>
         </a>
 
+        <a class="card" href="/games/backrooms-3d/index.html">
+          <div class="card__art card__art--backrooms3d">
+            <!-- BACKROOMS 3D: first-person view down an endless yellow corridor with
+                 buzzing flickering fluorescent lights and a distant silhouette in the haze.
+                 Stronger one-point-perspective than the 2D card so the player can see
+                 at a glance this is a 3D game. -->
+            <svg class="card__svg" viewBox="0 0 280 160" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">
+              <defs>
+                <linearGradient id="br3dFloor" x1="0" x2="0" y1="0" y2="1">
+                  <stop offset="0" stop-color="#5a4828"/>
+                  <stop offset="1" stop-color="#2a2010"/>
+                </linearGradient>
+                <linearGradient id="br3dWall" x1="0" x2="1" y1="0" y2="0">
+                  <stop offset="0" stop-color="#a89030"/>
+                  <stop offset="0.5" stop-color="#c8a93f"/>
+                  <stop offset="1" stop-color="#a89030"/>
+                </linearGradient>
+                <radialGradient id="br3dFog" cx="0.5" cy="0.5" r="0.6">
+                  <stop offset="0.2" stop-color="rgba(184,160,64,0)"/>
+                  <stop offset="0.7" stop-color="rgba(184,160,64,0.55)"/>
+                  <stop offset="1" stop-color="rgba(184,160,64,0.92)"/>
+                </radialGradient>
+                <radialGradient id="br3dLight" cx="0.5" cy="0.5" r="0.5">
+                  <stop offset="0" stop-color="rgba(255,244,192,0.85)"/>
+                  <stop offset="1" stop-color="rgba(255,244,192,0)"/>
+                </radialGradient>
+                <pattern id="br3dWp" patternUnits="userSpaceOnUse" width="14" height="14">
+                  <rect width="14" height="14" fill="url(#br3dWall)"/>
+                  <rect x="5" y="0" width="2" height="14" fill="#8a7020" opacity="0.55"/>
+                </pattern>
+                <filter id="br3dBlur"><feGaussianBlur stdDeviation="1.5"/></filter>
+              </defs>
+              <!-- ceiling -->
+              <polygon points="0,0 280,0 280,38 140,72 0,38" fill="#3a3010"/>
+              <!-- floor -->
+              <polygon points="0,160 280,160 280,128 140,92 0,128" fill="url(#br3dFloor)"/>
+              <!-- left wall -->
+              <polygon points="0,38 140,72 140,92 0,128" fill="url(#br3dWp)"/>
+              <!-- right wall -->
+              <polygon points="280,38 140,72 140,92 280,128" fill="url(#br3dWp)"/>
+              <!-- back wall fading into fog -->
+              <rect x="120" y="68" width="40" height="28" fill="url(#br3dWall)"/>
+              <!-- perspective floor seams -->
+              <g stroke="#1a1408" stroke-width="0.5" opacity="0.7">
+                <line x1="0" y1="160" x2="140" y2="92"/>
+                <line x1="60" y1="160" x2="140" y2="92"/>
+                <line x1="100" y1="160" x2="140" y2="92"/>
+                <line x1="180" y1="160" x2="140" y2="92"/>
+                <line x1="220" y1="160" x2="140" y2="92"/>
+                <line x1="280" y1="160" x2="140" y2="92"/>
+              </g>
+              <!-- perspective ceiling seams -->
+              <g stroke="#1a1408" stroke-width="0.5" opacity="0.6">
+                <line x1="0" y1="0" x2="140" y2="72"/>
+                <line x1="60" y1="0" x2="140" y2="72"/>
+                <line x1="100" y1="0" x2="140" y2="72"/>
+                <line x1="180" y1="0" x2="140" y2="72"/>
+                <line x1="220" y1="0" x2="140" y2="72"/>
+                <line x1="280" y1="0" x2="140" y2="72"/>
+              </g>
+              <!-- baseboards -->
+              <g fill="#1a1408" opacity="0.9">
+                <polygon points="0,126 140,90 140,94 0,130"/>
+                <polygon points="280,126 140,90 140,94 280,130"/>
+                <rect x="120" y="92" width="40" height="3"/>
+              </g>
+              <!-- ceiling fluorescent panels — three receding into vanishing point -->
+              <g>
+                <rect x="40" y="6" width="60" height="4" fill="#fff4c0"/>
+                <rect x="40" y="6" width="60" height="4" fill="url(#br3dLight)" filter="url(#br3dBlur)"/>
+                <rect x="180" y="6" width="60" height="4" fill="#fff4c0" opacity="0.4"/>
+                <rect x="180" y="6" width="14" height="4" fill="#fff4c0"/>
+                <rect x="120" y="40" width="40" height="3" fill="#fff4c0"/>
+                <rect x="120" y="40" width="40" height="3" fill="url(#br3dLight)" filter="url(#br3dBlur)"/>
+                <rect x="130" y="64" width="20" height="2" fill="#fff4c0"/>
+              </g>
+              <!-- light spill pools on floor under each fixture -->
+              <ellipse cx="70" cy="142" rx="44" ry="6" fill="url(#br3dLight)" opacity="0.55" filter="url(#br3dBlur)"/>
+              <ellipse cx="140" cy="118" rx="34" ry="5" fill="url(#br3dLight)" opacity="0.45" filter="url(#br3dBlur)"/>
+              <ellipse cx="140" cy="98" rx="18" ry="3" fill="url(#br3dLight)" opacity="0.4" filter="url(#br3dBlur)"/>
+              <!-- distant monster silhouette deep in the corridor (small + foggy) -->
+              <g transform="translate(140,84)" opacity="0.9">
+                <ellipse rx="10" ry="14" fill="#0a0706"/>
+                <ellipse cy="-2" rx="7" ry="6" fill="#1a1006"/>
+                <!-- glowing red eyes -->
+                <rect x="-4" y="-3" width="2" height="2" fill="#ff3a3a"/>
+                <rect x="2" y="-3" width="2" height="2" fill="#ff3a3a"/>
+              </g>
+              <!-- fog layer eats the deep distance -->
+              <rect width="280" height="160" fill="url(#br3dFog)"/>
+              <!-- crosshair dot center -->
+              <circle cx="140" cy="80" r="1.4" fill="rgba(255,230,160,0.85)"/>
+              <!-- HUD pills -->
+              <g transform="translate(8,8)">
+                <rect width="58" height="14" rx="2" fill="#000" opacity="0.78"/>
+                <rect width="58" height="14" rx="2" fill="none" stroke="#ffd23f" stroke-width="1"/>
+                <text x="29" y="10" text-anchor="middle" font-family="'Press Start 2P', monospace" font-size="7" fill="#ffd23f">3D · FP</text>
+              </g>
+              <g transform="translate(214,8)">
+                <rect width="58" height="14" rx="2" fill="#000" opacity="0.78"/>
+                <rect width="58" height="14" rx="2" fill="none" stroke="#ff3a3a" stroke-width="1"/>
+                <text x="29" y="10" text-anchor="middle" font-family="'Press Start 2P', monospace" font-size="7" fill="#ff3a3a">DEPTH 0</text>
+              </g>
+              <!-- bottom-left sanity hint -->
+              <g transform="translate(8,140)">
+                <rect width="62" height="12" rx="2" fill="#000" opacity="0.7"/>
+                <text x="6" y="9" font-family="'Press Start 2P', monospace" font-size="6" fill="#5ef38c">SANITY</text>
+                <rect x="36" y="3" width="22" height="6" fill="#1a1424"/>
+                <rect x="36" y="3" width="16" height="6" fill="#5ef38c"/>
+              </g>
+            </svg>
+          </div>
+          <div class="card__body"><h2 class="card__title">BACKROOMS 3D</h2><p class="card__desc">First-person noclip. Real Three.js maze. Buzzing flickering lights, endless yellow corridors, and something hunting you in the fog.</p><span class="card__cta">Enter →</span></div>
+        </a>
+
         <a class="card" href="/games/floor-lava/index.html">
           <div class="card__art card__art--lava">
             <!-- FLOOR IS LAVA: vertical climber, hot ember sky, rising lava sea below, pug double-jumping between platforms with treats -->
@@ -2927,6 +3042,91 @@
         navigator.serviceWorker.register('sw.js').catch(() => {});
       }
 
+      // === PWA install prompt ============================================
+      // Show "ADD TO HOMESCREEN" hint on first 3 visits if:
+      //  (a) not already installed (matchMedia display-mode standalone)
+      //  (b) browser fired beforeinstallprompt (Chrome / Edge) OR iOS Safari
+      //
+      // The visit count + dismissed flag live in localStorage so we never nag
+      // beyond a small budget. The hint can be tapped to surface the install
+      // dialog (Chrome) or it explains the Share→Add Home Screen path (iOS).
+      try {
+        const STANDALONE = window.matchMedia('(display-mode: standalone)').matches
+          || window.navigator.standalone === true;
+        if (!STANDALONE) {
+          // bump visit count
+          let visits = parseInt(localStorage.getItem('wg:pwa:visits') || '0', 10);
+          visits = isFinite(visits) ? visits + 1 : 1;
+          try { localStorage.setItem('wg:pwa:visits', String(visits)); } catch {}
+          const dismissed = localStorage.getItem('wg:pwa:dismissed') === '1';
+          const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints || 0) > 0;
+
+          let deferredPrompt = null;
+          window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            if (!dismissed && visits <= 3 && isTouch) showInstallHint(false);
+          });
+
+          // iOS fallback — Safari doesn't fire beforeinstallprompt, but a
+          // homescreen install IS possible via the Share menu. Only the iOS
+          // ones get the explanation copy.
+          const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent) && !window.MSStream;
+          if (isIOS && !dismissed && visits <= 3) {
+            // Slight delay so the hint doesn't clobber the login overlay.
+            setTimeout(() => showInstallHint(true), 1400);
+          }
+
+          function showInstallHint(iOS) {
+            if (document.querySelector('.pwa-install-hint')) return;
+            const wrap = document.createElement('div');
+            wrap.className = 'pwa-install-hint';
+            wrap.innerHTML = iOS
+              ? `<span class="pwa-install-hint__icon" aria-hidden="true">📲</span>
+                 <div class="pwa-install-hint__body">
+                   <span class="pwa-install-hint__title">ADD TO HOMESCREEN</span>
+                   <span class="pwa-install-hint__sub">SHARE → ADD TO HOME SCREEN</span>
+                 </div>
+                 <button type="button" class="pwa-install-hint__close" aria-label="Dismiss">✕</button>`
+              : `<span class="pwa-install-hint__icon" aria-hidden="true">📲</span>
+                 <div class="pwa-install-hint__body">
+                   <span class="pwa-install-hint__title">INSTALL WEB GAMES</span>
+                   <span class="pwa-install-hint__sub">PLAY OFFLINE FROM YOUR HOMESCREEN</span>
+                 </div>
+                 <button type="button" class="pwa-install-hint__install">INSTALL</button>
+                 <button type="button" class="pwa-install-hint__close" aria-label="Dismiss">✕</button>`;
+            document.body.appendChild(wrap);
+            requestAnimationFrame(() => wrap.classList.add('is-shown'));
+            const closeBtn = wrap.querySelector('.pwa-install-hint__close');
+            closeBtn?.addEventListener('click', () => {
+              try { localStorage.setItem('wg:pwa:dismissed', '1'); } catch {}
+              wrap.classList.remove('is-shown');
+              setTimeout(() => wrap.remove(), 350);
+            });
+            const installBtn = wrap.querySelector('.pwa-install-hint__install');
+            installBtn?.addEventListener('click', async () => {
+              if (!deferredPrompt) return;
+              deferredPrompt.prompt();
+              try { await deferredPrompt.userChoice; } catch {}
+              deferredPrompt = null;
+              try { localStorage.setItem('wg:pwa:dismissed', '1'); } catch {}
+              wrap.classList.remove('is-shown');
+              setTimeout(() => wrap.remove(), 350);
+            });
+            // Auto-hide after 12s so it never blocks the player.
+            setTimeout(() => {
+              if (!document.body.contains(wrap)) return;
+              wrap.classList.remove('is-shown');
+              setTimeout(() => wrap.remove(), 350);
+            }, 12000);
+          }
+          // After install event, persist dismissed forever.
+          window.addEventListener('appinstalled', () => {
+            try { localStorage.setItem('wg:pwa:dismissed', '1'); } catch {}
+          });
+        }
+      } catch {}
+
       // Toggle handlers
       const $ = (id) => document.getElementById(id);
       const STORE = (k, v) => localStorage.setItem(`wg:${k}`, v ? '1' : '0');
@@ -3313,6 +3513,7 @@
           'delivery-pugs':   ['driving', 'action'],
           'pugzilla':        ['action'],
           'backrooms-pug':   ['horror', 'stealth'],
+          'backrooms-3d':    ['horror'],
           'floor-lava':      ['platform'],
           'supermarket-pug': ['stealth'],
           'pug-td':          ['defense'],
