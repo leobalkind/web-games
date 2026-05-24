@@ -2900,3 +2900,83 @@ if (_startOv) {
   new MutationObserver(refresh).observe(start, { attributes: true, attributeFilter: ['hidden', 'class'] });
   refresh();
 })();
+
+// ============================================================================
+// v2.8 ROCKET-021: Kill-streak meter — counts consecutive kills (any non-kill
+// event resets); shows "🔥 3x STREAK" → "🔥🔥 5x STREAK" → "🔥🔥🔥 7x STREAK"
+// pill bottom-center. Auto-fades when streak breaks or match ends.
+// ============================================================================
+(function _r8RocketKillStreak() {
+  const k = document.getElementById('hud-kills');
+  const left = document.getElementById('hud-left');
+  if (!k) return;
+  let last = 0, streak = 0, lastLeft = 0;
+  const chip = document.createElement('div');
+  chip.id = 'r8-rocket-streak';
+  chip.style.cssText = 'position:fixed;bottom:96px;left:50%;transform:translateX(-50%);background:rgba(40,0,8,0.92);color:#ffd23f;border:1px solid #ffd23f;font-family:"Press Start 2P",monospace;font-size:11px;padding:6px 14px;border-radius:5px;z-index:65;letter-spacing:2px;pointer-events:none;display:none;text-shadow:0 0 8px #ff8c42;';
+  document.body.appendChild(chip);
+  let hideT = 0;
+  setInterval(() => {
+    const cur = parseInt((k.textContent || '').replace(/\D/g, ''), 10) || 0;
+    const curLeft = left ? (parseInt((left.textContent || '').replace(/\D/g, ''), 10) || 0) : 0;
+    if (cur > last) {
+      streak++;
+      if (streak >= 3) {
+        const tier = streak >= 7 ? 3 : streak >= 5 ? 2 : 1;
+        const fire = '🔥'.repeat(tier);
+        chip.innerHTML = fire + ' ' + streak + 'x STREAK';
+        chip.style.display = 'block';
+        chip.animate([{ transform: 'translateX(-50%) scale(1.2)' }, { transform: 'translateX(-50%) scale(1)' }], { duration: 320 });
+        clearTimeout(hideT);
+        hideT = setTimeout(() => { chip.style.display = 'none'; }, 3500);
+      }
+    } else if (cur < last) {
+      streak = 0;
+    }
+    // Match reset
+    if (curLeft > lastLeft + 1) streak = 0;
+    last = cur;
+    lastLeft = curLeft;
+  }, 400);
+})();
+
+// ============================================================================
+// v2.8 ROCKET-022: Bots-left countdown audio chime — when "BOTS LEFT" drops
+// to 3, 2, 1, fire a rising-pitch triangle tone (650/820/1100Hz). Builds
+// tension toward the final pug.
+// ============================================================================
+(function _r8RocketBotsLeftChime() {
+  const left = document.getElementById('hud-left');
+  if (!left) return;
+  let last = 99;
+  let actx = null;
+  function getCtx() {
+    if (actx) return actx;
+    try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch { return null; }
+    return actx;
+  }
+  function chime(freq) {
+    const ctx = getCtx();
+    if (!ctx) return;
+    try {
+      const t = ctx.currentTime;
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'triangle';
+      o.frequency.setValueAtTime(freq, t);
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.10, t + 0.03);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.32);
+      o.connect(g).connect(ctx.destination);
+      o.start(t); o.stop(t + 0.35);
+    } catch {}
+  }
+  setInterval(() => {
+    const cur = parseInt((left.textContent || '').replace(/\D/g, ''), 10) || 0;
+    if (cur < last && cur >= 1 && cur <= 3) {
+      const freqs = { 3: 650, 2: 820, 1: 1100 };
+      chime(freqs[cur]);
+    }
+    last = cur;
+  }, 350);
+})();

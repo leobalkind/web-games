@@ -1081,3 +1081,103 @@ setInterval(() => {
     document.head.appendChild(s);
   }
 })();
+
+// ============================================================================
+// v2.8 FORT-021: Resource-low warning chip — when wood OR scrap < 5 during a
+// build phase, flash a small amber "LOW RESOURCES" chip so players know to
+// forage before the wave starts. Auto-hides when both rise above 10.
+// ============================================================================
+(function _r8FortLowRes() {
+  const wood = document.getElementById('hud-wood');
+  const scrap = document.getElementById('hud-scrap');
+  if (!wood || !scrap) return;
+  const chip = document.createElement('div');
+  chip.id = 'r8-fort-lowres';
+  chip.textContent = '⚠ LOW RESOURCES';
+  chip.style.cssText = 'position:fixed;top:50px;right:14px;background:rgba(40,28,8,0.92);color:#ffd23f;border:1px solid #ffd23f;font-family:"Press Start 2P",monospace;font-size:9px;padding:5px 10px;border-radius:4px;z-index:60;letter-spacing:2px;pointer-events:none;display:none;animation:r8FortLowResPulse 1.1s ease-in-out infinite alternate;';
+  document.body.appendChild(chip);
+  setInterval(() => {
+    const w = parseInt((wood.textContent || '').replace(/\D/g, ''), 10) || 0;
+    const sc = parseInt((scrap.textContent || '').replace(/\D/g, ''), 10) || 0;
+    const phase = document.getElementById('hud-phase');
+    const phaseText = phase ? (phase.textContent || '').toUpperCase() : '';
+    const isDay = phaseText.includes('DAY');
+    if ((w < 5 || sc < 5) && isDay) chip.style.display = 'block';
+    else if (w > 10 && sc > 10) chip.style.display = 'none';
+  }, 700);
+  if (!document.getElementById('r8-fort-lowres-style')) {
+    const s = document.createElement('style');
+    s.id = 'r8-fort-lowres-style';
+    s.textContent = '@keyframes r8FortLowResPulse{from{opacity:0.65}to{opacity:1}}';
+    document.head.appendChild(s);
+  }
+})();
+
+// ============================================================================
+// v2.8 FORT-022: Generator critical warning — pulse-red chip when generator
+// HP fill drops below 25%. Critical because losing the generator = game over.
+// ============================================================================
+(function _r8FortGenCrit() {
+  const fill = document.getElementById('hud-gen-fill');
+  if (!fill) return;
+  const chip = document.createElement('div');
+  chip.id = 'r8-fort-gen-crit';
+  chip.textContent = '⚡ GENERATOR CRITICAL';
+  chip.style.cssText = 'position:fixed;top:84px;right:14px;background:rgba(40,0,8,0.95);color:#ff4d6d;border:1px solid #ff4d6d;font-family:"Press Start 2P",monospace;font-size:9px;padding:5px 10px;border-radius:4px;z-index:62;letter-spacing:1px;pointer-events:none;display:none;animation:r8FortGenPulse 0.55s ease-in-out infinite alternate;text-shadow:0 0 6px #ff4d6d;';
+  document.body.appendChild(chip);
+  setInterval(() => {
+    const w = parseFloat(fill.style.width) || 100;
+    if (w > 0 && w < 25) chip.style.display = 'block';
+    else chip.style.display = 'none';
+  }, 350);
+  if (!document.getElementById('r8-fort-gen-style')) {
+    const s = document.createElement('style');
+    s.id = 'r8-fort-gen-style';
+    s.textContent = '@keyframes r8FortGenPulse{from{opacity:0.5;transform:scale(1)}to{opacity:1;transform:scale(1.06)}}';
+    document.head.appendChild(s);
+  }
+})();
+
+// ============================================================================
+// v2.8 FORT-023: Day/Night transition sting — WebAudio sweep (low-to-high
+// for DAY→NIGHT, high-to-low for NIGHT→DAY) on `#hud-phase` text change.
+// Adds atmospheric punctuation to the phase shift.
+// ============================================================================
+(function _r8FortPhaseSting() {
+  const phase = document.getElementById('hud-phase');
+  if (!phase) return;
+  let last = (phase.textContent || '').toUpperCase().trim();
+  let actx = null;
+  function getCtx() {
+    if (actx) return actx;
+    try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch { return null; }
+    return actx;
+  }
+  function sting(toNight) {
+    const ctx = getCtx();
+    if (!ctx) return;
+    try {
+      const t = ctx.currentTime;
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'triangle';
+      const start = toNight ? 280 : 140;
+      const end = toNight ? 90 : 360;
+      o.frequency.setValueAtTime(start, t);
+      o.frequency.exponentialRampToValueAtTime(end, t + 0.6);
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.16, t + 0.08);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.65);
+      o.connect(g).connect(ctx.destination);
+      o.start(t); o.stop(t + 0.7);
+    } catch {}
+  }
+  setInterval(() => {
+    const cur = (phase.textContent || '').toUpperCase().trim();
+    if (cur && cur !== last) {
+      if (cur.includes('NIGHT') && !last.includes('NIGHT')) sting(true);
+      else if (cur.includes('DAY') && !last.includes('DAY')) sting(false);
+      last = cur;
+    }
+  }, 500);
+})();

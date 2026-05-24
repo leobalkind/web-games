@@ -7015,10 +7015,16 @@ void showTip; // explicit reference so linters don't yell about unused import
   const startOv = document.getElementById('overlay-start') || document.getElementById('overlay');
   if (!endOv || !startOv) return;
   let count = parseInt(localStorage.getItem('back2d:ripCount') || '0', 10) || 0;
+  // FIX: previous heuristic matched 'YOU' which appears in survival captions
+  // too — every end-overlay show would tick the counter. De-dupe on transition
+  // and require an unambiguous death keyword.
+  let prevHidden = true;
   new MutationObserver(() => {
-    if (endOv.hidden) return;
+    if (endOv.hidden) { prevHidden = true; return; }
+    if (!prevHidden) return;
+    prevHidden = false;
     const txt = (endOv.textContent || '').toUpperCase();
-    if (txt.includes('DIED') || txt.includes('CAUGHT') || txt.includes('GAME OVER') || txt.includes('YOU') || txt.match(/RIP|DEAD|FELL/)) {
+    if (/DIED|CAUGHT|GAME OVER|RIP\b|DEAD\b|FELL|YOU WERE FOUND|YOU DIED/.test(txt) && !/SURVIV|ESCAP|DAWN|WIN|HAUL/.test(txt)) {
       count++;
       try { localStorage.setItem('back2d:ripCount', String(count)); } catch {}
     }
@@ -7035,4 +7041,94 @@ void showTip; // explicit reference so linters don't yell about unused import
   }
   new MutationObserver(showRip).observe(startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });
   showRip();
+})();
+
+// ============================================================================
+// v2.8 BACK2D-021: Battery-low color shift — when `#hud-battery-pct` reads
+// below 20%, flash the battery row red and pulse. Critical because lights
+// fade fast and danger spikes when battery dies.
+// ============================================================================
+(function _r8Back2dBatteryLow() {
+  const pct = document.getElementById('hud-battery-pct');
+  if (!pct) return;
+  const wrap = document.getElementById('hud-battery-bar-wrap');
+  let chip = null;
+  setInterval(() => {
+    const txt = (pct.textContent || '').replace(/\D/g, '');
+    const n = parseInt(txt, 10) || 100;
+    if (n > 0 && n < 20) {
+      if (wrap) wrap.classList.add('r8-back2d-bat-low');
+      if (!chip) {
+        chip = document.createElement('div');
+        chip.id = 'r8-back2d-batlow';
+        chip.textContent = '🔋 LOW BATTERY';
+        chip.style.cssText = 'position:fixed;bottom:40%;right:14px;background:rgba(40,0,8,0.95);color:#ff4d6d;border:1px solid #ff4d6d;font-family:"Press Start 2P",monospace;font-size:9px;padding:5px 10px;border-radius:4px;z-index:60;letter-spacing:1px;pointer-events:none;animation:r8Back2dBatPulse 0.85s ease-in-out infinite alternate;';
+        document.body.appendChild(chip);
+      }
+    } else if (n >= 30 || n === 0) {
+      if (wrap) wrap.classList.remove('r8-back2d-bat-low');
+      if (chip) { chip.remove(); chip = null; }
+    }
+  }, 600);
+  if (!document.getElementById('r8-back2d-bat-style')) {
+    const s = document.createElement('style');
+    s.id = 'r8-back2d-bat-style';
+    s.textContent = '.r8-back2d-bat-low{animation:r8Back2dBatPulse 0.7s ease-in-out infinite alternate;border-color:#ff4d6d !important}@keyframes r8Back2dBatPulse{from{opacity:0.65;transform:scale(1)}to{opacity:1;transform:scale(1.04)}}';
+    document.head.appendChild(s);
+  }
+})();
+
+// ============================================================================
+// v2.8 BACK2D-023: Sanity-zone color overlay — when `#hud-sanity-pct` drops
+// below 30%, add subtle red vignette + scanline overlay for psychological
+// pressure. Soft enough to not be a jumpscare.
+// ============================================================================
+(function _r8Back2dSanityLow() {
+  const pct = document.getElementById('hud-sanity-pct');
+  if (!pct) return;
+  const v = document.createElement('div');
+  v.id = 'r8-back2d-sanity-vignette';
+  v.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:54;opacity:0;transition:opacity 0.4s ease;background:radial-gradient(ellipse at center, transparent 35%, rgba(120,0,20,0.5) 100%),repeating-linear-gradient(0deg,rgba(0,0,0,0) 0,rgba(0,0,0,0) 2px,rgba(0,0,0,0.10) 2px,rgba(0,0,0,0.10) 3px);';
+  document.body.appendChild(v);
+  setInterval(() => {
+    const n = parseInt((pct.textContent || '').replace(/\D/g, ''), 10) || 100;
+    if (n > 0 && n < 30) v.style.opacity = String(0.5 + (30 - n) / 60);
+    else v.style.opacity = '0';
+  }, 700);
+})();
+
+// ============================================================================
+// v2.8 BACK2D-022: Note milestone toasts — at 5/10/20/30 notes collected,
+// pop a glowing "★ NOTE N COLLECTED" toast hinting at the lore unlock arc.
+// Resets each run; `#hud-notes` text drives the count.
+// ============================================================================
+(function _r8Back2dNoteMilestone() {
+  const notes = document.getElementById('hud-notes');
+  if (!notes) return;
+  const milestones = [5, 10, 20, 30];
+  let hit = new Set();
+  let last = 0;
+  setInterval(() => {
+    const txt = (notes.textContent || '').trim();
+    const m = txt.match(/^(\d+)/);
+    const cur = m ? parseInt(m[1], 10) : 0;
+    if (cur < last - 3) hit.clear();
+    milestones.forEach(n => {
+      if (cur >= n && !hit.has(n)) {
+        hit.add(n);
+        const toast = document.createElement('div');
+        toast.innerHTML = '★ ' + n + ' NOTES COLLECTED';
+        toast.style.cssText = 'position:fixed;top:30%;left:50%;transform:translateX(-50%);background:rgba(20,8,32,0.95);color:#ffe66d;border:2px solid #ffe66d;font-family:"VT323",monospace;font-size:22px;padding:7px 16px;border-radius:5px;z-index:90;letter-spacing:2px;pointer-events:none;animation:r8Back2dNotePop 2s ease-out forwards;box-shadow:0 0 16px rgba(255,230,109,0.6);';
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 2100);
+      }
+    });
+    last = cur;
+  }, 700);
+  if (!document.getElementById('r8-back2d-note-style')) {
+    const s = document.createElement('style');
+    s.id = 'r8-back2d-note-style';
+    s.textContent = '@keyframes r8Back2dNotePop{0%{opacity:0;transform:translateX(-50%) translateY(10px) scale(0.7)}20%{opacity:1;transform:translateX(-50%) translateY(0) scale(1.15)}45%{transform:translateX(-50%) translateY(0) scale(1)}88%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(-10px)}}';
+    document.head.appendChild(s);
+  }
 })();

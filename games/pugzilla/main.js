@@ -3426,7 +3426,9 @@ if (_startOv) {
   if (!smashed) return;
   let last = 0;
   let count = 0;
-  const peak = parseInt(localStorage.getItem('zilla:debrisPeak') || '0', 10) || 0;
+  // FIX: `peak` was `const` so updates to localStorage never reflected in the
+  // chip — once exceeded it stayed stuck at "(NEW)" forever. Track as `let`.
+  let peak = parseInt(localStorage.getItem('zilla:debrisPeak') || '0', 10) || 0;
   const chip = document.createElement('div');
   chip.id = 'r7-zilla-debris';
   chip.style.cssText = 'position:fixed;top:48px;right:14px;background:rgba(20,8,32,0.9);color:#ff8e3c;border:1px solid #ff8e3c;font-family:"Press Start 2P",monospace;font-size:8px;padding:5px 9px;border-radius:3px;z-index:50;letter-spacing:1px;pointer-events:none;';
@@ -3443,10 +3445,11 @@ if (_startOv) {
       const delta = cur - last;
       // each smash spawns 20-50 debris chunks visually; multiply
       count += delta * 28;
-      refresh();
       if (count > peak) {
-        try { localStorage.setItem('zilla:debrisPeak', String(count)); } catch {}
+        peak = count;
+        try { localStorage.setItem('zilla:debrisPeak', String(peak)); } catch {}
       }
+      refresh();
     } else if (cur < 2 && last > 5) {
       // game reset — clear counter
       count = 0;
@@ -3479,6 +3482,58 @@ if (_startOv) {
     const s = document.createElement('style');
     s.id = 'r7-zilla-swipe-style';
     s.textContent = '@keyframes r7ZillaSwipePop{0%{opacity:0;transform:translateX(-50%) translateY(10px)}8%{opacity:1;transform:translateX(-50%) translateY(0)}90%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(-6px)}}';
+    document.head.appendChild(s);
+  }
+})();
+
+// ============================================================================
+// v2.8 ZILLA-021: HP-critical pulse — when `#hud-hp` value drops below 25,
+// add a body-class red vignette so player notices low health.
+// ============================================================================
+(function _r8ZillaHpCrit() {
+  const hp = document.getElementById('hud-hp');
+  if (!hp) return;
+  const v = document.createElement('div');
+  v.id = 'r8-zilla-hp-vignette';
+  v.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:55;display:none;background:radial-gradient(ellipse at center, transparent 50%, rgba(255,77,109,0.34) 100%);animation:r8ZillaHpPulse 1.2s ease-in-out infinite alternate;';
+  document.body.appendChild(v);
+  setInterval(() => {
+    const h = parseInt((hp.textContent || '').replace(/\D/g, ''), 10) || 0;
+    if (h > 0 && h < 25) v.style.display = 'block';
+    else v.style.display = 'none';
+  }, 350);
+  if (!document.getElementById('r8-zilla-hp-style')) {
+    const s = document.createElement('style');
+    s.id = 'r8-zilla-hp-style';
+    s.textContent = '@keyframes r8ZillaHpPulse{from{opacity:0.5}to{opacity:1}}';
+    document.head.appendChild(s);
+  }
+})();
+
+// ============================================================================
+// v2.8 ZILLA-022: Form evolution announcement — when `#hud-form` text changes
+// (e.g. "Tiny Pugzilla" → "Giant Pugzilla"), pop a giant cinematic banner
+// "★ EVOLVED: <new form> ★" for 2.4s with screen-flash.
+// ============================================================================
+(function _r8ZillaFormEvolve() {
+  const form = document.getElementById('hud-form');
+  if (!form) return;
+  let last = (form.textContent || '').trim();
+  setInterval(() => {
+    const cur = (form.textContent || '').trim();
+    if (cur && cur !== last && last) {
+      const banner = document.createElement('div');
+      banner.innerHTML = '★ EVOLVED ★<br><span style="font-size:18px;color:#5ef38c">' + cur.toUpperCase() + '</span>';
+      banner.style.cssText = 'position:fixed;top:30%;left:50%;transform:translateX(-50%);background:rgba(20,8,32,0.96);color:#ffd23f;border:3px solid #ffd23f;font-family:"VT323",monospace;font-size:32px;padding:14px 30px;border-radius:8px;z-index:95;letter-spacing:4px;pointer-events:none;text-align:center;line-height:1.4;animation:r8ZillaEvolvePop 2.4s ease-out forwards;box-shadow:0 0 30px rgba(255,210,63,0.7);';
+      document.body.appendChild(banner);
+      setTimeout(() => banner.remove(), 2500);
+    }
+    last = cur;
+  }, 500);
+  if (!document.getElementById('r8-zilla-evolve-style')) {
+    const s = document.createElement('style');
+    s.id = 'r8-zilla-evolve-style';
+    s.textContent = '@keyframes r8ZillaEvolvePop{0%{opacity:0;transform:translateX(-50%) translateY(20px) scale(0.6)}15%{opacity:1;transform:translateX(-50%) translateY(0) scale(1.3)}35%{transform:translateX(-50%) translateY(0) scale(1)}88%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(-18px)}}';
     document.head.appendChild(s);
   }
 })();

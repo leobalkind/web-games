@@ -3276,3 +3276,68 @@ if (_startOv) {
   new MutationObserver(injectChip).observe(start, { attributes: true, attributeFilter: ['hidden', 'class'] });
   injectChip();
 })();
+
+// ============================================================================
+// v2.8 DELIV-021: Fuel-low warning — when `#hud-fuel` drops below 20, flash
+// a yellow "⛽ LOW FUEL" chip pulsing at the top-right of the screen.
+// ============================================================================
+(function _r8DelivFuelLow() {
+  const fuel = document.getElementById('hud-fuel');
+  if (!fuel) return;
+  const chip = document.createElement('div');
+  chip.id = 'r8-deliv-fuellow';
+  chip.textContent = '⛽ LOW FUEL';
+  chip.style.cssText = 'position:fixed;top:120px;right:14px;background:rgba(40,28,8,0.95);color:#ffd23f;border:1px solid #ffd23f;font-family:"Press Start 2P",monospace;font-size:10px;padding:5px 10px;border-radius:4px;z-index:60;letter-spacing:2px;pointer-events:none;display:none;animation:r8DelivFuelPulse 0.85s ease-in-out infinite alternate;';
+  document.body.appendChild(chip);
+  setInterval(() => {
+    const f = parseInt((fuel.textContent || '').replace(/\D/g, ''), 10) || 0;
+    if (f > 0 && f < 20) chip.style.display = 'block';
+    else chip.style.display = 'none';
+  }, 400);
+  if (!document.getElementById('r8-deliv-fuel-style')) {
+    const s = document.createElement('style');
+    s.id = 'r8-deliv-fuel-style';
+    s.textContent = '@keyframes r8DelivFuelPulse{from{opacity:0.65;transform:scale(1)}to{opacity:1;transform:scale(1.06)}}';
+    document.head.appendChild(s);
+  }
+})();
+
+// ============================================================================
+// v2.8 DELIV-022: Lifetime deliveries counter — accumulates total deliveries
+// across runs (counts `#hud-del` peak on end-overlay), shows on start overlay.
+// ============================================================================
+(function _r8DelivLifetime() {
+  const del = document.getElementById('hud-del');
+  const start = document.getElementById('overlay');
+  const end = document.getElementById('end-overlay');
+  if (!del || !start || !end) return;
+  let lifetime = parseInt(localStorage.getItem('delivery:lifetimeDeliv') || '0', 10) || 0;
+  let lastPeak = 0;
+  let endVisible = false;
+  setInterval(() => {
+    const cur = parseInt((del.textContent || '').replace(/\D/g, ''), 10) || 0;
+    if (cur > lastPeak) lastPeak = cur;
+    const endVis = !end.hidden && !end.classList.contains('is-hidden');
+    if (endVis && !endVisible && lastPeak > 0) {
+      lifetime += lastPeak;
+      try { localStorage.setItem('delivery:lifetimeDeliv', String(lifetime)); } catch {}
+      lastPeak = 0;
+      inject();
+    }
+    if (!endVis) lastPeak = Math.max(lastPeak, cur);
+    endVisible = endVis;
+  }, 700);
+  function inject() {
+    if (start.hidden) return;
+    let chip = document.getElementById('r8-deliv-lifetime');
+    if (!chip) {
+      chip = document.createElement('div');
+      chip.id = 'r8-deliv-lifetime';
+      chip.style.cssText = 'position:absolute;top:38px;right:14px;background:rgba(20,8,32,0.92);color:#9b5de5;border:1px solid #9b5de5;font-family:"Press Start 2P",monospace;font-size:8px;padding:5px 10px;border-radius:3px;letter-spacing:1px;pointer-events:none;z-index:10;';
+      start.appendChild(chip);
+    }
+    chip.textContent = '📦 LIFETIME DROPS: ' + lifetime;
+  }
+  new MutationObserver(inject).observe(start, { attributes: true, attributeFilter: ['hidden', 'class'] });
+  inject();
+})();

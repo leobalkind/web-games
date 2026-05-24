@@ -5052,6 +5052,72 @@
         });
         document.body.appendChild(btn);
       })();
+
+      // ======================================================================
+      // v2.8 SITE-021: Keyboard navigation hint chip — first-visit only, shows
+      // a "★ TIP: use arrow keys to browse games" pill below the chips row.
+      // Reinforces accessibility affordance that's already wired (SITE-009).
+      // Persists `wg:keyHintSeen`.
+      // ======================================================================
+      (function keyboardHint() {
+        if (localStorage.getItem('wg:keyHintSeen') === '1') return;
+        const isTouch = matchMedia('(hover:none)').matches || 'ontouchstart' in window;
+        if (isTouch) return;
+        setTimeout(() => {
+          const tip = document.createElement('div');
+          tip.id = 'r8-key-hint';
+          tip.innerHTML = '★ TIP: use <kbd style="background:#222;padding:1px 5px;border-radius:3px;border:1px solid #555;font-family:monospace">←↑→↓</kbd> to navigate cards';
+          tip.style.cssText = 'position:fixed;bottom:50px;left:50%;transform:translateX(-50%);background:rgba(20,8,32,0.95);color:#9b5de5;border:1px solid #9b5de5;font-family:"Press Start 2P",monospace;font-size:9px;padding:8px 14px;border-radius:5px;z-index:60;letter-spacing:1px;pointer-events:none;animation:r8KeyHintPop 6s ease-out forwards;line-height:1.6;';
+          document.body.appendChild(tip);
+          try { localStorage.setItem('wg:keyHintSeen', '1'); } catch {}
+          setTimeout(() => tip.remove(), 6100);
+        }, 2400);
+        if (!document.getElementById('r8-key-hint-style')) {
+          const s = document.createElement('style');
+          s.id = 'r8-key-hint-style';
+          s.textContent = '@keyframes r8KeyHintPop{0%{opacity:0;transform:translateX(-50%) translateY(12px)}10%{opacity:1;transform:translateX(-50%) translateY(0)}88%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(-6px)}}';
+          document.head.appendChild(s);
+        }
+      })();
+
+      // ======================================================================
+      // v2.8 SITE-022: Quick backup-now button — adds a "💾 BACKUP" pill that
+      // when clicked exports every wg:/bork:/fort:/heist:/cafe:/rocket:/dig:/
+      // lab:/deliv:/zilla:/back2d:/lava:/mart:/td: localStorage key as JSON
+      // download. Lets paranoid users keep an offline copy of their saves.
+      // ======================================================================
+      (function quickBackup() {
+        const btn = document.createElement('button');
+        btn.id = 'r8-backup-btn';
+        btn.type = 'button';
+        btn.textContent = '💾 BACKUP';
+        btn.title = 'Download all saved progress as JSON';
+        btn.style.cssText = 'position:fixed;bottom:40px;left:14px;background:rgba(20,8,32,0.94);color:#ffd23f;border:1px solid #ffd23f;font-family:"Press Start 2P",monospace;font-size:7px;padding:4px 8px;border-radius:3px;z-index:50;letter-spacing:1px;cursor:pointer;';
+        btn.addEventListener('click', () => {
+          const data = {};
+          const prefixes = /^(wg:|bork:|fort:|pugfort:|heist:|cafe:|rocket:|dig:|lab:|deliv:|delivery:|zilla:|back2d:|lava:|mart:|td:)/;
+          for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && prefixes.test(k)) {
+              try { data[k] = localStorage.getItem(k); } catch {}
+            }
+          }
+          try {
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            const date = new Date().toISOString().slice(0, 10);
+            a.download = 'web-games-backup-' + date + '.json';
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+            btn.animate([{ transform: 'scale(1.18)', color: '#5ef38c' }, { transform: 'scale(1)', color: '#ffd23f' }], { duration: 450 });
+          } catch (err) {
+            console.error('backup failed', err);
+          }
+        });
+        document.body.appendChild(btn);
+      })();
     </script>
   </body>
 </html>

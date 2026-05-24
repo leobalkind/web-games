@@ -966,6 +966,9 @@ function tick(dt) {
       lootValueThisFloor += val;
       totalLootValue += val;
       lootStolen++;
+      // FIX: increment contract _rareTaken on rare pickup — CHERRY PICKER was
+      // unable to pass without this. Note: includes themed rare items via val.
+      if (activeContract && (lt.rare || val >= 150)) activeContract._rareTaken = (activeContract._rareTaken || 0) + 1;
       sfx.tone(lt.rare ? 1320 : 880, 'triangle', 0.1, 0.22);
       spawnParticles(lt.x, lt.y, lt.rare || mult > 1 ? '#ffd23f' : '#5ef38c');
       addPopup(lt.x, lt.y - 6, (mult > 1 ? 'LUCKY! +$' : '+$') + val, lt.rare || mult > 1 ? '#ffd23f' : '#5ef38c');
@@ -2848,7 +2851,9 @@ function showContractBanner() {
 // Hook smoke + decoy to set "used" flags for relevant contracts.
 const _origDoSmoke_heist = doSmoke;
 doSmoke = function() { if (activeContract) activeContract._smokeUsed = true; _origDoSmoke_heist(); };
-// decoy fn might be doDecoy
+// FIX: decoy was declared but never wired — PURIST contract was unable to pass.
+const _origDoDecoy_heist = doDecoy;
+doDecoy = function() { if (activeContract) activeContract._decoyUsed = true; _origDoDecoy_heist(); };
 function start() {
   floor = 1; running = true;
   lootStolen = 0; totalLootValue = 0; achievementsSeen = new Set();
@@ -3473,4 +3478,83 @@ if (_startOv) {
   }
   new MutationObserver(injectChip).observe(startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });
   injectChip();
+})();
+
+// ============================================================================
+// v2.8 HEIST-021: Floors-cleared lifetime tally — bumps a counter every time
+// floor # changes (advances), persists `heist:floorsCleared` and shows on
+// start overlay as a tiny chip next to STEALTH stats.
+// ============================================================================
+(function _r8HeistFloorTally() {
+  const floor = document.getElementById('hud-floor');
+  const startOv = document.getElementById('overlay');
+  if (!floor || !startOv) return;
+  let cleared = parseInt(localStorage.getItem('heist:floorsCleared') || '0', 10) || 0;
+  let lastFloor = 0;
+  setInterval(() => {
+    const cur = parseInt((floor.textContent || '').replace(/\D/g, ''), 10) || 0;
+    if (cur > lastFloor && lastFloor >= 1) {
+      cleared++;
+      try { localStorage.setItem('heist:floorsCleared', String(cleared)); } catch {}
+      inject();
+    }
+    lastFloor = cur;
+  }, 800);
+  function inject() {
+    if (startOv.hidden) return;
+    let chip = document.getElementById('r8-heist-floors-cleared');
+    if (!chip) {
+      chip = document.createElement('div');
+      chip.id = 'r8-heist-floors-cleared';
+      chip.style.cssText = 'position:absolute;top:38px;right:14px;background:rgba(20,8,32,0.92);color:#5ef38c;border:1px solid #5ef38c;font-family:"Press Start 2P",monospace;font-size:8px;padding:5px 10px;border-radius:3px;z-index:10;letter-spacing:1px;pointer-events:none;';
+      startOv.appendChild(chip);
+    }
+    chip.textContent = '🏛 FLOORS: ' + cleared;
+  }
+  new MutationObserver(inject).observe(startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });
+  inject();
+})();
+
+// ============================================================================
+// v2.8 HEIST-022: Bark/Fart ability cooldown ready audio chime — when
+// `#hud-bark` or `#hud-fart` transitions from countdown into "READY" text,
+// fire a soft 880Hz triangle blip so player notices abilities recharged.
+// ============================================================================
+(function _r8HeistAbilityReady() {
+  const bark = document.getElementById('hud-bark');
+  const fart = document.getElementById('hud-fart');
+  if (!bark && !fart) return;
+  let actx = null;
+  function getCtx() {
+    if (actx) return actx;
+    try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch { return null; }
+    return actx;
+  }
+  function blip(freq) {
+    const ctx = getCtx();
+    if (!ctx) return;
+    try {
+      const t = ctx.currentTime;
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'triangle';
+      o.frequency.setValueAtTime(freq, t);
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.07, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+      o.connect(g).connect(ctx.destination);
+      o.start(t); o.stop(t + 0.2);
+    } catch {}
+  }
+  function watch(el, freq) {
+    if (!el) return;
+    let last = '';
+    setInterval(() => {
+      const cur = (el.textContent || '').toUpperCase().trim();
+      if (cur === 'READY' && last !== 'READY' && last !== '') blip(freq);
+      last = cur;
+    }, 250);
+  }
+  watch(bark, 880);
+  watch(fart, 620);
 })();

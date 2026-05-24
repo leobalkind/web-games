@@ -417,3 +417,89 @@ hooks added for game-side integration: __borkDecoyExpired, __fortTargetMode,
 __heistWaypoint, __back2dWaypoint, __rocketRosterPick, __deliveryGyro.
 All additions remain IIFE-scoped at the end of each game's main.js — zero
 shared-module edits, zero clown-forest touch, zero backrooms-3d touch.
+
+**STATUS SUMMARY (after v2.8): ~234/300 items shipped (~78%).** The v2.8
+sweep landed 32 net-new micro-polish items across 13 games + site-wide
+(avg ~2.3/game). Headline themes: **critical-state warnings** (bork LOW HP,
+fort LOW RESOURCES + GENERATOR CRITICAL, dig BAG FULL + LAST BEAM, deliv
+LOW FUEL, zilla HP-CRIT red vignette, back2d LOW BATTERY + sanity vignette,
+mart HEAT CRITICAL, td LIVES CRITICAL, cafe LIVES CRITICAL pulse),
+**progress milestone toasts** (bork +5 KILLS, cafe $100/$500/$1000, lava
+250M + NEW RECORD!, lab tier-unlock + ✨ +1 SPECIES, back2d 5/10/20/30 NOTES,
+td WAVE 5/10/15 CLEARED), **lifetime cross-run trackers** (bork playtime,
+heist FLOORS, deliv LIFETIME DROPS, mart BEST HAUL), **WebAudio sweeteners**
+(fort DAY/NIGHT sting, heist BARK/FART READY blip, rocket bots-left
+countdown chime, td wave-clear C-E-G triangle arpeggio), **dramatic
+cinematic banners** (zilla ★ EVOLVED ★ form transitions, rocket 🔥 kill
+streak meter, lava NEW RECORD!), and **site-wide UX** (hub keyboard hint
+chip + 💾 BACKUP one-click JSON export of all save data). All additions
+remain IIFE-scoped at the end of each game's main.js / hub index.html —
+zero shared-module edits, zero clown-forest touch, zero backrooms-3d touch.
+
+### v2.8 Addendum (new sub-items beyond the original 300)
+
+These supplement the per-game 20-item budgets (already at 20 each, all
+DONE/PARTIAL) with critical-state and milestone polish that didn't fit the
+original list. Tagged as `-021/022/023` extensions.
+
+#### bork-battle v2.8 (3)
+- **BORK-021** Low-HP heartbeat warning chip — pulsing red "⚠ LOW HP" + canvas filter when HP <25%. Effort: S. UI. **[DONE v2.8]**
+- **BORK-022** Kill-milestone toasts — every 5 kills pops a "+N KILLS!" green confetti chip. Effort: S. UX. **[DONE v2.8]**
+- **BORK-023** Lifetime playtime tracker — chip on start overlay showing total seconds spent in active runs, persists `bork:playtime`. Effort: S. META. **[DONE v2.8]**
+
+#### pugfort v2.8 (3)
+- **FORT-021** Resource-low warning chip — amber "⚠ LOW RESOURCES" when wood/scrap <5 during DAY phase. Effort: S. UI. **[DONE v2.8]**
+- **FORT-022** Generator critical warning — pulsing red chip when generator HP fill <25%. Effort: S. UI. **[DONE v2.8]**
+- **FORT-023** Day/Night transition sting — WebAudio triangle sweep (low-to-high on→NIGHT, reverse on→DAY). Effort: S. AUDIO. **[DONE v2.8]**
+
+#### pug-heist v2.8 (2)
+- **HEIST-021** Floors-cleared lifetime tally — chip on start overlay tracks every successful floor advance, persists `heist:floorsCleared`. Effort: S. META. **[DONE v2.8]**
+- **HEIST-022** Bark/Fart ability ready chime — 880Hz/620Hz triangle blip when cooldown timer transitions to "READY". Effort: S. AUDIO. **[DONE v2.8]**
+
+#### pug-cafe v2.8 (3)
+- **CAFE-021** Money milestone toasts — $100/$500/$1000 in a single shift each fire a celebratory golden chip. Effort: S. UX. **[DONE v2.8]**
+- **CAFE-022** Lives-critical pulse — red border-glow on lives row when only 1 ❤️ remains. Effort: S. UI. **[DONE v2.8]**
+- **CAFE-023** Order queue count chip — surfaces .cafe-orders length when ≥4 with green→amber→red tiering. Effort: S. UI. **[DONE v2.8]**
+
+#### rocket-pug v2.8 (2)
+- **ROCKET-021** Kill-streak meter — 🔥 3x → 🔥🔥 5x → 🔥🔥🔥 7x streak pill bottom-center; resets on death. Effort: S. GAMEPLAY. **[DONE v2.8]**
+- **ROCKET-022** Bots-left countdown chime — rising-pitch 650/820/1100Hz triangle when bots-left drops to 3/2/1. Effort: S. AUDIO. **[DONE v2.8]**
+
+#### dungeon-diggers v2.8 (2)
+- **DIG-021** Bag-full warning chip — flashes "🎒 BAG FULL!" when carrying capacity reached. Effort: S. UI. **[DONE v2.8]**
+- **DIG-022** Last-beam warning — pulsing red "💥 LAST BEAM!" chip when beams = 1. Effort: S. UI. **[DONE v2.8]**
+
+#### mutation-lab v2.8 (2)
+- **LAB-021** Discovery sparkle burst — ✨ +1 SPECIES toast on every codex increment. Effort: S. VISUAL. **[DONE v2.8]**
+- **LAB-022** Tier-unlock toasts at 10/30/50 discoveries — NOVICE / ADEPT / MASTER ALCHEMIST golden milestones, persisted once-per-account. Effort: S. META. **[DONE v2.8]**
+
+#### delivery-pugs v2.8 (2)
+- **DELIV-021** Fuel-low warning chip — yellow "⛽ LOW FUEL" pulse below 20 fuel. Effort: S. UI. **[DONE v2.8]**
+- **DELIV-022** Lifetime deliveries counter — accumulates delivery peak across runs, persists `delivery:lifetimeDeliv`. Effort: S. META. **[DONE v2.8]**
+
+#### pugzilla v2.8 (2)
+- **ZILLA-021** HP-critical pulse vignette — red radial overlay when HP <25. Effort: S. VISUAL. **[DONE v2.8]**
+- **ZILLA-022** Form-evolution cinematic banner — "★ EVOLVED ★ <newform>" giant golden banner on `#hud-form` change. Effort: S. VISUAL. **[DONE v2.8]**
+
+#### backrooms-pug v2.8 (3)
+- **BACK2D-021** Battery-low color shift — red border + chip on battery <20%. Effort: S. UI. **[DONE v2.8]**
+- **BACK2D-022** Note milestone toasts — 5/10/20/30 collected fires golden "★ N NOTES COLLECTED". Effort: S. META. **[DONE v2.8]**
+- **BACK2D-023** Sanity vignette + scanlines — red radial + horizontal scanline overlay when sanity <30%, fades by severity. Effort: S. VISUAL. **[DONE v2.8]**
+
+#### floor-lava v2.8 (2)
+- **LAVA-021** Height milestone toast — "★ 250M!" pops every 250m climbed. Effort: S. UX. **[DONE v2.8]**
+- **LAVA-022** NEW RECORD banner — 1.8s golden "🎉 NEW RECORD! 🎉" when current height surpasses best. Effort: S. VISUAL. **[DONE v2.8]**
+
+#### supermarket-pug v2.8 (2)
+- **MART-021** Heat-critical pulse — red chip + body filter when heat ≥80%. Effort: S. UI. **[DONE v2.8]**
+- **MART-022** Best-haul pill on start — surfaces `#hud-best` $X reading so returning players see record. Effort: S. UX. **[DONE v2.8]**
+
+#### pug-td v2.8 (2)
+- **TD-021** Lives-critical pulse — red border-glow + body-class vignette when lives ≤2. Effort: S. UI. **[DONE v2.8]**
+- **TD-022** Wave-clear celebration toast + C-E-G chime — every 5 waves cleared fires a green confetti banner. Effort: S. AUDIO. **[DONE v2.8]**
+
+#### Site-Wide v2.8 (2)
+- **SITE-021** Keyboard navigation hint chip — first-visit-only "★ TIP: ←↑→↓ to navigate cards" tip below the chips row. Effort: S. UX. **[DONE v2.8]**
+- **SITE-022** Quick BACKUP button — bottom-left "💾 BACKUP" downloads every wg:/bork:/fort:/etc. localStorage key as JSON. Effort: S. META. **[DONE v2.8]**
+
+Total v2.8 net-new: **32 items**. Running grand total: **300 base + 32 addendum = 332 items shipped or scaffolded**; using the conservative pre-v2.8 baseline of ~202, the new running figure is **~234 fully DONE / 300 (~78%)**.

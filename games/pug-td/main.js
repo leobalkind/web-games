@@ -2735,51 +2735,12 @@ if (_startOv) {
 // canvas and scales it via CSS transform. Persists last scale. Touch only.
 // ============================================================================
 (function _r7TdPinchZoom() {
-  const isTouch = matchMedia('(hover:none)').matches || 'ontouchstart' in window;
-  if (!isTouch) return;
-  const c = document.querySelector('canvas');
-  if (!c) return;
-  let scale = parseFloat(localStorage.getItem('td:mapScale') || '1') || 1;
-  scale = Math.max(0.85, Math.min(2.2, scale));
-  c.style.transformOrigin = 'center center';
-  c.style.transition = 'transform 0.18s';
-  c.style.transform = `scale(${scale})`;
-  let lastDist = 0;
-  c.addEventListener('touchstart', (e) => {
-    if (e.touches.length === 2) {
-      const dx = e.touches[0].clientX - e.touches[1].clientX;
-      const dy = e.touches[0].clientY - e.touches[1].clientY;
-      lastDist = Math.hypot(dx, dy);
-    }
-  }, { passive: true });
-  c.addEventListener('touchmove', (e) => {
-    if (e.touches.length === 2 && lastDist > 0) {
-      const dx = e.touches[0].clientX - e.touches[1].clientX;
-      const dy = e.touches[0].clientY - e.touches[1].clientY;
-      const d = Math.hypot(dx, dy);
-      scale = Math.max(0.85, Math.min(2.2, scale * (d / lastDist)));
-      c.style.transform = `scale(${scale})`;
-      lastDist = d;
-      e.preventDefault?.();
-    }
-  });
-  c.addEventListener('touchend', () => {
-    lastDist = 0;
-    try { localStorage.setItem('td:mapScale', String(scale)); } catch {}
-  }, { passive: true });
-  // Reset button (double-tap with 2 fingers)
-  let lastTwo = 0;
-  c.addEventListener('touchstart', (e) => {
-    if (e.touches.length === 2) {
-      const now = performance.now();
-      if (now - lastTwo < 350) {
-        scale = 1;
-        c.style.transform = 'scale(1)';
-        try { localStorage.setItem('td:mapScale', '1'); } catch {}
-      }
-      lastTwo = now;
-    }
-  }, { passive: true });
+  // FIX (regression): pinch-zoom scaled the canvas via CSS transform, but the
+  // existing click handler reads raw `e.clientX/Y` against the unscaled grid
+  // offsets — so any zoom > 1 made tower placement land on the wrong tile.
+  // Disabled until a proper coordinate-compensation path is added; the
+  // localStorage key is left alone so previously-stored prefs survive.
+  return;
 })();
 
 // ============================================================================
@@ -2823,4 +2784,85 @@ if (_startOv) {
       }
     } else if (chip) chip.remove();
   }, 700);
+})();
+
+// ============================================================================
+// v2.8 TD-021: Lives-critical pulse — when `#hud-lives` drops to 1 or 2,
+// flash a red border-glow on the entire HUD lives row + body-class vignette.
+// ============================================================================
+(function _r8TdLivesCrit() {
+  const lives = document.getElementById('hud-lives');
+  if (!lives) return;
+  const row = lives.closest('.hud-row') || lives.parentElement;
+  setInterval(() => {
+    const n = parseInt((lives.textContent || '').replace(/\D/g, ''), 10) || 0;
+    if (n > 0 && n <= 2) {
+      if (row) row.classList.add('r8-td-lives-crit');
+      document.body.classList.add('r8-td-lives-crit-body');
+    } else {
+      if (row) row.classList.remove('r8-td-lives-crit');
+      document.body.classList.remove('r8-td-lives-crit-body');
+    }
+  }, 400);
+  if (!document.getElementById('r8-td-lives-style')) {
+    const s = document.createElement('style');
+    s.id = 'r8-td-lives-style';
+    s.textContent = '.r8-td-lives-crit{animation:r8TdLivesPulse 0.7s ease-in-out infinite alternate;border-radius:4px}@keyframes r8TdLivesPulse{from{box-shadow:0 0 0 0 rgba(255,77,109,0)}to{box-shadow:0 0 14px 4px rgba(255,77,109,0.7)}}body.r8-td-lives-crit-body canvas{filter:saturate(1.15)}';
+    document.head.appendChild(s);
+  }
+})();
+
+// ============================================================================
+// v2.8 TD-022: Wave-clear celebration toast — every 5 waves cleared, fire
+// a "★ WAVE 5 CLEARED ★" toast with a soft chime. Reads `#hud-wave` "N/M"
+// and toasts on the leading-edge bump.
+// ============================================================================
+(function _r8TdWaveCelebrate() {
+  const w = document.getElementById('hud-wave');
+  if (!w) return;
+  let last = 0;
+  let actx = null;
+  function getCtx() {
+    if (actx) return actx;
+    try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch { return null; }
+    return actx;
+  }
+  function chime() {
+    const ctx = getCtx();
+    if (!ctx) return;
+    try {
+      const t = ctx.currentTime;
+      [523, 659, 784].forEach((freq, i) => {
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.type = 'triangle';
+        o.frequency.setValueAtTime(freq, t + i * 0.09);
+        g.gain.setValueAtTime(0, t + i * 0.09);
+        g.gain.linearRampToValueAtTime(0.10, t + i * 0.09 + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.001, t + i * 0.09 + 0.36);
+        o.connect(g).connect(ctx.destination);
+        o.start(t + i * 0.09); o.stop(t + i * 0.09 + 0.4);
+      });
+    } catch {}
+  }
+  setInterval(() => {
+    const txt = (w.textContent || '').trim();
+    const m = txt.match(/(\d+)/);
+    const cur = m ? parseInt(m[1], 10) : 0;
+    if (cur > last && cur > 0 && cur % 5 === 0) {
+      const toast = document.createElement('div');
+      toast.textContent = '★ WAVE ' + cur + ' CLEARED ★';
+      toast.style.cssText = 'position:fixed;top:30%;left:50%;transform:translateX(-50%);background:rgba(8,20,40,0.96);color:#5ef38c;border:2px solid #5ef38c;font-family:"VT323",monospace;font-size:26px;padding:9px 22px;border-radius:6px;z-index:90;letter-spacing:3px;pointer-events:none;animation:r8TdWavePop 2s ease-out forwards;box-shadow:0 0 22px rgba(94,243,140,0.7);';
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 2100);
+      chime();
+    }
+    last = cur;
+  }, 500);
+  if (!document.getElementById('r8-td-wave-style')) {
+    const s = document.createElement('style');
+    s.id = 'r8-td-wave-style';
+    s.textContent = '@keyframes r8TdWavePop{0%{opacity:0;transform:translateX(-50%) translateY(14px) scale(0.6)}15%{opacity:1;transform:translateX(-50%) translateY(0) scale(1.3)}35%{transform:translateX(-50%) translateY(0) scale(1)}88%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(-14px)}}';
+    document.head.appendChild(s);
+  }
 })();

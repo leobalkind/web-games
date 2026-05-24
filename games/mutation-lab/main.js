@@ -3258,7 +3258,13 @@ if (_startOv) {
     let out = '';
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
-      if (k && k.startsWith('lab:')) out += k + '=' + localStorage.getItem(k).length + ';';
+      if (k && k.startsWith('lab:')) {
+        // FIX: null-safety — `localStorage.length` can race against the
+        // settings panel's setItem/removeItem calls and `getItem` returns
+        // null between key(i) and getItem(k). Guard the .length read.
+        const v = localStorage.getItem(k);
+        if (v != null) out += k + '=' + v.length + ';';
+      }
     }
     return out;
   }
@@ -3342,4 +3348,66 @@ if (_startOv) {
     b.style.zIndex = '50';
     document.body.appendChild(b);
   }, 6000);
+})();
+
+// ============================================================================
+// v2.8 LAB-021: Discovery sparkle burst — when `#hud-discovered` increments,
+// fire a small ✨ float-up emoji over the codex chip. Reinforces the feeling
+// of finding something new, without needing in-game effect hooks.
+// ============================================================================
+(function _r8LabDiscoverySpark() {
+  const disc = document.getElementById('hud-discovered');
+  if (!disc) return;
+  let last = parseInt((disc.textContent || '').replace(/^(\d+).*/, '$1'), 10) || 0;
+  setInterval(() => {
+    const cur = parseInt((disc.textContent || '').replace(/^(\d+).*/, '$1'), 10) || 0;
+    if (cur > last) {
+      const burst = document.createElement('div');
+      burst.textContent = '✨ +1 SPECIES';
+      burst.style.cssText = 'position:fixed;top:38%;left:50%;transform:translateX(-50%);background:rgba(20,8,32,0.92);color:#5ef38c;border:1px solid #5ef38c;font-family:"VT323",monospace;font-size:22px;padding:6px 14px;border-radius:5px;z-index:90;letter-spacing:2px;pointer-events:none;animation:r8LabSparkPop 1.8s ease-out forwards;text-shadow:0 0 12px #5ef38c;';
+      document.body.appendChild(burst);
+      setTimeout(() => burst.remove(), 1900);
+    }
+    last = cur;
+  }, 500);
+  if (!document.getElementById('r8-lab-spark-style')) {
+    const s = document.createElement('style');
+    s.id = 'r8-lab-spark-style';
+    s.textContent = '@keyframes r8LabSparkPop{0%{opacity:0;transform:translateX(-50%) translateY(12px) scale(0.7)}20%{opacity:1;transform:translateX(-50%) translateY(0) scale(1.18)}45%{transform:translateX(-50%) translateY(-4px) scale(1)}85%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(-30px)}}';
+    document.head.appendChild(s);
+  }
+})();
+
+// ============================================================================
+// v2.8 LAB-022: Tier-unlock toast — at codex thresholds (10/30/50 discoveries),
+// pop a golden "TIER UNLOCKED" toast hinting at new ingredient access. Persists
+// `lab:tierToast:N` so each milestone fires once across runs.
+// ============================================================================
+(function _r8LabTierToast() {
+  const disc = document.getElementById('hud-discovered');
+  if (!disc) return;
+  const milestones = [
+    { n: 10, msg: '★ NOVICE ALCHEMIST', color: '#5ef38c' },
+    { n: 30, msg: '★ ADEPT ALCHEMIST', color: '#9b5de5' },
+    { n: 50, msg: '★ MASTER ALCHEMIST', color: '#ffd23f' },
+  ];
+  setInterval(() => {
+    const cur = parseInt((disc.textContent || '').replace(/^(\d+).*/, '$1'), 10) || 0;
+    milestones.forEach(m => {
+      if (cur >= m.n && !localStorage.getItem('lab:tierToast:' + m.n)) {
+        try { localStorage.setItem('lab:tierToast:' + m.n, '1'); } catch {}
+        const toast = document.createElement('div');
+        toast.textContent = m.msg + ' (' + m.n + ' FOUND)';
+        toast.style.cssText = 'position:fixed;top:24%;left:50%;transform:translateX(-50%);background:rgba(20,8,32,0.96);color:' + m.color + ';border:2px solid ' + m.color + ';font-family:"VT323",monospace;font-size:26px;padding:10px 22px;border-radius:6px;z-index:95;letter-spacing:3px;pointer-events:none;animation:r8LabTierPop 2.6s ease-out forwards;box-shadow:0 0 22px ' + m.color + '88;';
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 2700);
+      }
+    });
+  }, 1200);
+  if (!document.getElementById('r8-lab-tier-style')) {
+    const s = document.createElement('style');
+    s.id = 'r8-lab-tier-style';
+    s.textContent = '@keyframes r8LabTierPop{0%{opacity:0;transform:translateX(-50%) translateY(14px) scale(0.7)}15%{opacity:1;transform:translateX(-50%) translateY(0) scale(1.22)}35%{transform:translateX(-50%) translateY(0) scale(1)}90%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(-14px)}}';
+    document.head.appendChild(s);
+  }
 })();

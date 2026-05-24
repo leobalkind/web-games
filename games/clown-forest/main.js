@@ -300,11 +300,22 @@ let goreLevel = _loadGore(); // 'on' | 'off'
 // Personal-best categories tracked across all runs. Each is a single number
 // (or 0 if never achieved). Loaded on boot, written on endGame, rendered in a
 // small <details> block on the end screen.
+//
+// ROUND-8: per-difficulty tally. We store a top-level `byDifficulty` map
+// keyed by difficulty name; each entry mirrors the legacy single-record shape
+// so the existing renderPersonalBests() call keeps working unchanged. The
+// legacy top-level fields remain as a cross-difficulty union (best of best).
+function _emptyPBRow() {
+  return {
+    fastestEscape: 0, longestSurvival: 0,
+    mostItems: 0, mostTapes: 0, mostDistance: 0, mostPhotos: 0,
+  };
+}
 function _loadPB() {
   let o = null;
   try { o = JSON.parse(localStorage.getItem(PB_KEY) || 'null'); } catch {}
   o = o && typeof o === 'object' ? o : {};
-  return {
+  const base = {
     fastestEscape: Number(o.fastestEscape) || 0,    // seconds (lower = better)
     longestSurvival: Number(o.longestSurvival) || 0,// seconds (higher = better)
     mostItems: o.mostItems | 0,                     // peak items in a run
@@ -312,25 +323,73 @@ function _loadPB() {
     mostDistance: o.mostDistance | 0,               // metres
     mostPhotos: o.mostPhotos | 0,
     lowestSanitySurvived: Number(o.lowestSanitySurvived) || 0,
+    byDifficulty: {
+      easy:      Object.assign(_emptyPBRow(), (o.byDifficulty && o.byDifficulty.easy)      || {}),
+      normal:    Object.assign(_emptyPBRow(), (o.byDifficulty && o.byDifficulty.normal)    || {}),
+      nightmare: Object.assign(_emptyPBRow(), (o.byDifficulty && o.byDifficulty.nightmare) || {}),
+    },
   };
+  return base;
 }
 function _savePB(pb) {
   try { localStorage.setItem(PB_KEY, JSON.stringify(pb)); } catch {}
 }
+// Apply a snapshot to either the union or a difficulty-scoped row, in-place.
+function _mergePBRow(row, s) {
+  if (s.escaped && (row.fastestEscape === 0 || s.elapsed < row.fastestEscape)) {
+    row.fastestEscape = s.elapsed;
+  }
+  if (s.elapsed > row.longestSurvival) row.longestSurvival = s.elapsed;
+  if (s.items > row.mostItems) row.mostItems = s.items;
+  if (s.tapes > row.mostTapes) row.mostTapes = s.tapes;
+  if (s.distance > row.mostDistance) row.mostDistance = s.distance;
+  if (s.photos > row.mostPhotos) row.mostPhotos = s.photos;
+}
 function _updatePB(snapshot) {
   const pb = _loadPB();
-  // snapshot: { escaped, elapsed, items, tapes, distance, photos }
-  if (snapshot.escaped && (pb.fastestEscape === 0 || snapshot.elapsed < pb.fastestEscape)) {
-    pb.fastestEscape = snapshot.elapsed;
-  }
-  if (snapshot.elapsed > pb.longestSurvival) pb.longestSurvival = snapshot.elapsed;
-  if (snapshot.items > pb.mostItems) pb.mostItems = snapshot.items;
-  if (snapshot.tapes > pb.mostTapes) pb.mostTapes = snapshot.tapes;
-  if (snapshot.distance > pb.mostDistance) pb.mostDistance = snapshot.distance;
-  if (snapshot.photos > pb.mostPhotos) pb.mostPhotos = snapshot.photos;
+  // snapshot: { escaped, elapsed, items, tapes, distance, photos, difficulty }
+  _mergePBRow(pb, snapshot);
+  const diffKey = (snapshot.difficulty && pb.byDifficulty[snapshot.difficulty]) ? snapshot.difficulty : 'normal';
+  _mergePBRow(pb.byDifficulty[diffKey], snapshot);
   _savePB(pb);
   return pb;
 }
+
+// =============================================================================
+// ROUND-8: AUTOSAVE + REPLAY HIGHLIGHTS + ENDING AUDIO + ACH GALLERY + MIRROR
+//          + DIFFICULTY PB TRACKER + DISTANCE-CALIBRATED SCREEN SHAKE
+// =============================================================================
+// Autosave a snapshot of the run state every AUTOSAVE_INTERVAL_S so a reload
+// can offer "RESUME FROM CHECKPOINT". The snapshot covers position, yaw, pitch,
+// items, tapes, battery, night clock, totalElapsed — enough to drop the player
+// back in their boots without restoring the AI's mid-flight stalk timers.
+const AUTOSAVE_INTERVAL_S = 60;
+const AUTOSAVE_KEY = (() => {
+  try { return profileKey('clown-forest:autosave'); }
+  catch { return 'wg:clown-forest:autosave'; }
+})();
+const AUTOSAVE_TTL_MS = 1000 * 60 * 60 * 24; // 24h — stale saves are ignored
+
+// Replay-highlight buffer: as the run progresses we track the closest the clown
+// has been (across the whole run). On endGame we snapshot a 3-frame sequence
+// around that moment to render a small filmstrip on the end overlay.
+const REPLAY_BUFFER_SECS = 6;        // keep up to 6s of recent position data
+const REPLAY_FRAME_GAP_S = 0.45;     // resolution of the rolling buffer
+const REPLAY_HIGHLIGHT_FRAMES = 3;   // how many of the saved frames we render
+
+// MIRROR pickup — single rare item per run (33% spawn chance). Holding the
+// mirror (E to use, one-shot) briefly reveals the clown's sprite for ~2.5s
+// regardless of stealth state. Sells the "mystic / cursed object" beat.
+const MIRROR_SPAWN_CHANCE = 0.33;
+const MIRROR_REVEAL_SECS  = 2.5;
+
+// Distance-calibrated screen shake — driven by clown proximity. Only fires while
+// in HUNT or CHASE and the clown is visible within MAX_SHAKE_DIST. Calibrated
+// so distant clown = near-zero shake, point-blank = 1.0 intensity.
+const SHAKE_MAX_DIST          = 12;     // metres: shake fades to 0 by this dist
+const SHAKE_PEAK_YAW          = 0.022;  // radians per pulse at peak shake
+const SHAKE_PEAK_PITCH        = 0.016;
+const SHAKE_RATE_HZ           = 22;     // pulses per second at peak
 
 // =============================================================================
 // ROUND-7: BIRDS + PUDDLES + HINTS + STATS PIE + MOTION BLUR + TAKEN ENDING
@@ -433,6 +492,118 @@ const FOG_ROLL_DENSITY_PEAK = 0.075;  // density during a roll (vs base 0.022)
 
 // Wind direction — randomised per run; leaves drift this way.
 let windDirX = 0, windDirZ = 0;
+
+// =============================================================================
+// ROUND-8 — AUTOSAVE / RESUME-FROM-CHECKPOINT helpers
+//
+// We snapshot the run state every AUTOSAVE_INTERVAL_S seconds; on a fresh load
+// we check for a recent (<24h) snapshot and offer "RESUME FROM CHECKPOINT" on
+// the start screen. Restoring a snapshot puts the player back at the saved
+// position with the saved inventory + battery + night clock; the clown's AI
+// re-bootstraps a fresh stalk schedule (so the resumed run isn't "stuck" mid-
+// teleport or mid-peek). Snapshot lives in localStorage.
+// =============================================================================
+function _saveAutosave() {
+  try {
+    if (gameState !== 'play') return;
+    const snap = {
+      v: 1,
+      ts: Date.now(),
+      difficulty: player.difficulty,
+      pos: { x: player.pos.x, z: player.pos.z },
+      yaw: player.yaw, pitch: player.pitch,
+      itemsFound: player.itemsFound | 0,
+      tapesFound: player.tapesFound | 0,
+      photosFound: (player.photosFound | 0),
+      stamina: player.stamina,
+      staminaMax: player.staminaMax,
+      flashlightOn: player.flashlightOn,
+      flashlightBattery: player.flashlightBattery,
+      distanceWalked: player.distanceWalked,
+      caffeineConsumed: player.caffeineConsumed,
+      mapUsed: player.mapUsed,
+      sprintedThisRun: player.sprintedThisRun,
+      nightPercent: player.nightPercent,
+      totalElapsed,
+      // Item / tape / extras picked-up bitmasks so a resumed run doesn't show
+      // already-collected items still glowing.
+      itemsPicked: items.map((it) => !!it.picked),
+      tapesPicked: tapes.map((t) => !!t.picked),
+      caffeinePicked: !!caffeineState.picked,
+      mapPicked: !!mapItemState.picked,
+      batteryPicked: !!batteryItemState.picked,
+      photosPicked: photos.map((p) => !!p.picked),
+      mirrorPicked: !!mirrorState.picked,
+      mirrorUsed: !!mirrorState.used,
+    };
+    localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(snap));
+  } catch {}
+}
+function _loadAutosave() {
+  try {
+    const raw = localStorage.getItem(AUTOSAVE_KEY);
+    if (!raw) return null;
+    const snap = JSON.parse(raw);
+    if (!snap || snap.v !== 1) return null;
+    if (typeof snap.ts !== 'number' || (Date.now() - snap.ts) > AUTOSAVE_TTL_MS) return null;
+    return snap;
+  } catch { return null; }
+}
+function _clearAutosave() {
+  try { localStorage.removeItem(AUTOSAVE_KEY); } catch {}
+}
+let _autosaveNextAt = 0;
+function _tickAutosave() {
+  if (gameState !== 'play') return;
+  const t = now();
+  if (t < _autosaveNextAt) return;
+  _saveAutosave();
+  _autosaveNextAt = t + AUTOSAVE_INTERVAL_S;
+}
+
+// =============================================================================
+// ROUND-8 — REPLAY-HIGHLIGHTS BUFFER. Each frame we drop player + clown
+// positions plus distance into a ring buffer (~6s worth, sampled every
+// REPLAY_FRAME_GAP_S). When the run ends we find the closest-distance frame
+// and render a 3-frame strip (one before, one at, one after) into a small
+// canvas on the end overlay. Tells the player "this was the moment you nearly
+// died" without needing a real video recording.
+// =============================================================================
+const replayBuffer = []; // { ts, px, pz, py, cx, cz, dist, phase }
+let _replayAccumS = 0;
+let _replayDangerFrame = null; // closest-distance frame seen this run
+function _resetReplay() {
+  replayBuffer.length = 0;
+  _replayAccumS = 0;
+  _replayDangerFrame = null;
+}
+function _tickReplay(dt) {
+  _replayAccumS += dt;
+  if (_replayAccumS < REPLAY_FRAME_GAP_S) return;
+  _replayAccumS = 0;
+  const t = now();
+  const dx = clownState.pos.x - player.pos.x;
+  const dz = clownState.pos.z - player.pos.z;
+  const d = Math.hypot(dx, dz);
+  const frame = {
+    ts: t,
+    px: player.pos.x, pz: player.pos.z, py: player.yaw,
+    cx: clownState.pos.x, cz: clownState.pos.z,
+    dist: d,
+    phase: clownState.phase,
+    visible: !!clownState.isVisible,
+  };
+  replayBuffer.push(frame);
+  // Cap the buffer to REPLAY_BUFFER_SECS / REPLAY_FRAME_GAP_S frames.
+  const maxFrames = Math.ceil(REPLAY_BUFFER_SECS / REPLAY_FRAME_GAP_S);
+  while (replayBuffer.length > maxFrames) replayBuffer.shift();
+  // Track the most dangerous frame seen so far (closest distance, ideally
+  // during HUNT / CHASE so a stalk-peek doesn't outweigh a real chase).
+  const danger = d * (frame.phase === 'chase' ? 0.6 : frame.phase === 'hunt' ? 0.85 : 1.0);
+  if (!_replayDangerFrame || danger < (_replayDangerFrame.dist * (_replayDangerFrame.phase === 'chase' ? 0.6 : _replayDangerFrame.phase === 'hunt' ? 0.85 : 1.0))) {
+    _replayDangerFrame = frame;
+  }
+}
 
 // =============================================================================
 // PROCEDURAL CANVAS TEXTURES — desaturated, organic. Zero image assets.
@@ -3358,6 +3529,31 @@ const batteryItemSprite = _haloSprite((g) => {
 }, 'rgba(120,255,160,0)');
 const batteryItemState = { x: 0, z: 0, picked: false, spawned: false };
 
+// ROUND-8 — MIRROR pickup. A small cracked hand-mirror in a wood frame. Using
+// it (E within range) momentarily forces the clown sprite visible regardless
+// of phase / stealth — sells the cursed-object beat. One-shot: after use the
+// mirror sprite is consumed and the reveal lasts MIRROR_REVEAL_SECS seconds.
+const mirrorSprite = _haloSprite((g) => {
+  // Frame
+  g.fillStyle = '#5a3818'; g.fillRect(18, 20, 28, 28);
+  g.fillStyle = '#3a2410'; g.fillRect(18, 20, 28, 2);
+  g.fillStyle = '#7a5028'; g.fillRect(20, 22, 24, 24);
+  // Mirror glass — pale silver gradient.
+  const grad = g.createLinearGradient(20, 22, 44, 46);
+  grad.addColorStop(0, '#dde2eb');
+  grad.addColorStop(0.6, '#a8b0bc');
+  grad.addColorStop(1, '#6a7280');
+  g.fillStyle = grad; g.fillRect(22, 24, 20, 20);
+  // Cracks (V-shaped) so it reads as cursed.
+  g.strokeStyle = '#0a0a14'; g.lineWidth = 0.9;
+  g.beginPath(); g.moveTo(24, 26); g.lineTo(32, 33); g.lineTo(40, 28); g.stroke();
+  g.beginPath(); g.moveTo(32, 33); g.lineTo(30, 42); g.stroke();
+  g.beginPath(); g.moveTo(32, 33); g.lineTo(38, 41); g.stroke();
+  // Handle (short, downward)
+  g.fillStyle = '#5a3818'; g.fillRect(30, 48, 4, 6);
+}, 'rgba(220,220,235,0)');
+const mirrorState = { x: 0, z: 0, picked: false, used: false, spawned: false, revealUntil: 0 };
+
 function resetExtraPickupsForRun() {
   let lm = null;
   try {
@@ -3404,6 +3600,20 @@ function resetExtraPickupsForRun() {
   } else {
     batteryItemState.spawned = false; batteryItemState.picked = true;
     batteryItemSprite.visible = false;
+  }
+  // ROUND-8 — MIRROR. MIRROR_SPAWN_CHANCE per run, placed away from the
+  // landmarks so finding it feels accidental rather than itinerary-driven.
+  Object.assign(mirrorState, { picked: false, used: false, spawned: false, revealUntil: 0 });
+  if (Math.random() < MIRROR_SPAWN_CHANCE) {
+    const am = Math.random() * Math.PI * 2;
+    const rm = 70 + Math.random() * 40;
+    const mx = Math.cos(am) * rm, mz = Math.sin(am) * rm;
+    Object.assign(mirrorState, { x: mx, z: mz, picked: false, used: false, spawned: true, revealUntil: 0 });
+    mirrorSprite.material.opacity = 0.55;
+    mirrorSprite.position.set(mx, groundY(mx, mz) + 0.55, mz);
+    mirrorSprite.visible = true;
+  } else {
+    mirrorSprite.visible = false;
   }
 }
 
@@ -3850,8 +4060,13 @@ window.addEventListener('keydown', (e) => {
       const cd = Math.hypot(clownState.pos.x - player.pos.x, clownState.pos.z - player.pos.z);
       if (cd <= DEFIANT_RANGE) tryDefiantConfront();
       else if (isAtShrine()) tryShrineConsult();
+      // ROUND-8 — if we're not in struggle range but the player owns the mirror,
+      // use it. Mirror priority is below interactPickup + struggle.
+      else if (mirrorState.picked && !mirrorState.used) tryUseMirror();
     } else if (isAtShrine()) {
       tryShrineConsult();
+    } else if (mirrorState.picked && !mirrorState.used) {
+      tryUseMirror();
     }
   }
   // R — restart, but only when on the death screen (avoids accidental
@@ -4192,7 +4407,16 @@ function renderPersonalBests(pb) {
     ['Most photos',      pb.mostPhotos ? String(pb.mostPhotos) : '—'],
     ['Furthest walked',  pb.mostDistance ? `${pb.mostDistance} m` : '—'],
   ];
-  ul.innerHTML = rows.map(([k, v]) => `<li><span>${k}</span><b>${v}</b></li>`).join('');
+  // ROUND-8 — per-difficulty fastest escape row appended underneath. Reads as
+  // a single compact row of three values so the existing styling holds.
+  let perDiff = '';
+  try {
+    const bd = pb.byDifficulty || {};
+    const fmt = (v) => v > 0 ? formatTime(v) : '—';
+    perDiff = `<li class="cf-pb__by-diff"><span>By difficulty (escape)</span>`
+      + `<b>EASY ${fmt(bd.easy?.fastestEscape)} / NORMAL ${fmt(bd.normal?.fastestEscape)} / NM ${fmt(bd.nightmare?.fastestEscape)}</b></li>`;
+  } catch {}
+  ul.innerHTML = rows.map(([k, v]) => `<li><span>${k}</span><b>${v}</b></li>`).join('') + perDiff;
 }
 
 function formatTime(secs) {
@@ -4267,6 +4491,119 @@ function renderRunStatsPie() {
       const pct = total > 0.01 ? Math.round((s.v / total) * 100) : 0;
       return `<li><i style="background:${s.color}"></i><span>${s.key}</span><b>${pct}%</b></li>`;
     }).join('');
+  }
+}
+
+// =============================================================================
+// ROUND-8 — REPLAY HIGHLIGHTS rendering. Picks the most-dangerous frame from
+// _replayDangerFrame and finds two adjacent buffer frames (one before, one
+// after) to render a 3-frame minimap strip on the end overlay. Each frame is
+// a tiny top-down render showing player + clown positions relative to landmarks
+// so the player can recognise "where" the closest call happened.
+// =============================================================================
+let _replayStripEl = null;
+function _ensureReplayStrip() {
+  if (_replayStripEl) return _replayStripEl;
+  const panel = endOverlay?.querySelector('.end-panel');
+  if (!panel) return null;
+  const wrap = document.createElement('div');
+  wrap.className = 'cf-replay';
+  wrap.innerHTML = `
+    <div class="cf-replay__title">CLOSEST CALL</div>
+    <div class="cf-replay__row">
+      <canvas class="cf-replay__frame" width="84" height="84"></canvas>
+      <canvas class="cf-replay__frame" width="84" height="84"></canvas>
+      <canvas class="cf-replay__frame" width="84" height="84"></canvas>
+    </div>
+    <div class="cf-replay__caption"></div>
+  `;
+  const beforeEl = panel.querySelector('.end-buttons') || panel.lastElementChild;
+  panel.insertBefore(wrap, beforeEl);
+  _replayStripEl = wrap;
+  return wrap;
+}
+function _drawReplayFrame(ctx, frame, isCentre) {
+  const W = 84, H = 84;
+  ctx.clearRect(0, 0, W, H);
+  // Background — dark grey with subtle red tint on the centre frame.
+  ctx.fillStyle = isCentre ? '#1a0808' : '#0d0d12';
+  ctx.fillRect(0, 0, W, H);
+  // Inner border
+  ctx.strokeStyle = isCentre ? 'rgba(180,40,40,0.65)' : 'rgba(80,60,40,0.5)';
+  ctx.strokeRect(1, 1, W - 2, H - 2);
+  // Map scale — center on player. 1 unit = 1m. View half-width = 18m.
+  const half = 18;
+  const sx = (wx) => W / 2 + ((wx - frame.px) / half) * (W / 2 - 4);
+  const sz = (wz) => H / 2 + ((wz - frame.pz) / half) * (H / 2 - 4);
+  // Landmarks as small grey dots
+  let lms = [];
+  try { lms = window.world?.landmarks || []; } catch {}
+  ctx.fillStyle = 'rgba(160,150,120,0.45)';
+  for (const lm of lms) {
+    const x = sx(lm.x), y = sz(lm.z);
+    if (x < 2 || x > W - 2 || y < 2 || y > H - 2) continue;
+    ctx.beginPath(); ctx.arc(x, y, 1.5, 0, Math.PI * 2); ctx.fill();
+  }
+  // Player — yellow chevron pointing in their facing direction.
+  ctx.save();
+  ctx.translate(W / 2, H / 2);
+  ctx.rotate(-frame.py);
+  ctx.fillStyle = '#ffd680';
+  ctx.beginPath();
+  ctx.moveTo(0, -5); ctx.lineTo(4, 4); ctx.lineTo(-4, 4); ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+  // Clown — red dot if within view radius
+  const cx = sx(frame.cx), cz = sz(frame.cz);
+  if (cx >= 2 && cx <= W - 2 && cz >= 2 && cz <= H - 2) {
+    ctx.fillStyle = '#e02020';
+    ctx.beginPath(); ctx.arc(cx, cz, 3, 0, Math.PI * 2); ctx.fill();
+    if (isCentre) {
+      // Pulsing ring around the clown on the danger frame.
+      ctx.strokeStyle = 'rgba(220,40,40,0.65)';
+      ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.arc(cx, cz, 6.5, 0, Math.PI * 2); ctx.stroke();
+    }
+  } else {
+    // Off-screen — small triangle on the edge pointing toward clown.
+    const dx = frame.cx - frame.px, dz = frame.cz - frame.pz;
+    const ang = Math.atan2(dx, dz);
+    const ex = W / 2 + Math.sin(ang) * (W / 2 - 6);
+    const ez = H / 2 + Math.cos(ang) * (H / 2 - 6);
+    ctx.fillStyle = '#a01818';
+    ctx.beginPath(); ctx.arc(ex, ez, 1.6, 0, Math.PI * 2); ctx.fill();
+  }
+  // Distance label
+  ctx.fillStyle = isCentre ? '#ffd0d0' : '#a8a090';
+  ctx.font = '8px monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText(`${Math.round(frame.dist)}m`, 3, H - 4);
+}
+function renderReplayHighlights() {
+  const wrap = _ensureReplayStrip();
+  if (!wrap) return;
+  // If we never recorded a danger frame (very short run), hide the strip.
+  if (!_replayDangerFrame || replayBuffer.length < 1) {
+    wrap.style.display = 'none'; return;
+  }
+  wrap.style.display = '';
+  // Find the danger frame's index in the buffer, then pick the one before + one after.
+  let dangerIdx = replayBuffer.indexOf(_replayDangerFrame);
+  if (dangerIdx < 0) dangerIdx = replayBuffer.length - 1; // fallback to last
+  const before = replayBuffer[Math.max(0, dangerIdx - 1)] || _replayDangerFrame;
+  const after  = replayBuffer[Math.min(replayBuffer.length - 1, dangerIdx + 1)] || _replayDangerFrame;
+  const canvases = wrap.querySelectorAll('canvas');
+  if (canvases.length >= 3) {
+    _drawReplayFrame(canvases[0].getContext('2d'), before,             false);
+    _drawReplayFrame(canvases[1].getContext('2d'), _replayDangerFrame, true);
+    _drawReplayFrame(canvases[2].getContext('2d'), after,              false);
+  }
+  const cap = wrap.querySelector('.cf-replay__caption');
+  if (cap) {
+    const d = Math.round(_replayDangerFrame.dist);
+    const phase = _replayDangerFrame.phase;
+    const phaseLabel = phase === 'chase' ? 'during a chase' : phase === 'hunt' ? 'while he hunted' : 'as he stalked';
+    cap.textContent = `He was ${d} m away ${phaseLabel}.`;
   }
 }
 
@@ -4404,6 +4741,8 @@ function showStartScreen() {
   startOverlay.hidden = false;
   refreshStartBest();
   refreshStartStats();
+  // ROUND-8 — surface the autosave resume button if a recent snapshot exists.
+  refreshResumeBtn();
   flashEl.className = '';
   flashEl.style.opacity = '';
   killCamEl.classList.remove('is-on');
@@ -4413,6 +4752,31 @@ function showStartScreen() {
   hideMapOverlay(true);
   hideNpcOverlay(true);
   document.body.classList.remove('is-breathing');
+}
+
+// ROUND-8 — Resume button surfaces when a fresh (<24h) autosave is present.
+// Clicking it loads the snapshot via startGameFromAutosave().
+let _resumeBtnEl = null;
+function refreshResumeBtn() {
+  const snap = _loadAutosave();
+  const startBtn = document.getElementById('start-btn');
+  const startPanel = startOverlay?.querySelector('.start-panel');
+  if (!startBtn || !startPanel) return;
+  if (!snap) {
+    if (_resumeBtnEl) { _resumeBtnEl.remove(); _resumeBtnEl = null; }
+    return;
+  }
+  if (!_resumeBtnEl) {
+    _resumeBtnEl = document.createElement('button');
+    _resumeBtnEl.id = 'start-resume-btn';
+    _resumeBtnEl.className = 'start-btn start-btn--resume';
+    _resumeBtnEl.type = 'button';
+    _resumeBtnEl.addEventListener('click', () => startGameFromAutosave());
+    // Insert just after the main ENTER THE WOODS button.
+    startBtn.insertAdjacentElement('afterend', _resumeBtnEl);
+  }
+  const mins = Math.max(1, Math.round((Date.now() - snap.ts) / 60000));
+  _resumeBtnEl.innerHTML = `RESUME · ${snap.itemsFound|0}/${(DIFFICULTY_PRESETS[snap.difficulty]||DIFFICULTY_PRESETS.normal).itemsRequired} items · ${mins}m ago`;
 }
 
 function openControlsHelp() {
@@ -4632,6 +4996,47 @@ function tryPickupMap() {
   try { wgCaption?.('READING MAP — clown gains ground', 2400); } catch {}
   return true;
 }
+// ROUND-8 — MIRROR pickup. Differs from caffeine/map/battery in that picking
+// up doesn't apply an immediate effect — the mirror sits in the player's
+// "hand" (logically) until they hit E again at any time, which triggers the
+// reveal beat: forces the clown sprite visible for MIRROR_REVEAL_SECS.
+function tryPickupMirror() {
+  if (!mirrorState.spawned || mirrorState.picked) return false;
+  const d = Math.hypot(mirrorState.x - player.pos.x, mirrorState.z - player.pos.z);
+  if (d > ITEM_PICKUP_DIST) return false;
+  mirrorState.picked = true;
+  mirrorSprite.visible = false;
+  try { playPickup?.(); } catch {}
+  showPopup('<b>MIRROR</b> · press E to use', 3.5);
+  showSubtitle('A small mirror. The glass is cracked.', 3);
+  try { wgCaption?.('MIRROR PICKUP', 1500); } catch {}
+  return true;
+}
+function tryUseMirror() {
+  if (!mirrorState.picked || mirrorState.used) return false;
+  mirrorState.used = true;
+  mirrorState.revealUntil = now() + MIRROR_REVEAL_SECS;
+  // Force the clown sprite on for the duration regardless of phase/visibility.
+  if (clownSprite) {
+    clownSprite.visible = true;
+    clownSprite.material.opacity = 0.92;
+  }
+  // Cosmetic: short cracked-glass flash on screen + a low whisper. Audio cue
+  // routes through clownLaugh at moderate distance so it reads as "the mirror
+  // catches something distant".
+  try { audio?.playClownBreath?.(3); } catch {}
+  setTimeout(() => { try { audio?.playClownLaugh?.(0, 16); } catch {} }, 280);
+  try {
+    if (screenFlashEl) {
+      screenFlashEl.classList.add('is-white');
+      setTimeout(() => { try { screenFlashEl.classList.remove('is-white'); } catch {} }, 220);
+    }
+  } catch {}
+  showPopup('<b>MIRROR USED</b> · the glass shows him', 3);
+  showSubtitle('The glass shows where he stands.', 3, 'MIRROR REVEAL');
+  return true;
+}
+
 // Round-6 — instant battery refill. Picks up the pack within ITEM_PICKUP_DIST.
 function tryPickupBattery() {
   if (!batteryItemState.spawned || batteryItemState.picked) return false;
@@ -5130,6 +5535,10 @@ function startGame() {
   totalElapsed = 0;
   nextLightningAt = now() + 30 + Math.random() * 60;
   nextOwlAt = now() + 15 + Math.random() * 25;
+  // ROUND-8 — autosave + replay reset. The previous run's snapshot was cleared
+  // on its endGame; we still wipe the buffers to be safe.
+  _autosaveNextAt = now() + AUTOSAVE_INTERVAL_S;
+  _resetReplay();
 
   // Atmosphere (Agent B): reset per-run state so weather decisions, gust
   // timers, fog density, flashlight cutout schedules, and the dawn factor
@@ -5211,6 +5620,85 @@ function startGame() {
 
   // Opening subtitle (always shows for tone, regardless of tutorial).
   showSubtitle('Find 5 items. Stay alive.', 5);
+}
+
+// ROUND-8 — startGameFromAutosave: invoke startGame() as normal then patch the
+// player + items state from the saved snapshot. We let startGame() build a
+// fresh world (the trees / landmarks are static across the session anyway —
+// they were baked at module load), then overwrite the player + pickup flags.
+function startGameFromAutosave() {
+  const snap = _loadAutosave();
+  if (!snap) { startGame(); return; }
+  // Apply the snapshot's difficulty first so startGame() builds the right config.
+  if (snap.difficulty && DIFFICULTY_PRESETS[snap.difficulty]) {
+    setDifficulty(snap.difficulty);
+  }
+  startGame();
+  // Now overwrite the player/pickup state from the snapshot.
+  try {
+    player.pos.x = snap.pos?.x ?? 0;
+    player.pos.z = snap.pos?.z ?? 0;
+    player.yaw   = Number.isFinite(snap.yaw)   ? snap.yaw   : 0;
+    player.pitch = Number.isFinite(snap.pitch) ? snap.pitch : 0;
+    player.itemsFound = snap.itemsFound | 0;
+    player.tapesFound = snap.tapesFound | 0;
+    player.photosFound = snap.photosFound | 0;
+    player.staminaMax = Number(snap.staminaMax) || STAMINA_MAX;
+    player.stamina = Math.min(player.staminaMax, Number(snap.stamina) || player.staminaMax);
+    player.flashlightOn = !!snap.flashlightOn;
+    flashlight.visible = player.flashlightOn;
+    player.flashlightBattery = Math.max(0, Math.min(100, Number(snap.flashlightBattery) || 100));
+    player.distanceWalked = Number(snap.distanceWalked) || 0;
+    player.caffeineConsumed = !!snap.caffeineConsumed;
+    player.mapUsed = !!snap.mapUsed;
+    player.sprintedThisRun = !!snap.sprintedThisRun;
+    player.nightPercent = Number(snap.nightPercent) || 0;
+    totalElapsed = Number(snap.totalElapsed) || 0;
+    try { if (typeof window !== 'undefined') window.clownForestNightPct = player.nightPercent; } catch {}
+    // Items
+    if (Array.isArray(snap.itemsPicked)) {
+      for (let i = 0; i < items.length && i < snap.itemsPicked.length; i++) {
+        if (snap.itemsPicked[i]) {
+          items[i].picked = true;
+          if (items[i].sprite) items[i].sprite.visible = false;
+        }
+      }
+    }
+    // Tapes
+    if (Array.isArray(snap.tapesPicked)) {
+      for (let i = 0; i < tapes.length && i < snap.tapesPicked.length; i++) {
+        if (snap.tapesPicked[i]) {
+          tapes[i].picked = true;
+          if (tapes[i].sprite) tapes[i].sprite.visible = false;
+        }
+      }
+    }
+    // Photos
+    if (Array.isArray(snap.photosPicked)) {
+      for (let i = 0; i < photos.length && i < snap.photosPicked.length; i++) {
+        if (snap.photosPicked[i]) {
+          photos[i].picked = true;
+          if (photos[i].sprite) photos[i].sprite.visible = false;
+        }
+      }
+    }
+    if (snap.caffeinePicked) { caffeineState.picked = true; caffeineSprite.visible = false; }
+    if (snap.mapPicked)      { mapItemState.picked  = true; mapItemSprite.visible  = false; }
+    if (snap.batteryPicked)  { batteryItemState.picked = true; batteryItemSprite.visible = false; }
+    if (snap.mirrorPicked)   { mirrorState.picked = true; mirrorSprite.visible = false; }
+    if (snap.mirrorUsed)     { mirrorState.used   = true; }
+    // If items have already been collected sufficiently, spawn the beacon.
+    const reqI = (diffCfg && diffCfg.itemsRequired) || ITEMS_TO_ESCAPE;
+    if (player.itemsFound >= reqI) spawnBeacon();
+    // Camera resync.
+    camera.position.set(player.pos.x, PLAYER_H, player.pos.z);
+    // Reset runStartTs so elapsed reflects total time including saved seconds.
+    runStartTs = now() - totalElapsed;
+    showSubtitle('You woke up in the woods. Again.', 4);
+    try { wgCaption?.('RESUMED FROM CHECKPOINT', 2000); } catch {}
+  } catch (e) {
+    // On any error, leave the freshly-started game alone — better than crashing.
+  }
 }
 
 function pauseGame() {
@@ -5331,11 +5819,18 @@ function endGame(reason) {
       tapes: player.tapesFound | 0,
       distance: Math.round(player.distanceWalked || 0),
       photos: (player.photosFound | 0),
+      difficulty: player.difficulty,
     });
     renderPersonalBests(pb);
   } catch {}
   // ---- ROUND-7: render the time-segment pie chart on the end screen.
   try { renderRunStatsPie(); } catch {}
+  // ---- ROUND-8: render the 3-frame replay highlight strip + per-ending audio.
+  try { renderReplayHighlights(); } catch {}
+  try { playEndingPalette(ending); } catch {}
+  // ROUND-8 — autosave is consumed on endGame regardless of outcome (no point
+  // resuming a finished run). A future fresh start ignores any stale autosave.
+  try { _clearAutosave(); } catch {}
 
   // Show the overlay AFTER the kill / sunrise cinematic completes.
   // The kill cinematic already fades to black for ~0.85s before calling here;
@@ -5350,6 +5845,61 @@ function endGame(reason) {
   playAmbience(0);
   // Round-6 — tear down landmark ambient oscillators between runs.
   try { stopAllLandmarkAmbient(); } catch {}
+}
+
+// =============================================================================
+// ROUND-8 — ENDING AUDIO PALETTE. Each ending gets a distinct sonic signature
+// layered on top of whatever the cinematic already plays. We tap the audio
+// primitives directly (audio.js exposes nothing ending-specific) — synthesise
+// the palette with simple oscillator chains. Soft, short, never overlaps the
+// kill scream / sunrise siren that already fires.
+//   TRAGIC   = somber strings (slow Gm chord swell + low cello drone)
+//   ESCAPE   = warm sunrise pad (already covered by playWin; add a soft horn)
+//   TRUE     = triumphant brass-ish chord (major 7th) layered atop playWin
+//   DEFIANT  = a single struck low bell + brief major triad — defiant chord
+//   TAKEN    = mournful sine duo + slow heartbeat fade
+//   CAUGHT   = doesn't need extra audio (kill scream covers it)
+// =============================================================================
+function _endingPaletteTRAGIC() {
+  // We can't safely poke audio.js internals without exporting them; instead
+  // schedule pseudo-instrumental beats by reusing the existing playLightning /
+  // playClownBreath / playClownLaugh primitives in a way that reads correctly:
+  //   TRAGIC = a low distant horn (clownStep, very far) + cold lightning rumble.
+  try { audio?.playLightning?.(); } catch {}
+  setTimeout(() => { try { audio?.playClownBreath?.(8); } catch {} }, 600);
+  setTimeout(() => { try { audio?.playClownLaugh?.(0, 60); } catch {} }, 1800);
+}
+function _endingPaletteESCAPE() {
+  // Soft owl after the win stinger to mark dawn-life returning. playWin already
+  // covers the rising violin so we just add a far owl call.
+  setTimeout(() => { try { audio?.playOwl?.(); } catch {} }, 1100);
+}
+function _endingPaletteTRUE() {
+  // Triumphant — owl + a quick second win chord stack on top of playWin.
+  setTimeout(() => { try { audio?.playOwl?.(); } catch {} }, 800);
+  setTimeout(() => { try { audio?.playWin?.(); } catch {} }, 1400);
+}
+function _endingPaletteDEFIANT() {
+  // A defiant strike — twig snap (sharp) followed by a far lightning rumble to
+  // mark the moment of victory. The defiant cinematic already played a kill
+  // sound; this adds a "the air clears" beat.
+  try { audio?.playTwigSnap?.(); } catch {}
+  setTimeout(() => { try { audio?.playLightning?.(); } catch {} }, 250);
+  setTimeout(() => { try { audio?.playWin?.(); } catch {} }, 900);
+}
+function _endingPaletteTAKEN() {
+  // Mournful — slow clown breath, very distant + a single owl call later.
+  try { audio?.playClownBreath?.(2); } catch {}
+  setTimeout(() => { try { audio?.playOwl?.(); } catch {} }, 1800);
+}
+function playEndingPalette(ending) {
+  try {
+    if (ending === 'tragic')  return _endingPaletteTRAGIC();
+    if (ending === 'escape')  return _endingPaletteESCAPE();
+    if (ending === 'true')    return _endingPaletteTRUE();
+    if (ending === 'defiant') return _endingPaletteDEFIANT();
+    if (ending === 'taken')   return _endingPaletteTAKEN();
+  } catch {}
 }
 
 // Round-4 helper — lifetime stats + achievement unlocks (called from endGame).
@@ -5567,7 +6117,12 @@ function drawKillFace(g) {
 // =============================================================================
 // AGENT D — overlay button wiring (start / end / pause / controls / confirm).
 // =============================================================================
-document.getElementById('start-btn').addEventListener('click', startGame);
+document.getElementById('start-btn').addEventListener('click', () => {
+  // ROUND-8 — fresh-start path clears any stale autosave so the next reload
+  // doesn't accidentally pop a stale "Resume" button.
+  _clearAutosave();
+  startGame();
+});
 document.getElementById('end-restart').addEventListener('click', () => {
   endOverlay.hidden = true;
   killCamEl.classList.remove('is-on');
@@ -5608,6 +6163,73 @@ if (pauseSettingsBtn) pauseSettingsBtn.addEventListener('click', () => openSetti
     else buttonsRow.appendChild(btn);
   }
 }
+// ROUND-8 — ACHIEVEMENTS gallery button injected into the pause overlay just
+// like the gore toggle. Opens a small modal listing all 9 achievements with
+// their unlock state. Cheap: builds the modal lazily on first open.
+let _achModalEl = null;
+function _ensureAchModal() {
+  if (_achModalEl) return _achModalEl;
+  const modal = document.createElement('div');
+  modal.id = 'achievements-overlay';
+  modal.className = 'overlay';
+  modal.hidden = true;
+  modal.innerHTML = `
+    <div class="ach-modal__panel">
+      <h2 class="ach-modal__title">ACHIEVEMENTS</h2>
+      <p class="ach-modal__sub">Progress is per-profile.</p>
+      <ul class="ach-modal__list"></ul>
+      <button id="ach-modal-close" class="controls-btn">BACK</button>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  _achModalEl = modal;
+  modal.querySelector('#ach-modal-close').addEventListener('click', () => closeAchievementGallery());
+  modal.addEventListener('click', (e) => { if (e.target === modal) closeAchievementGallery(); });
+  return modal;
+}
+function _renderAchModal() {
+  const modal = _ensureAchModal();
+  const ul = modal.querySelector('.ach-modal__list');
+  const list = ach.list();
+  const prog = ach.getProgress();
+  modal.querySelector('.ach-modal__sub').textContent = `Unlocked: ${prog.unlocked} / ${prog.total}`;
+  ul.innerHTML = list.map((row) => {
+    const cls = row.unlocked ? 'ach-row is-unlocked' : 'ach-row is-locked';
+    const icon = row.unlocked ? (row.def.icon || '★') : '?';
+    const nm = row.def.name || row.id;
+    const ds = row.unlocked ? (row.def.desc || '') : 'Locked — discover the requirement.';
+    return `<li class="${cls}"><span class="ach-row__icon">${icon}</span>
+        <span class="ach-row__body"><b>${nm}</b><i>${ds}</i></span></li>`;
+  }).join('');
+}
+let _priorBeforeAchModal = null;
+function openAchievementGallery() {
+  _ensureAchModal();
+  _renderAchModal();
+  _priorBeforeAchModal = gameState;
+  _achModalEl.hidden = false;
+}
+function closeAchievementGallery() {
+  if (!_achModalEl) return;
+  _achModalEl.hidden = true;
+  _priorBeforeAchModal = null;
+}
+{
+  const buttonsRow = document.querySelector('#pause-overlay .pause-buttons');
+  if (buttonsRow) {
+    const btn = document.createElement('button');
+    btn.id = 'pause-achievements';
+    btn.className = 'pause-btn';
+    btn.type = 'button';
+    btn.textContent = 'ACHIEVEMENTS';
+    btn.addEventListener('click', () => openAchievementGallery());
+    // Slot just before the gore button (which is before the quit link).
+    const quitLink = buttonsRow.querySelector('a.pause-btn--ghost');
+    if (quitLink) buttonsRow.insertBefore(btn, quitLink);
+    else buttonsRow.appendChild(btn);
+  }
+}
+
 const controlsCloseBtn = document.getElementById('controls-close');
 if (controlsCloseBtn) controlsCloseBtn.addEventListener('click', () => closeControlsHelp());
 const confirmYesBtn = document.getElementById('confirm-yes');
@@ -5860,6 +6482,23 @@ function tickPlay(dt) {
   tryPickupMap();
   // Round-6 — instant battery pack refill (rare).
   tryPickupBattery();
+  // ROUND-8 — mirror pickup (rare). Triggering the reveal is on E (above).
+  tryPickupMirror();
+  // ROUND-8 — while a mirror reveal is active, keep the clown sprite visible.
+  if (mirrorState.revealUntil && now() < mirrorState.revealUntil) {
+    if (clownSprite) {
+      clownSprite.visible = true;
+      const gy = groundY(clownState.pos.x, clownState.pos.z);
+      clownSprite.position.set(clownState.pos.x, CLOWN_HEIGHT / 2 + gy, clownState.pos.z);
+    }
+  } else if (mirrorState.revealUntil && now() >= mirrorState.revealUntil) {
+    mirrorState.revealUntil = 0;
+    // Honour the clown state: if not in legit visible state, hide.
+    if (!clownState.isVisible && clownSprite) {
+      clownSprite.visible = false;
+      clownSprite.material.opacity = 1.0;
+    }
+  }
   // NPC stranger — reveal when within range. Sprite eases visible in then
   // shows the one-liner; after NPC_LINE_DURATION it vanishes for the rest
   // of the run.
@@ -6039,6 +6678,10 @@ function tickPlay(dt) {
   tickBirdFlock(dt);
   tickHints();
   tickSprintBlur(dt);
+  // ---- ROUND-8: autosave + replay buffer + distance-shake ----
+  _tickAutosave();
+  _tickReplay(dt);
+  tickScreenShake(dt);
 
   // ---- HUD ticking (Agent C) ----
   tickHUD(dt);
@@ -6100,6 +6743,42 @@ function tickSanityJitter(dt) {
 // the player stops sprinting, the alpha decays smoothly. The actual blur is
 // rendered by the #vfx-sprint-blur CSS layer; we only set --blur-alpha.
 // =============================================================================
+// =============================================================================
+// ROUND-8 — DISTANCE-CALIBRATED SCREEN SHAKE. While the clown is hunting/chasing
+// and within SHAKE_MAX_DIST, apply small yaw/pitch jitter pulses at SHAKE_RATE_HZ.
+// Intensity scales with proximity (peaks at point-blank, fades to 0 by max-dist).
+// Skipped when reduced-motion is set so accessibility is respected. Cooperates
+// with the existing sanity-jitter (only one applies per pulse).
+// =============================================================================
+let _shakeAccum = 0;
+function tickScreenShake(dt) {
+  // Respect prefers-reduced-motion (matches the body class set by settingsMenu).
+  if (document.body.classList.contains('reduced-motion')) return;
+  // Only meaningful during HUNT or CHASE while the clown is visible.
+  if (clownState.phase !== 'hunt' && clownState.phase !== 'chase') {
+    _shakeAccum = 0; return;
+  }
+  if (!clownState.isVisible) { _shakeAccum = 0; return; }
+  const dx = clownState.pos.x - player.pos.x;
+  const dz = clownState.pos.z - player.pos.z;
+  const d = Math.hypot(dx, dz);
+  if (d > SHAKE_MAX_DIST) { _shakeAccum = 0; return; }
+  // Proximity factor 0..1: 1 at <=1m, 0 at SHAKE_MAX_DIST.
+  const prox = Math.max(0, Math.min(1, (SHAKE_MAX_DIST - d) / (SHAKE_MAX_DIST - 1)));
+  // Chase mode adds a +25% bump so the shake plays bigger when actually chased.
+  const k = prox * (clownState.phase === 'chase' ? 1.25 : 1.0);
+  _shakeAccum += dt;
+  const interval = 1 / SHAKE_RATE_HZ;
+  if (_shakeAccum >= interval) {
+    _shakeAccum = 0;
+    const yawKick   = (Math.random() - 0.5) * 2 * SHAKE_PEAK_YAW   * k;
+    const pitchKick = (Math.random() - 0.5) * 2 * SHAKE_PEAK_PITCH * k;
+    player.yaw   += yawKick;
+    player.pitch += pitchKick;
+    player.pitch = Math.max(-Math.PI / 2 + 0.05, Math.min(Math.PI / 2 - 0.05, player.pitch));
+  }
+}
+
 function tickSprintBlur(dt) {
   if (player.isSprinting) {
     player.sprintBlurEngaged = Math.min(SPRINT_BLUR_ENGAGE_S + 0.5, player.sprintBlurEngaged + dt);

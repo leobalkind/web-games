@@ -2549,12 +2549,18 @@ if (_startOv) {
     setTimeout(() => p.remove(), 750);
   };
   // Best-effort: watch the served counter, and when patience-related leavings
-  // happen (lives drop), trigger a puff
+  // happen (lives drop), trigger a puff.
+  // FIX: previously compared string LENGTH instead of numeric value — going
+  // from 3→2 lives (length 1→1) never triggered, so the puff only ever fired
+  // when crossing the 10-lives digit boundary.
   const lives = document.getElementById('hud-lives');
   if (lives) {
-    let last = (lives.textContent || '').length;
+    const parseLives = () => parseInt((lives.textContent || '').replace(/\D/g, ''), 10);
+    let last = parseLives();
+    if (!Number.isFinite(last)) last = 0;
     setInterval(() => {
-      const cur = (lives.textContent || '').length;
+      const cur = parseLives();
+      if (!Number.isFinite(cur)) return;
       if (cur < last) window.__cafeCustomerLeft();
       last = cur;
     }, 350);
@@ -2664,4 +2670,90 @@ if (_startOv) {
     }
     last = cur;
   }, 800);
+})();
+
+// ============================================================================
+// v2.8 CAFE-021: Money milestone toasts — at $100, $500, $1000 in a single
+// shift, pop a celebratory green chip "$100 MILESTONE!". Resets per run.
+// ============================================================================
+(function _r8CafeMoneyMilestone() {
+  const money = document.getElementById('hud-money');
+  if (!money) return;
+  const milestones = [100, 500, 1000];
+  let hit = new Set();
+  let last = 0;
+  setInterval(() => {
+    const cur = parseInt((money.textContent || '').replace(/\D/g, ''), 10) || 0;
+    if (cur < last - 50) hit.clear();
+    milestones.forEach(m => {
+      if (cur >= m && !hit.has(m)) {
+        hit.add(m);
+        const toast = document.createElement('div');
+        toast.textContent = '$' + m + ' MILESTONE!';
+        toast.style.cssText = 'position:fixed;top:30%;left:50%;transform:translateX(-50%);background:rgba(8,30,16,0.95);color:#ffd23f;border:2px solid #ffd23f;font-family:"VT323",monospace;font-size:24px;padding:8px 18px;border-radius:6px;z-index:90;letter-spacing:2px;pointer-events:none;animation:r8CafeMoneyPop 1.8s ease-out forwards;box-shadow:0 0 18px rgba(255,210,63,0.6);';
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 1900);
+      }
+    });
+    last = cur;
+  }, 600);
+  if (!document.getElementById('r8-cafe-money-style')) {
+    const s = document.createElement('style');
+    s.id = 'r8-cafe-money-style';
+    s.textContent = '@keyframes r8CafeMoneyPop{0%{opacity:0;transform:translateX(-50%) translateY(12px) scale(0.7)}20%{opacity:1;transform:translateX(-50%) translateY(0) scale(1.2)}45%{transform:translateX(-50%) translateY(0) scale(1)}85%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(-10px)}}';
+    document.head.appendChild(s);
+  }
+})();
+
+// ============================================================================
+// v2.8 CAFE-023: Order count chip — shows live order queue length below the
+// HUD; reads `.cafe-orders > *` count or `#hud-orders` children count and
+// updates every 600ms.
+// ============================================================================
+(function _r8CafeOrderCount() {
+  const orders = document.querySelector('.cafe-orders, #hud-orders');
+  if (!orders) return;
+  const chip = document.createElement('div');
+  chip.id = 'r8-cafe-order-ct';
+  chip.style.cssText = 'position:fixed;top:60%;right:14px;background:rgba(20,8,32,0.92);color:#5ef38c;border:1px solid #5ef38c;font-family:"Press Start 2P",monospace;font-size:8px;padding:5px 9px;border-radius:3px;z-index:50;letter-spacing:1px;pointer-events:none;display:none;';
+  document.body.appendChild(chip);
+  setInterval(() => {
+    const ct = orders.children.length;
+    if (ct >= 4) {
+      chip.style.display = 'block';
+      chip.textContent = '📋 QUEUE: ' + ct;
+      chip.style.color = ct >= 7 ? '#ff4d6d' : ct >= 5 ? '#ffd23f' : '#5ef38c';
+      chip.style.borderColor = chip.style.color;
+    } else {
+      chip.style.display = 'none';
+    }
+  }, 600);
+})();
+
+// ============================================================================
+// v2.8 CAFE-022: Lives-critical pulse — when `#hud-lives` shows only 1 ❤️
+// remaining, flash the lives row with a red border-glow on a slow pulse.
+// Helps players notice "one mistake left" without staring at the HUD.
+// ============================================================================
+(function _r8CafeLivesCritical() {
+  const lives = document.getElementById('hud-lives');
+  if (!lives) return;
+  const row = lives.closest('.hud-row') || lives.parentElement;
+  if (!row) return;
+  setInterval(() => {
+    const txt = lives.textContent || '';
+    // Count heart emoji occurrences
+    const heartCount = (txt.match(/❤/g) || []).length;
+    if (heartCount === 1) {
+      row.classList.add('r8-cafe-lives-crit');
+    } else {
+      row.classList.remove('r8-cafe-lives-crit');
+    }
+  }, 350);
+  if (!document.getElementById('r8-cafe-lives-style')) {
+    const s = document.createElement('style');
+    s.id = 'r8-cafe-lives-style';
+    s.textContent = '.r8-cafe-lives-crit{animation:r8CafeLivesPulse 0.7s ease-in-out infinite alternate;border-radius:4px}@keyframes r8CafeLivesPulse{from{box-shadow:0 0 0 0 rgba(255,77,109,0)}to{box-shadow:0 0 12px 3px rgba(255,77,109,0.7)}}';
+    document.head.appendChild(s);
+  }
 })();

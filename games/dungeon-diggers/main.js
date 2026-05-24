@@ -3087,3 +3087,61 @@ if (_startOv) {
     }
   }, 1200);
 })();
+
+// ============================================================================
+// v2.8 DIG-021: Bag-full warning chip — when `#hud-bag` shows N/N (full),
+// flash a yellow "BAG FULL! SURFACE" chip so player knows to return.
+// ============================================================================
+(function _r8DigBagFull() {
+  const bag = document.getElementById('hud-bag');
+  if (!bag) return;
+  const chip = document.createElement('div');
+  chip.id = 'r8-dig-bagfull';
+  chip.innerHTML = '🎒 BAG FULL!<br><span style="font-size:7px;opacity:0.85">return to surface</span>';
+  chip.style.cssText = 'position:fixed;top:40%;right:14px;background:rgba(40,28,8,0.95);color:#ffd23f;border:1px solid #ffd23f;font-family:"Press Start 2P",monospace;font-size:9px;padding:6px 10px;border-radius:4px;z-index:60;letter-spacing:1px;pointer-events:none;display:none;animation:r8DigBagPulse 1s ease-in-out infinite alternate;text-align:center;line-height:1.5;';
+  document.body.appendChild(chip);
+  setInterval(() => {
+    const txt = (bag.textContent || '').trim();
+    const m = txt.match(/(\d+)\s*\/\s*(\d+)/);
+    if (m && parseInt(m[1], 10) > 0 && parseInt(m[1], 10) >= parseInt(m[2], 10)) {
+      chip.style.display = 'block';
+    } else {
+      chip.style.display = 'none';
+    }
+  }, 600);
+  if (!document.getElementById('r8-dig-bag-style')) {
+    const s = document.createElement('style');
+    s.id = 'r8-dig-bag-style';
+    s.textContent = '@keyframes r8DigBagPulse{from{opacity:0.7;transform:translateY(0)}to{opacity:1;transform:translateY(-3px)}}';
+    document.head.appendChild(s);
+  }
+})();
+
+// ============================================================================
+// v2.8 DIG-022: Beam-low warning — when `#hud-beams` shows 1/N or 0/N, flash
+// a red chip "LAST BEAM!" so player conserves their dynamite-equivalent.
+// ============================================================================
+(function _r8DigBeamLow() {
+  const beams = document.getElementById('hud-beams');
+  if (!beams) return;
+  const chip = document.createElement('div');
+  chip.id = 'r8-dig-beamlow';
+  chip.textContent = '💥 LAST BEAM!';
+  chip.style.cssText = 'position:fixed;top:50%;right:14px;background:rgba(40,0,8,0.95);color:#ff4d6d;border:1px solid #ff4d6d;font-family:"Press Start 2P",monospace;font-size:9px;padding:5px 10px;border-radius:4px;z-index:60;letter-spacing:1px;pointer-events:none;display:none;animation:r8DigBeamPulse 0.7s ease-in-out infinite alternate;';
+  document.body.appendChild(chip);
+  setInterval(() => {
+    const txt = (beams.textContent || '').trim();
+    const m = txt.match(/(\d+)\s*\/\s*(\d+)/);
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (n === 1) chip.style.display = 'block';
+      else chip.style.display = 'none';
+    }
+  }, 400);
+  if (!document.getElementById('r8-dig-beam-style')) {
+    const s = document.createElement('style');
+    s.id = 'r8-dig-beam-style';
+    s.textContent = '@keyframes r8DigBeamPulse{from{opacity:0.65;transform:scale(1)}to{opacity:1;transform:scale(1.06)}}';
+    document.head.appendChild(s);
+  }
+})();

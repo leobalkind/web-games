@@ -2939,3 +2939,61 @@ _renderMapPicker();
   refresh();
   document.body.appendChild(chip);
 })();
+
+// ============================================================================
+// v2.8 MART-021: Heat-critical pulse — when `#hud-heat` reads >=80%, flash
+// a body-class red overlay + animated chip so player knows they're about to
+// trigger the alarm.
+// ============================================================================
+(function _r8MartHeatCrit() {
+  const heat = document.getElementById('hud-heat');
+  if (!heat) return;
+  const chip = document.createElement('div');
+  chip.id = 'r8-mart-heat';
+  chip.textContent = '🔥 HEAT CRITICAL';
+  chip.style.cssText = 'position:fixed;top:120px;left:50%;transform:translateX(-50%);background:rgba(40,0,8,0.95);color:#ff4d6d;border:1px solid #ff4d6d;font-family:"Press Start 2P",monospace;font-size:10px;padding:6px 12px;border-radius:4px;z-index:60;letter-spacing:2px;pointer-events:none;display:none;animation:r8MartHeatPulse 0.6s ease-in-out infinite alternate;text-shadow:0 0 6px #ff4d6d;';
+  document.body.appendChild(chip);
+  setInterval(() => {
+    const n = parseInt((heat.textContent || '').replace(/\D/g, ''), 10) || 0;
+    if (n >= 80) {
+      chip.style.display = 'block';
+      document.body.classList.add('mart-heat-crit');
+    } else if (n < 65) {
+      chip.style.display = 'none';
+      document.body.classList.remove('mart-heat-crit');
+    }
+  }, 350);
+  if (!document.getElementById('r8-mart-heat-style')) {
+    const s = document.createElement('style');
+    s.id = 'r8-mart-heat-style';
+    s.textContent = '@keyframes r8MartHeatPulse{from{opacity:0.6;transform:translateX(-50%) scale(1)}to{opacity:1;transform:translateX(-50%) scale(1.06)}}body.mart-heat-crit canvas{filter:saturate(1.3) hue-rotate(-8deg)}';
+    document.head.appendChild(s);
+  }
+})();
+
+// ============================================================================
+// v2.8 MART-022: Best-haul chip on start overlay — surfaces `#hud-best`
+// reading on the start screen as a "🏆 BEST: $X" pill so returning players
+// see their record without entering a run.
+// ============================================================================
+(function _r8MartBestPill() {
+  const best = document.getElementById('hud-best');
+  const start = document.getElementById('overlay');
+  if (!best || !start) return;
+  function inject() {
+    if (start.hidden) return;
+    let pill = document.getElementById('r8-mart-best-pill');
+    const stored = parseInt(localStorage.getItem('mart:best') || '0', 10) || 0;
+    const txtBest = parseInt((best.textContent || '').replace(/\D/g, ''), 10) || 0;
+    const val = Math.max(stored, txtBest);
+    if (!pill) {
+      pill = document.createElement('div');
+      pill.id = 'r8-mart-best-pill';
+      pill.style.cssText = 'position:absolute;top:62px;right:14px;background:rgba(20,8,32,0.92);color:#ffd23f;border:1px solid #ffd23f;font-family:"Press Start 2P",monospace;font-size:8px;padding:5px 10px;border-radius:3px;letter-spacing:1px;pointer-events:none;z-index:10;';
+      start.appendChild(pill);
+    }
+    pill.textContent = '🏆 BEST HAUL: $' + val;
+  }
+  new MutationObserver(inject).observe(start, { attributes: true, attributeFilter: ['hidden', 'class'] });
+  inject();
+})();

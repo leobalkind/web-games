@@ -981,8 +981,11 @@ try {
   if (!feed) return;
   let lastCount = 0;
   setInterval(() => {
-    if (!game?.running) return;
+    if (!game?.running) { lastCount = 0; return; }
     const items = feed.querySelectorAll('.kill-feed__item, .kf-row');
+    // Feed cleared between matches — re-baseline so we don't miss the first
+    // post-restart taunt by reading from a stale lastCount.
+    if (items.length < lastCount) lastCount = items.length;
     if (items.length === lastCount) return;
     // Player just died if any new entry mentions YOU as victim
     const newOnes = [...items].slice(lastCount);
@@ -1110,19 +1113,23 @@ try {
   const feed = document.getElementById('kill-feed') || document.body;
   let recent = [];
   let lastFired = 0;
+  // FIX: track lastCount as a separate scalar — `recent` gets reassigned by
+  // .filter() below, which drops any property set on the array instance.
+  let lastCount = 0;
   setInterval(() => {
-    if (!game?.running) return;
+    if (!game?.running) { lastCount = 0; return; }
     const items = feed.querySelectorAll ? feed.querySelectorAll('.kill-feed__item, .kf-row') : [];
     const now = performance.now();
     const count = items.length;
-    if (count !== recent.lastCount) {
-      const diff = count - (recent.lastCount || 0);
-      const fresh = [...items].slice(-Math.max(0, diff));
+    if (count < lastCount) lastCount = 0; // feed cleared between matches
+    if (count > lastCount) {
+      const diff = count - lastCount;
+      const fresh = [...items].slice(-diff);
       for (const f of fresh) {
         const txt = (f.textContent || '').toUpperCase();
         if (txt.startsWith('YOU ') || txt.includes('YOU KILL') || /YOU.*BORK/.test(txt)) recent.push(now);
       }
-      recent.lastCount = count;
+      lastCount = count;
     }
     recent = recent.filter((t) => now - t < 6000);
     if (recent.length >= 5 && now - lastFired > 8000) {
@@ -1300,3 +1307,104 @@ try {
     last = cur;
   }, 600);
 })();
+
+// ============================================================================
+// v2.8 BORK-021: Low-HP heartbeat warning — when player HP drops below 25%,
+// flash a pulsing red "LOW HP" chip + body-class CSS desat overlay so the
+// danger registers peripherally. Auto-clears when HP recovers above 35.
+// ============================================================================
+(function _r8BorkLowHp() {
+  const fill = document.getElementById('hud-hp-fill');
+  if (!fill) return;
+  const chip = document.createElement('div');
+  chip.id = 'r8-bork-lowhp';
+  chip.textContent = '⚠ LOW HP';
+  chip.style.cssText = 'position:fixed;top:120px;left:50%;transform:translateX(-50%);background:rgba(40,0,8,0.92);color:#ff4d6d;border:1px solid #ff4d6d;font-family:"Press Start 2P",monospace;font-size:10px;padding:6px 12px;border-radius:4px;z-index:60;letter-spacing:2px;pointer-events:none;display:none;animation:r8BorkLowHpPulse 0.7s ease-in-out infinite alternate;text-shadow:0 0 6px #ff4d6d;';
+  document.body.appendChild(chip);
+  setInterval(() => {
+    const w = parseFloat(fill.style.width) || 100;
+    if (w > 0 && w < 25) {
+      chip.style.display = 'block';
+      document.body.classList.add('bork-lowhp');
+    } else if (w > 35 || w === 0) {
+      chip.style.display = 'none';
+      document.body.classList.remove('bork-lowhp');
+    }
+  }, 250);
+  if (!document.getElementById('r8-bork-lowhp-style')) {
+    const s = document.createElement('style');
+    s.id = 'r8-bork-lowhp-style';
+    s.textContent = '@keyframes r8BorkLowHpPulse{from{opacity:0.55;transform:translateX(-50%) scale(1)}to{opacity:1;transform:translateX(-50%) scale(1.06)}}body.bork-lowhp #game-canvas{filter:saturate(1.3) brightness(0.94)}';
+    document.head.appendChild(s);
+  }
+})();
+
+// ============================================================================
+// v2.8 BORK-022: Kill-milestone toasts — every 5 kills (5/10/15/...), pop
+// a small green "+5 KILLS!" toast for game-feel. Reads `#hud-kills` text.
+// Auto-resets when kills drop (new run starts).
+// ============================================================================
+(function _r8BorkKillToast() {
+  const k = document.getElementById('hud-kills');
+  if (!k) return;
+  let last = 0;
+  let lastMilestone = 0;
+  setInterval(() => {
+    const cur = parseInt((k.textContent || '').replace(/\D/g, ''), 10) || 0;
+    if (cur < last - 2) { last = cur; lastMilestone = 0; }
+    if (cur >= 5 && cur >= lastMilestone + 5 && Math.floor(cur / 5) > Math.floor(last / 5)) {
+      lastMilestone = Math.floor(cur / 5) * 5;
+      const toast = document.createElement('div');
+      toast.textContent = '+' + (lastMilestone) + ' KILLS!';
+      toast.style.cssText = 'position:fixed;top:36%;left:50%;transform:translateX(-50%);background:rgba(10,30,16,0.95);color:#5ef38c;border:1px solid #5ef38c;font-family:"Press Start 2P",monospace;font-size:13px;padding:8px 16px;border-radius:5px;z-index:90;letter-spacing:2px;pointer-events:none;animation:r8BorkKillPop 1.4s ease-out forwards;text-shadow:0 0 10px #5ef38c;';
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 1500);
+    }
+    last = cur;
+  }, 350);
+  if (!document.getElementById('r8-bork-killpop-style')) {
+    const s = document.createElement('style');
+    s.id = 'r8-bork-killpop-style';
+    s.textContent = '@keyframes r8BorkKillPop{0%{opacity:0;transform:translateX(-50%) translateY(10px) scale(0.8)}25%{opacity:1;transform:translateX(-50%) translateY(0) scale(1.15)}45%{transform:translateX(-50%) translateY(0) scale(1)}90%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(-12px) scale(1)}}';
+    document.head.appendChild(s);
+  }
+})();
+
+// ============================================================================
+// v2.8 BORK-023: Lifetime playtime tracker — counts seconds spent in active
+// runs (HUD visible, not paused on overlay), persists `bork:playtime`. Shows
+// on start overlay so returning players see their session hours.
+// ============================================================================
+(function _r8BorkPlaytime() {
+  const startOv = document.getElementById('overlay');
+  const hud = document.getElementById('hud-overlay');
+  let secs = parseInt(localStorage.getItem('bork:playtime') || '0', 10) || 0;
+  let lastSave = secs;
+  setInterval(() => {
+    const startVis = startOv && !startOv.hidden && !startOv.classList.contains('is-hidden');
+    const hudVis = hud && !hud.hidden && !hud.classList.contains('is-hidden');
+    if (!startVis && hudVis) {
+      secs++;
+      if (secs - lastSave >= 8) {
+        try { localStorage.setItem('bork:playtime', String(secs)); } catch {}
+        lastSave = secs;
+      }
+    }
+  }, 1000);
+  // Display on start overlay
+  function tryShow() {
+    if (!startOv) return;
+    if (document.getElementById('r8-bork-playtime-chip')) return;
+    const panel = startOv.querySelector('.overlay__panel') || startOv;
+    const chip = document.createElement('div');
+    chip.id = 'r8-bork-playtime-chip';
+    const mins = Math.floor(secs / 60);
+    const hrs = Math.floor(mins / 60);
+    const label = hrs > 0 ? hrs + 'h ' + (mins % 60) + 'm' : mins + 'm ' + (secs % 60) + 's';
+    chip.innerHTML = '⏱ LIFETIME PLAYED: <b style="color:#ffd23f">' + label + '</b>';
+    chip.style.cssText = 'margin-top:8px;padding:5px 10px;background:rgba(20,8,32,0.6);color:#9fb3ff;border:1px solid #4a6fa5;font-family:"Press Start 2P",monospace;font-size:8px;border-radius:3px;letter-spacing:1px;display:inline-block;';
+    panel.appendChild(chip);
+  }
+  setInterval(tryShow, 600);
+})();
+

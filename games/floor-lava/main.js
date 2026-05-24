@@ -2422,3 +2422,67 @@ if (_startOv) {
     document.head.appendChild(s);
   }
 })();
+
+// ============================================================================
+// v2.8 LAVA-021: Height milestone toast — every 250m climbed, pop a small
+// "★ 250M!" confetti chip. Recognizes incremental progress between biomes.
+// ============================================================================
+(function _r8LavaHeightMilestone() {
+  const h = document.getElementById('hud-height');
+  if (!h) return;
+  let lastBucket = 0;
+  setInterval(() => {
+    const txt = (h.textContent || '').replace(/[^\d]/g, '');
+    const cur = parseInt(txt, 10) || 0;
+    const bucket = Math.floor(cur / 250);
+    if (bucket > lastBucket && bucket >= 1) {
+      const toast = document.createElement('div');
+      toast.textContent = '★ ' + (bucket * 250) + 'M!';
+      toast.style.cssText = 'position:fixed;top:20%;left:50%;transform:translateX(-50%);background:rgba(8,20,40,0.95);color:#5ef38c;border:2px solid #5ef38c;font-family:"VT323",monospace;font-size:24px;padding:7px 18px;border-radius:5px;z-index:90;letter-spacing:3px;pointer-events:none;animation:r8LavaHeightPop 1.6s ease-out forwards;box-shadow:0 0 18px rgba(94,243,140,0.6);';
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 1700);
+      lastBucket = bucket;
+    } else if (cur < 50) {
+      lastBucket = 0;
+    }
+  }, 500);
+  if (!document.getElementById('r8-lava-height-style')) {
+    const s = document.createElement('style');
+    s.id = 'r8-lava-height-style';
+    s.textContent = '@keyframes r8LavaHeightPop{0%{opacity:0;transform:translateX(-50%) translateY(14px) scale(0.7)}20%{opacity:1;transform:translateX(-50%) translateY(0) scale(1.2)}45%{transform:translateX(-50%) translateY(-4px) scale(1)}88%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(-18px)}}';
+    document.head.appendChild(s);
+  }
+})();
+
+// ============================================================================
+// v2.8 LAVA-022: NEW RECORD flash — when current height surpasses best, fire
+// a 1.8s golden "NEW RECORD!" banner with confetti emoji. Reads `#hud-height`
+// vs `#hud-best`; once-per-run after surpassing.
+// ============================================================================
+(function _r8LavaNewRecord() {
+  const h = document.getElementById('hud-height');
+  const b = document.getElementById('hud-best');
+  if (!h || !b) return;
+  let fired = false;
+  let bestOnStart = -1;
+  setInterval(() => {
+    const cur = parseInt((h.textContent || '').replace(/[^\d]/g, ''), 10) || 0;
+    const best = parseInt((b.textContent || '').replace(/[^\d]/g, ''), 10) || 0;
+    if (bestOnStart < 0 && best > 0) bestOnStart = best;
+    if (cur < 50) { fired = false; bestOnStart = best; }
+    if (!fired && bestOnStart > 0 && cur > bestOnStart) {
+      fired = true;
+      const banner = document.createElement('div');
+      banner.innerHTML = '🎉 NEW RECORD! 🎉';
+      banner.style.cssText = 'position:fixed;top:28%;left:50%;transform:translateX(-50%);background:rgba(40,28,8,0.96);color:#ffd23f;border:3px solid #ffd23f;font-family:"VT323",monospace;font-size:34px;padding:12px 30px;border-radius:8px;z-index:95;letter-spacing:3px;pointer-events:none;text-align:center;animation:r8LavaRecordPop 1.8s ease-out forwards;box-shadow:0 0 26px rgba(255,210,63,0.8);';
+      document.body.appendChild(banner);
+      setTimeout(() => banner.remove(), 1900);
+    }
+  }, 500);
+  if (!document.getElementById('r8-lava-record-style')) {
+    const s = document.createElement('style');
+    s.id = 'r8-lava-record-style';
+    s.textContent = '@keyframes r8LavaRecordPop{0%{opacity:0;transform:translateX(-50%) translateY(20px) scale(0.6)}15%{opacity:1;transform:translateX(-50%) translateY(0) scale(1.25)}40%{transform:translateX(-50%) translateY(0) scale(1)}88%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(-18px)}}';
+    document.head.appendChild(s);
+  }
+})();
