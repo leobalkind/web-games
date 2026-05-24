@@ -211,11 +211,11 @@ renderPerks();
 // (player.hp / powerups / xp) so nothing else has to change.
 const MUTATORS = [
   { id: 'low_grav', name: 'LOW GRAVITY',   icon: '🪶',  desc: 'Particles float — every kill leaves a chandelier of debris.', apply: (g) => { g._mutatorGravScale = 0.35; } },
-  { id: 'double_xp', name: 'DOUBLE XP',    icon: '⚡',  desc: '2× XP per kill. Evolve fast, become unstoppable.',           apply: (g) => { g._mutatorXpScale = 2.0; } },
+  { id: 'double_xp', name: 'DOUBLE XP',    icon: '⚡',  desc: '1.5× XP per kill. Evolve fast, become unstoppable.',         apply: (g) => { g._mutatorXpScale = 1.5; } },
   { id: 'no_pickup', name: 'NO PICKUPS',   icon: '🚫',  desc: 'Power-ups disabled. Survive on your starting kit alone.',     apply: (g) => { g._mutatorNoPickup = true; } },
   { id: 'vampire',   name: 'VAMPIRE PUG', icon: '🩸',  desc: 'Kills heal +5 HP. Stay aggressive, stay alive.',              apply: (g) => { g._mutatorVampire = 5; } },
-  { id: 'glass_can', name: 'GLASS CANNON', icon: '💎',  desc: 'You deal 2× damage… but take 2× as well. High-octane.',       apply: (g) => { g._mutatorDmgOut = 2.0; g._mutatorDmgIn = 2.0; } },
-  { id: 'treat_rain', name: 'TREAT RAIN', icon: '🍖',  desc: 'Bots drop 3× treats — go full money mode at the shop.',       apply: (g) => { g._mutatorTreatScale = 3.0; } },
+  { id: 'glass_can', name: 'GLASS CANNON', icon: '💎',  desc: 'You deal 1.6× damage… but take 1.6× as well. High-octane.',   apply: (g) => { g._mutatorDmgOut = 1.6; g._mutatorDmgIn = 1.6; } },
+  { id: 'treat_rain', name: 'TREAT RAIN', icon: '🍖',  desc: 'Bots drop 2× treats — go full money mode at the shop.',       apply: (g) => { g._mutatorTreatScale = 2.0; } },
 ];
 const _todayMut = new Date().toISOString().slice(0, 10);
 const _mutSeed = _todayMut.split('').reduce((a, c) => a + c.charCodeAt(0) * 31, 7);
@@ -957,3 +957,83 @@ try {
     ],
   });
 } catch (e) { /* */ }
+
+// ============================================================================
+// v2.5 BORK-004: Bot personality taunt barks on kills
+// Watches the kill feed for entries with the player as victim, then a 600ms
+// later shows a randomly-rolled bot taunt floating from the top of the screen.
+// Pure DOM overlay — no Pixi changes, no Game.js touch. Persists nothing.
+// ============================================================================
+(function _r5BotTaunts() {
+  const TAUNTS = [
+    'get borked nerd!',
+    'TOO SLOW PUG',
+    'lol skill issue',
+    'cry about it',
+    'i am the bork now',
+    'gg ez 🐶',
+    'mid pug confirmed',
+    'bork bork bork',
+    'sit. stay. dead.',
+    'you smell like wet kibble',
+  ];
+  const feed = document.getElementById('kill-feed');
+  if (!feed) return;
+  let lastCount = 0;
+  setInterval(() => {
+    if (!game?.running) return;
+    const items = feed.querySelectorAll('.kill-feed__item, .kf-row');
+    if (items.length === lastCount) return;
+    // Player just died if any new entry mentions YOU as victim
+    const newOnes = [...items].slice(lastCount);
+    lastCount = items.length;
+    for (const it of newOnes) {
+      const txt = (it.textContent || '').toLowerCase();
+      if (txt.includes('you') && !txt.startsWith('you ')) {
+        // Player was killed — show bot taunt
+        const t = TAUNTS[Math.floor(Math.random() * TAUNTS.length)];
+        const bub = document.createElement('div');
+        bub.textContent = t;
+        bub.style.cssText = 'position:fixed;top:14%;left:50%;transform:translateX(-50%);background:rgba(20,8,32,0.92);color:#ff3aa1;border:2px solid #ff3aa1;padding:6px 14px;font-family:"Press Start 2P",monospace;font-size:10px;border-radius:4px;z-index:9998;pointer-events:none;animation:botTauntPop 2.4s ease-out forwards;text-shadow:0 0 4px rgba(255,58,161,0.6);';
+        document.body.appendChild(bub);
+        setTimeout(() => bub.remove(), 2500);
+        break;
+      }
+    }
+  }, 400);
+  if (!document.getElementById('bork-bot-taunt-style')) {
+    const s = document.createElement('style');
+    s.id = 'bork-bot-taunt-style';
+    s.textContent = '@keyframes botTauntPop{0%{opacity:0;transform:translateX(-50%) translateY(-8px) scale(0.6)}15%{opacity:1;transform:translateX(-50%) translateY(0) scale(1.08)}30%{transform:translateX(-50%) translateY(0) scale(1)}80%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(-14px) scale(0.95)}}';
+    document.head.appendChild(s);
+  }
+})();
+
+// ============================================================================
+// v2.5 BORK-019: Sticky weapon-drop label — pin "+SHOTGUN" pip for 3s instead
+// of 1s. The Game already spawns float text on pickup; we extend by scanning
+// for `.bw-weapon-pickup` elements (or similar) added to the DOM and force a
+// longer animation. Since the Game uses Pixi for pickups, we instead show a
+// supplementary fixed top-right pill that lingers.
+// ============================================================================
+(function _r5StickyPickupLabel() {
+  let lastWeapon = null;
+  setInterval(() => {
+    if (!game?.running || !game.player) return;
+    const w = game.player.weapon?.name || game.player.weapon?.id || game.player.weaponName;
+    if (!w || w === lastWeapon) return;
+    if (lastWeapon === null) { lastWeapon = w; return; } // skip initial spawn
+    lastWeapon = w;
+    const pill = document.createElement('div');
+    pill.textContent = '+ ' + String(w).toUpperCase();
+    pill.style.cssText = 'position:fixed;top:64px;right:14px;background:linear-gradient(90deg,#5ef38c 0%,#4cc9f0 100%);color:#0a0716;padding:6px 12px;font-family:"Press Start 2P",monospace;font-size:9px;border-radius:3px;z-index:9997;pointer-events:none;box-shadow:0 0 16px rgba(94,243,140,0.45);animation:weapPillSlide 3s ease-out forwards;font-weight:bold;';
+    document.body.appendChild(pill);
+    setTimeout(() => pill.remove(), 3100);
+  }, 250);
+  if (!document.getElementById('bork-weap-pill-style')) {
+    const s = document.createElement('style');
+    s.id = 'bork-weap-pill-style';
+    s.textContent = '@keyframes weapPillSlide{0%{opacity:0;transform:translateX(40px) scale(0.6)}10%{opacity:1;transform:translateX(0) scale(1.1)}18%{transform:translateX(0) scale(1)}90%{opacity:1}100%{opacity:0;transform:translateX(20px) scale(0.95)}}';
+    document.head.appendChild(s);
+  }
+})();

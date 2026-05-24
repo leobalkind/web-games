@@ -1985,11 +1985,12 @@ function tick(dt) {
       }
     }
   }
-  // WAVE 1F: HIRED STAFF — grabs ingredients for oldest order every ~4s.
+  // WAVE 1F: HIRED STAFF — grabs ingredients for oldest order every ~5s.
+  // (Was 4s — too fast made manual play feel pointless; 5s keeps hire a "helper" not "replacer".)
   if (upgrades.hireStaff) {
     hireGrabT -= dt;
     if (hireGrabT <= 0) {
-      hireGrabT = 4;
+      hireGrabT = 5;
       if (orders.length > 0) {
         const o = orders[0];
         const need = o.recipe.items.slice();
@@ -2416,4 +2417,64 @@ if (_startOv) {
     };
     new MutationObserver(endUpdate).observe(endOv, { attributes: true, attributeFilter: ['hidden','class'] });
   }
+})();
+
+// ============================================================================
+// v2.5 CAFE-016: First-run tutorial — 10s overlay highlighting GRAB→SERVE loop.
+// Stored in localStorage so it only fires once per browser.
+// ============================================================================
+(function _r5CafeTutorial() {
+  if (localStorage.getItem('cafe:tutSeen') === '1') return;
+  const startOv = document.getElementById('overlay');
+  const fire = () => {
+    if (localStorage.getItem('cafe:tutSeen') === '1') return;
+    localStorage.setItem('cafe:tutSeen', '1');
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'position:fixed;top:14%;left:50%;transform:translateX(-50%);background:rgba(20,8,32,0.95);color:#fff;border:2px solid #ffd23f;padding:14px 18px;font-family:"Press Start 2P",monospace;font-size:9px;border-radius:6px;z-index:9998;max-width:360px;text-align:center;line-height:1.6;box-shadow:0 0 24px rgba(255,210,63,0.45);';
+    wrap.innerHTML = '<div style="color:#ffd23f;font-size:11px;margin-bottom:8px;">CAFE 101</div>'
+      + '<div>1) Walk to STATION, GRAB ingredient</div>'
+      + '<div style="margin-top:4px">2) Carry to CUSTOMER icon match</div>'
+      + '<div style="margin-top:4px">3) Press SERVE, collect $</div>'
+      + '<div style="margin-top:10px;color:#5ef38c;font-size:8px;opacity:0.7">click to dismiss</div>';
+    wrap.addEventListener('click', () => wrap.remove(), { once: true });
+    document.body.appendChild(wrap);
+    setTimeout(() => wrap.remove(), 10000);
+  };
+  if (startOv) {
+    const onHide = () => {
+      const visible = !startOv.hidden && !startOv.classList.contains('is-hidden');
+      if (!visible) setTimeout(fire, 2000);
+    };
+    new MutationObserver(onHide).observe(startOv, { attributes: true, attributeFilter: ['hidden','class'] });
+  }
+})();
+
+// ============================================================================
+// v2.5 CAFE-019: End-screen best-dish quote — a small surprise pull-quote
+// pulled from rotating list, themed for the wagging-pup café review feel.
+// Appended into end-overlay every time it shows.
+// ============================================================================
+(function _r5CafeQuote() {
+  const QUOTES = [
+    '"The bones were tender, the gravy bold." — Pug Daily',
+    '"4 paws up! Smooth latte art." — TreatYelp',
+    '"My human ate the whole bowl." — A Happy Customer',
+    '"Best wagtails on the avenue!" — Tail Reviews',
+    '"They served me like royalty." — Sir Snoutsworth',
+    '"Crunchy AND fluffy?! How." — Anonymous Pug',
+    '"I will be back. Forever." — Lord Borkington',
+  ];
+  const endOv = document.getElementById('end-overlay');
+  if (!endOv) return;
+  new MutationObserver(() => {
+    if (endOv.hidden || endOv.classList.contains('is-hidden')) return;
+    if (endOv.querySelector('.cafe-quote-r5')) return;
+    const q = QUOTES[Math.floor(Math.random() * QUOTES.length)];
+    const div = document.createElement('div');
+    div.className = 'cafe-quote-r5';
+    div.textContent = q;
+    div.style.cssText = 'margin:12px auto 0;max-width:380px;padding:8px 12px;background:rgba(94,243,140,0.12);border-left:3px solid #5ef38c;color:#5ef38c;font-family:"VT323",monospace;font-size:16px;font-style:italic;text-align:center;border-radius:3px;';
+    const box = endOv.querySelector('.overlay__inner') || endOv;
+    box.appendChild(div);
+  }).observe(endOv, { attributes: true, attributeFilter: ['hidden', 'class'] });
 })();

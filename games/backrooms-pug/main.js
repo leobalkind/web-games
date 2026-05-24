@@ -657,15 +657,15 @@ let firstHoundJump = false;   // first hound-jumpscare per match
 let lastSmilerJumpAt = -999;  // last time we fired smiler jump-scare (gameTime)
 let gameTime = 0;             // total seconds elapsed in current run
 // =============================================================================
-// PSYCHIC FLASH — every 10-15 min of game time (relative wall clock), a brief
+// PSYCHIC FLASH — every 5-7.5 min of game time (relative wall clock), a brief
 // 1-second white flash reveals the level map: walls + cans + exit pinged in
 // neon as a top-down overlay. Helps players who've been wandering for ages.
 // =============================================================================
 let psychicFlashT = 0;          // seconds remaining of active reveal (0..1)
 let nextPsychicFlashAt = 0;     // gameTime at which next flash fires
 function _schedulePsychicFlash() {
-  // 10-15 min into the run (or relative to the last flash). Random-ish.
-  nextPsychicFlashAt = gameTime + 600 + Math.random() * 300;
+  // 5-7.5 min into the run (or relative to the last flash). Random-ish.
+  nextPsychicFlashAt = gameTime + 300 + Math.random() * 150;
 }
 let nextAmbientAt = 999999;   // scheduled time for next ambient fake scare
 let ambientEvent = null;      // { x, y, t, life } silhouette doorway
@@ -6813,4 +6813,120 @@ void showTip; // explicit reference so linters don't yell about unused import
     };
     new MutationObserver(endUpdate).observe(endOv, { attributes: true, attributeFilter: ['hidden','class'] });
   }
+})();
+
+// ============================================================================
+// v2.5 BACK2D-013: Jumpscare intensity slider (off/light/full). Adds a tiny
+// toggle in the top-right that gates the body class `.bp-jumpscare-off` and
+// `.bp-jumpscare-light` for use by overlay screens.
+// ============================================================================
+(function _r5JumpscareSlider() {
+  const key = 'back2d:jumpscare';
+  if (!document.getElementById('bp-jumpscare-style')) {
+    const s = document.createElement('style');
+    s.id = 'bp-jumpscare-style';
+    s.textContent = '.bp-jumpscare-off .jumpscare,.bp-jumpscare-off [class*="jumpscare"]{display:none!important}'
+      + '.bp-jumpscare-light [class*="jumpscare"]{opacity:0.5!important;animation-duration:0.2s!important}';
+    document.head.appendChild(s);
+  }
+  const cur = localStorage.getItem(key) || 'full';
+  const apply = (v) => {
+    document.body.classList.toggle('bp-jumpscare-off', v === 'off');
+    document.body.classList.toggle('bp-jumpscare-light', v === 'light');
+  };
+  apply(cur);
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'position:fixed;top:14px;right:140px;z-index:50;display:flex;gap:4px;background:rgba(20,8,32,0.85);border:1px solid #ff3aa1;padding:4px 6px;border-radius:3px;font-family:"Press Start 2P",monospace;font-size:8px;align-items:center;';
+  const lbl = document.createElement('span');
+  lbl.textContent = 'SCARE';
+  lbl.style.cssText = 'color:#ff3aa1;padding:2px 4px;';
+  wrap.appendChild(lbl);
+  ['off','light','full'].forEach((lvl) => {
+    const b = document.createElement('button');
+    b.textContent = lvl.toUpperCase();
+    b.style.cssText = 'background:none;border:none;color:' + (lvl === cur ? '#ffd23f' : '#888') + ';padding:2px 4px;cursor:pointer;font:inherit;';
+    b.addEventListener('click', () => {
+      localStorage.setItem(key, lvl);
+      apply(lvl);
+      [...wrap.querySelectorAll('button')].forEach((c, i) => {
+        c.style.color = ['off','light','full'][i] === lvl ? '#ffd23f' : '#888';
+      });
+    });
+    wrap.appendChild(b);
+  });
+  document.body.appendChild(wrap);
+})();
+
+// ============================================================================
+// v2.5 BACK2D-008: Sprint key with stamina drain.
+// Holding SHIFT increases player.speedMult (best-effort) and drains a stamina
+// bar; auto-regen when released. Pure HUD pill — gameplay coupling only via
+// window.__back2dPlayer.speedBoost flag.
+// ============================================================================
+(function _r5SprintStamina() {
+  let stam = 1;
+  let sprinting = false;
+  let down = false;
+  const bar = document.createElement('div');
+  bar.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);width:140px;height:8px;background:rgba(20,8,32,0.85);border:1px solid #4cc9f0;border-radius:2px;z-index:50;overflow:hidden;opacity:0;transition:opacity 0.4s;';
+  const fill = document.createElement('div');
+  fill.style.cssText = 'height:100%;background:linear-gradient(90deg,#4cc9f0,#5ef38c);width:100%;transition:width 0.1s linear;';
+  bar.appendChild(fill);
+  document.body.appendChild(bar);
+  window.addEventListener('keydown', (e) => { if (e.key === 'Shift') down = true; });
+  window.addEventListener('keyup', (e) => { if (e.key === 'Shift') down = false; });
+  setInterval(() => {
+    const wantSprint = down && stam > 0.05;
+    if (wantSprint) stam = Math.max(0, stam - 0.018);
+    else stam = Math.min(1, stam + 0.012);
+    sprinting = wantSprint;
+    if (window.__back2dPlayer) window.__back2dPlayer.speedBoost = sprinting ? 1.55 : 1;
+    fill.style.width = (stam * 100).toFixed(0) + '%';
+    fill.style.background = stam < 0.25 ? '#ff3aa1' : 'linear-gradient(90deg,#4cc9f0,#5ef38c)';
+    bar.style.opacity = (down || stam < 0.99) ? '1' : '0';
+  }, 80);
+})();
+
+// ============================================================================
+// v2.5 BACK2D-019: Corridor wind-hum baseline. Always-on low drone via
+// WebAudio that ducks when overlays open. Built lazily on first gesture.
+// ============================================================================
+(function _r5WindHum() {
+  let ac = null, master = null;
+  function build() {
+    if (ac) return;
+    try {
+      ac = new (window.AudioContext || window.webkitAudioContext)();
+      master = ac.createGain();
+      master.gain.value = 0;
+      master.connect(ac.destination);
+      const bufSize = ac.sampleRate * 2;
+      const buf = ac.createBuffer(1, bufSize, ac.sampleRate);
+      const data = buf.getChannelData(0);
+      let lastOut = 0;
+      for (let i = 0; i < bufSize; i++) {
+        const white = Math.random() * 2 - 1;
+        data[i] = (lastOut + 0.02 * white) / 1.02;
+        lastOut = data[i];
+        data[i] *= 3.5;
+      }
+      const src = ac.createBufferSource();
+      src.buffer = buf; src.loop = true;
+      const filt = ac.createBiquadFilter();
+      filt.type = 'lowpass';
+      filt.frequency.value = 280;
+      src.connect(filt); filt.connect(master);
+      src.start();
+    } catch {}
+  }
+  window.addEventListener('pointerdown', build, { once: true });
+  window.addEventListener('keydown', build, { once: true });
+  setInterval(() => {
+    if (!master || !ac) return;
+    const startOv = document.getElementById('overlay');
+    const muted = localStorage.getItem('wg:settings:muted') === '1';
+    const startVisible = startOv && !startOv.hidden && !startOv.classList.contains('is-hidden');
+    const want = !startVisible && !muted ? 0.045 : 0;
+    try { master.gain.linearRampToValueAtTime(want, ac.currentTime + 0.6); } catch {}
+  }, 600);
 })();

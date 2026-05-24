@@ -2415,13 +2415,15 @@ function renderEvolutionTree() {
     });
   }
   // Edges: connect nodes whose ingredient sets share ≥2 ingredients.
+  // With >30 nodes the O(n²) edge soup becomes unreadable — bump threshold to 3.
   const edges = [];
+  const edgeThresh = nodes.length > 30 ? 3 : 2;
   for (let i = 0; i < nodes.length; i++) {
     for (let j = i + 1; j < nodes.length; j++) {
       const a = nodes[i].ids, b = nodes[j].ids;
       let shared = 0;
       for (const id of a) if (b.includes(id)) shared++;
-      if (shared >= 2) edges.push({ a: i, b: j, shared });
+      if (shared >= edgeThresh) edges.push({ a: i, b: j, shared });
     }
   }
   // Build SVG content (lines first, then nodes, then tier labels).
@@ -3022,4 +3024,120 @@ if (_startOv) {
     new MutationObserver(startUpdate).observe(startOv, { attributes: true, attributeFilter: ['hidden','class'] });
     startUpdate();
   }
+})();
+
+// ============================================================================
+// v2.5 LAB-007: Chemistry-bubble loop SFX while ingredient is in beaker.
+// Polls for beaker contents (best-effort via DOM scan), starts a soft pop
+// loop when occupied. WebAudio nodes are recycled to avoid garbage churn.
+// ============================================================================
+(function _r5BubbleLoop() {
+  let ac = null;
+  let timer = null;
+  const pop = () => {
+    try {
+      ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+      if (ac.state === 'suspended') ac.resume();
+      const t = ac.currentTime;
+      const o = ac.createOscillator();
+      const g = ac.createGain();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(180 + Math.random() * 200, t);
+      o.frequency.exponentialRampToValueAtTime(80, t + 0.18);
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.025, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+      o.connect(g); g.connect(ac.destination);
+      o.start(t); o.stop(t + 0.2);
+    } catch {}
+  };
+  const beakerOccupied = () => {
+    // Best-effort: look for beaker slot DOM with any child or class indicating ingredient
+    const slots = document.querySelectorAll('.lab-beaker__slot, .beaker-slot, [data-beaker-slot], .slot--beaker');
+    for (const s of slots) {
+      if (s.children.length > 0 || s.classList.contains('is-filled') || s.dataset.filled === '1') return true;
+    }
+    // Fallback: localStorage flag from game logic if exposed
+    if (window.__labBeakerFull === true) return true;
+    return false;
+  };
+  let on = false;
+  setInterval(() => {
+    if (localStorage.getItem('wg:settings:muted') === '1') { on = false; return; }
+    const want = beakerOccupied();
+    if (want === on) return;
+    on = want;
+    clearInterval(timer);
+    if (on) timer = setInterval(() => { if (Math.random() < 0.55) pop(); }, 480);
+  }, 700);
+})();
+
+// ============================================================================
+// v2.5 LAB-014: Tutorial — highlight Combine button on first ingredient added.
+// One-shot pulsing ring around the combine action. Stored in localStorage.
+// ============================================================================
+(function _r5CombineHighlight() {
+  if (localStorage.getItem('lab:combineHintSeen') === '1') return;
+  const tryHighlight = () => {
+    if (localStorage.getItem('lab:combineHintSeen') === '1') return;
+    const btn = document.querySelector('#combine-btn, .lab-combine, button[data-action="combine"], button.combine');
+    if (!btn) return false;
+    localStorage.setItem('lab:combineHintSeen', '1');
+    btn.classList.add('lab-combine-hint-pulse');
+    if (!document.getElementById('lab-combine-pulse-style')) {
+      const s = document.createElement('style');
+      s.id = 'lab-combine-pulse-style';
+      s.textContent = '.lab-combine-hint-pulse{animation:labComboPulse 1.4s ease-in-out 5;box-shadow:0 0 0 0 rgba(94,243,140,0.9);}@keyframes labComboPulse{0%{box-shadow:0 0 0 0 rgba(94,243,140,0.9);transform:scale(1)}50%{box-shadow:0 0 0 18px rgba(94,243,140,0);transform:scale(1.06)}100%{box-shadow:0 0 0 0 rgba(94,243,140,0);transform:scale(1)}}';
+      document.head.appendChild(s);
+    }
+    setTimeout(() => btn.classList.remove('lab-combine-hint-pulse'), 7500);
+    return true;
+  };
+  // Try every second until found OR user already used it
+  const tick = setInterval(() => {
+    if (localStorage.getItem('lab:combineHintSeen') === '1' || tryHighlight()) {
+      clearInterval(tick);
+    }
+  }, 1200);
+  setTimeout(() => clearInterval(tick), 60000);
+})();
+
+// ============================================================================
+// v2.5 LAB-018: Legendary-discovery orchestral hit. Listens for any visible
+// chip with "LEGEND" text — fires a 4-note fanfare on new appearance.
+// ============================================================================
+(function _r5LegendaryFanfare() {
+  let ac = null;
+  const fanfare = () => {
+    try {
+      ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+      if (ac.state === 'suspended') ac.resume();
+      if (localStorage.getItem('wg:settings:muted') === '1') return;
+      const t = ac.currentTime;
+      const notes = [392, 523.25, 659.25, 783.99]; // G4 C5 E5 G5
+      notes.forEach((f, i) => {
+        const o = ac.createOscillator();
+        const g = ac.createGain();
+        o.type = 'triangle';
+        o.frequency.value = f;
+        g.gain.setValueAtTime(0, t + i * 0.12);
+        g.gain.linearRampToValueAtTime(0.06, t + i * 0.12 + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.001, t + i * 0.12 + 0.5);
+        o.connect(g); g.connect(ac.destination);
+        o.start(t + i * 0.12);
+        o.stop(t + i * 0.12 + 0.55);
+      });
+    } catch {}
+  };
+  let lastSeen = 0;
+  setInterval(() => {
+    const hits = document.querySelectorAll('.tier-legendary, [data-tier="4"], .achievement-banner, .legendary-banner');
+    let count = 0;
+    for (const h of hits) {
+      const visible = h.offsetParent !== null && getComputedStyle(h).opacity !== '0';
+      if (visible && /LEGEND/i.test(h.textContent || '')) count++;
+    }
+    if (count > lastSeen) fanfare();
+    lastSeen = count;
+  }, 400);
 })();

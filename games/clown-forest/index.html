@@ -107,6 +107,13 @@
       <div class="hud-compass__label">BEACON</div>
     </div>
 
+    <!-- ROUND-5: Stealth-awareness meter — only shown during HUNT / CHASE. -->
+    <div id="hud-stealth" class="hud-stealth" hidden>
+      <span class="hud-stealth__label">AWARE</span>
+      <div class="hud-stealth__bar"><i id="hud-stealth-fill"></i></div>
+      <span id="hud-stealth-n" class="hud-stealth__pct">0%</span>
+    </div>
+
     <!-- Popup notifications (top-right slide-in). Stacked container so we
          don't fight z-order with the items badge. -->
     <div id="hud-popups" class="hud-popups" aria-live="polite"></div>

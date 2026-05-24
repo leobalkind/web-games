@@ -317,7 +317,7 @@ function saveTech(s) { try { localStorage.setItem(TECH_KEY, JSON.stringify(s)); 
 function awardResearch(nights) {
   if (!nights || nights <= 0) return 0;
   const s = loadTech();
-  const earned = nights; // 1 RP per night cleared — small, steady
+  const earned = nights * 2; // 2 RP per night cleared — faster tech progression
   s.points = (s.points | 0) + earned;
   saveTech(s);
   return earned;
@@ -383,7 +383,7 @@ function renderTechPanel() {
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(8,4,18,0.9);z-index:9000;display:flex;align-items:center;justify-content:center;padding:20px;';
   modal.innerHTML = `<div style="max-width:560px;width:100%;background:#15101e;border:2px solid var(--neon-cyan,#4cc9f0);border-radius:8px;padding:18px;color:#fff;font-family:inherit;max-height:80vh;overflow:auto;">
     <h2 style="margin:0 0 10px;color:var(--neon-cyan,#4cc9f0);text-align:center;">🔬 RESEARCH LAB</h2>
-    <p style="text-align:center;margin:0 0 12px;font-size:0.6rem;letter-spacing:0.05em;">RESEARCH POINTS: <b id="tech-points" style="color:var(--neon-yellow,#ffd23f);">0</b> · Earn 1 RP per night cleared.</p>
+    <p style="text-align:center;margin:0 0 12px;font-size:0.6rem;letter-spacing:0.05em;">RESEARCH POINTS: <b id="tech-points" style="color:var(--neon-yellow,#ffd23f);">0</b> · Earn 2 RP per night cleared.</p>
     <div id="tech-list" style="display:flex;flex-direction:column;gap:8px;"></div>
     <button id="tech-close" style="margin:14px auto 0;display:block;padding:8px 18px;background:var(--neon-magenta,#ff2bd6);color:#fff;border:0;border-radius:4px;font-family:inherit;cursor:pointer;">CLOSE</button>
     <style>
@@ -835,3 +835,67 @@ setInterval(() => {
     document.body.dataset.pfSky = cls;
   }
 }, 500);
+
+// ============================================================================
+// v2.5 FORT-011: Mute audience cheer SFX option in settings.
+// Adds a small floating toggle that writes localStorage `pugfort:noCheer` and
+// gates Sfx.playCheer/playCrowd at call sites (best-effort proxy).
+// ============================================================================
+(function _r5CheerMute() {
+  const key = 'pugfort:noCheer';
+  // Patch Sfx if it exposes named cheer methods
+  ['playCheer', 'playCrowd', 'playAudience'].forEach((fn) => {
+    if (typeof Sfx?.[fn] === 'function') {
+      const orig = Sfx[fn].bind(Sfx);
+      Sfx[fn] = function(...args) {
+        if (localStorage.getItem(key) === '1') return;
+        return orig(...args);
+      };
+    }
+  });
+  // Inject a tiny toggle near the settings button
+  const btn = document.createElement('button');
+  btn.id = 'pf-cheer-toggle';
+  btn.title = 'Mute audience cheer SFX';
+  btn.style.cssText = 'position:fixed;top:14px;left:120px;z-index:50;background:rgba(20,8,32,0.85);color:#fff;border:1px solid #5ef38c;padding:4px 8px;font-family:"Press Start 2P",monospace;font-size:8px;border-radius:3px;cursor:pointer;';
+  const sync = () => {
+    const muted = localStorage.getItem(key) === '1';
+    btn.textContent = muted ? '🔕 CROWD' : '🎉 CROWD';
+    btn.style.opacity = muted ? '0.55' : '1';
+  };
+  btn.addEventListener('click', () => {
+    const cur = localStorage.getItem(key) === '1';
+    localStorage.setItem(key, cur ? '0' : '1');
+    sync();
+  });
+  document.body.appendChild(btn);
+  sync();
+})();
+
+// ============================================================================
+// v2.5 FORT-005: Refund hint badge — small static reminder next to BUILD
+// button that the player CAN sell back structures (existing R hotkey logic
+// elsewhere). Adds a 1-time tutorial pill when build menu first opens.
+// ============================================================================
+(function _r5RefundHint() {
+  if (localStorage.getItem('pugfort:refundHintSeen') === '1') return;
+  const showHint = () => {
+    if (localStorage.getItem('pugfort:refundHintSeen') === '1') return;
+    localStorage.setItem('pugfort:refundHintSeen', '1');
+    const pill = document.createElement('div');
+    pill.textContent = 'TIP: Sell structures back via the BUILD menu for partial refund.';
+    pill.style.cssText = 'position:fixed;bottom:120px;left:50%;transform:translateX(-50%);background:rgba(20,8,32,0.94);color:#ffd23f;border:2px solid #ffd23f;padding:8px 14px;font-family:"Press Start 2P",monospace;font-size:9px;border-radius:4px;z-index:9998;pointer-events:none;animation:refundHintPulse 5s ease-out forwards;max-width:340px;text-align:center;';
+    document.body.appendChild(pill);
+    setTimeout(() => pill.remove(), 5200);
+  };
+  // Show after a short delay once game starts
+  const tick = setInterval(() => {
+    if (game?.running) { setTimeout(showHint, 8000); clearInterval(tick); }
+  }, 500);
+  if (!document.getElementById('pf-refund-hint-style')) {
+    const s = document.createElement('style');
+    s.id = 'pf-refund-hint-style';
+    s.textContent = '@keyframes refundHintPulse{0%{opacity:0;transform:translateX(-50%) translateY(10px)}12%{opacity:1;transform:translateX(-50%) translateY(0)}82%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(-8px)}}';
+    document.head.appendChild(s);
+  }
+})();

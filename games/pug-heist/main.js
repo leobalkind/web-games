@@ -2817,7 +2817,7 @@ const CONTRACTS = [
     bonus: 1800, check: () => floor >= 4 && (performance.now() - (activeContract?._runStartT || 0)) < 240000 },
   { id: 'rare_only', name: 'CHERRY PICKER',    icon: '💎',
     desc: 'Only RARE items (worth ≥$150) count. Snub the cheap stuff.',
-    bonus: 2500, check: () => activeContract && activeContract._rareTaken >= 3 },
+    bonus: 2000, check: () => activeContract && activeContract._rareTaken >= 3 },
   { id: 'no_decoy',  name: 'PURIST',           icon: '🚫',
     desc: 'No decoys allowed. Trust your paws.',
     bonus: 1200, check: () => activeContract && !activeContract._decoyUsed && floor > 2 },
@@ -3244,5 +3244,59 @@ if (_startOv) {
       showReplayPrompt();
     };
     new MutationObserver(endUpdate).observe(end, { attributes: true, attributeFilter: ['hidden','class'] });
+  }
+})();
+
+// ============================================================================
+// v2.5 HEIST-004: Quick-restart key R — reloads the current floor instantly.
+// Reuses page reload (cheapest restart) gated on Shift+R combo so accidental
+// R presses (rare in heist controls) don't kill a run by mistake.
+// ============================================================================
+(function _r5QuickRestart() {
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'R' && e.shiftKey && !e.repeat) {
+      // ignore when overlays open
+      const start = document.getElementById('overlay');
+      const end = document.getElementById('end-overlay');
+      const startVisible = start && !start.hidden && !start.classList.contains('is-hidden');
+      const endVisible = end && !end.hidden && !end.classList.contains('is-hidden');
+      if (startVisible || endVisible) return;
+      // brief flash so the user knows the key registered
+      const flash = document.createElement('div');
+      flash.textContent = 'RESTARTING FLOOR…';
+      flash.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.85);color:#fff;display:flex;align-items:center;justify-content:center;font-family:"Press Start 2P",monospace;font-size:14px;z-index:99999;letter-spacing:2px;';
+      document.body.appendChild(flash);
+      setTimeout(() => location.reload(), 240);
+    }
+  });
+})();
+
+// ============================================================================
+// v2.5 HEIST-019: Onboarding tutorial — 1st-run-only overlay explaining
+// guard cones + loot. Auto-dismiss when player clicks anywhere or after 8s.
+// ============================================================================
+(function _r5HeistTutorial() {
+  if (localStorage.getItem('heist:onboarded') === '1') return;
+  const start = document.getElementById('overlay');
+  const showTut = () => {
+    if (localStorage.getItem('heist:onboarded') === '1') return;
+    localStorage.setItem('heist:onboarded', '1');
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'position:fixed;top:14%;left:50%;transform:translateX(-50%);background:rgba(20,8,32,0.96);color:#fff;border:2px solid #4cc9f0;padding:14px 18px;font-family:"Press Start 2P",monospace;font-size:9px;border-radius:6px;z-index:9998;max-width:380px;text-align:center;line-height:1.6;box-shadow:0 0 24px rgba(76,201,240,0.45);';
+    wrap.innerHTML = '<div style="color:#4cc9f0;font-size:11px;margin-bottom:8px;">FIRST TIME?</div>'
+      + '<div style="margin-bottom:6px">• Stay OUTSIDE green guard cones</div>'
+      + '<div style="margin-bottom:6px">• Tap WALLS to hide behind them</div>'
+      + '<div style="margin-bottom:6px">• Grab GOLD, dash to EXIT</div>'
+      + '<div style="margin-top:10px;color:#5ef38c;font-size:8px;opacity:0.7">click to dismiss</div>';
+    wrap.addEventListener('click', () => wrap.remove(), { once: true });
+    document.body.appendChild(wrap);
+    setTimeout(() => wrap.remove(), 9000);
+  };
+  if (start) {
+    const onHide = () => {
+      const visible = !start.hidden && !start.classList.contains('is-hidden');
+      if (!visible) setTimeout(showTut, 1500);
+    };
+    new MutationObserver(onHide).observe(start, { attributes: true, attributeFilter: ['hidden','class'] });
   }
 })();

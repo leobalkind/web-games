@@ -179,10 +179,10 @@ const LEVELS = [
     ambient: { color: 0x000000, intensity: 0.10 },
     lightTone: 0x80a0ff,
     sky: 0x000000,
-    monsterScale: 1.5,
+    monsterScale: 1.4,
     shadowChance: 0.45,
     whisperChance: 0.50,
-    chaserBonus: 1.2,
+    chaserBonus: 1.0,
     showSteam: false,
   },
 ];

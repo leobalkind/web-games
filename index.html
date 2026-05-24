@@ -4242,6 +4242,114 @@
         });
       })();
 
+      // ======================================================================
+      // v2.5 SITE-016: Daily login streak reward.
+      // First visit each UTC day awards a +1 streak and shows a toast. Streak
+      // resets if 36+ hours since last visit. Stored in `wg:streak:{count,last}`.
+      // ======================================================================
+      (function dailyStreak() {
+        try {
+          const raw = JSON.parse(localStorage.getItem('wg:streak') || '{}');
+          const now = Date.now();
+          const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD UTC
+          if (raw.lastDay === today) return; // already counted today
+          const last = raw.last || 0;
+          const hours = (now - last) / (1000 * 60 * 60);
+          const streak = (hours < 36 && last > 0) ? ((raw.count || 0) + 1) : 1;
+          localStorage.setItem('wg:streak', JSON.stringify({ count: streak, last: now, lastDay: today }));
+          // Toast
+          const toast = document.createElement('div');
+          toast.className = 'streak-toast';
+          toast.innerHTML = '<span style="color:#ffd23f;font-size:14px;margin-right:6px;">★</span>'
+            + '<b>DAY ' + streak + '</b><br/>' + (streak >= 7 ? 'WEEK STREAK!' : streak >= 3 ? 'On a roll!' : 'Welcome back!');
+          toast.style.cssText = 'position:fixed;bottom:24px;right:24px;background:linear-gradient(135deg,rgba(76,201,240,0.95),rgba(94,243,140,0.9));color:#0a0716;padding:14px 18px;font-family:"Press Start 2P",monospace;font-size:9px;border-radius:8px;z-index:9999;box-shadow:0 0 32px rgba(94,243,140,0.5);line-height:1.5;animation:streakIn 0.5s ease-out, streakOut 0.4s ease-in 4.6s forwards;text-align:left;';
+          document.body.appendChild(toast);
+          setTimeout(() => toast.remove(), 5200);
+          if (!document.getElementById('streak-toast-style')) {
+            const s = document.createElement('style');
+            s.id = 'streak-toast-style';
+            s.textContent = '@keyframes streakIn{from{opacity:0;transform:translateX(40px)}to{opacity:1;transform:translateX(0)}}@keyframes streakOut{from{opacity:1}to{opacity:0;transform:translateX(40px)}}';
+            document.head.appendChild(s);
+          }
+        } catch {}
+      })();
+
+      // ======================================================================
+      // v2.5 SITE-018-2 / News ticker bonus: "Recent games" pin shown below
+      // the search box — last 3 distinct games visited. Read from
+      // `wg:lastPlayed` (managed by card-click listener below).
+      // ======================================================================
+      (function recentGames() {
+        const grid = document.getElementById('hub-grid');
+        const header = document.querySelector('.hub__header');
+        if (!grid || !header) return;
+        // Pin: track every click on a game card
+        document.addEventListener('click', (e) => {
+          const card = e.target?.closest?.('.card[href*="/games/"]');
+          if (!card) return;
+          const m = (card.getAttribute('href') || '').match(/\/games\/([^/]+)/);
+          if (!m) return;
+          const gid = m[1];
+          try {
+            const arr = JSON.parse(localStorage.getItem('wg:recent') || '[]');
+            const filtered = arr.filter((x) => x !== gid);
+            filtered.unshift(gid);
+            localStorage.setItem('wg:recent', JSON.stringify(filtered.slice(0, 5)));
+          } catch {}
+        }, { capture: true });
+        // Render recents pill
+        try {
+          const arr = JSON.parse(localStorage.getItem('wg:recent') || '[]').slice(0, 3);
+          if (arr.length === 0) return;
+          const bar = document.createElement('div');
+          bar.className = 'hub__recent';
+          bar.style.cssText = 'display:flex;gap:6px;align-items:center;justify-content:center;flex-wrap:wrap;margin:8px auto 0;font-family:"Press Start 2P",monospace;font-size:9px;color:#888;';
+          const lbl = document.createElement('span');
+          lbl.textContent = 'RECENT:';
+          lbl.style.color = '#5ef38c';
+          bar.appendChild(lbl);
+          for (const gid of arr) {
+            const card = grid.querySelector('.card[href*="/games/' + gid + '"]');
+            if (!card) continue;
+            const title = card.querySelector('.card__title')?.textContent?.trim() || gid.toUpperCase();
+            const chip = document.createElement('a');
+            chip.href = card.getAttribute('href');
+            chip.textContent = title.length > 14 ? title.slice(0, 12) + '…' : title;
+            chip.style.cssText = 'color:#fff;text-decoration:none;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);padding:3px 8px;border-radius:3px;transition:all 0.18s;';
+            chip.addEventListener('pointerenter', () => { chip.style.background = 'rgba(94,243,140,0.18)'; chip.style.borderColor = '#5ef38c'; });
+            chip.addEventListener('pointerleave', () => { chip.style.background = 'rgba(255,255,255,0.08)'; chip.style.borderColor = 'rgba(255,255,255,0.15)'; });
+            bar.appendChild(chip);
+          }
+          // insert before the grid section
+          grid.parentNode.insertBefore(bar, grid);
+        } catch {}
+      })();
+
+      // ======================================================================
+      // v2.5 SITE-005-2 / Audio bonus: tiny success ping on streak unlock,
+      // plus a hover-to-play preview-jingle for cards with high play counts.
+      // (Skipped if reduced-motion preferred.)
+      // ======================================================================
+      (function previewJingle() {
+        if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+        if ('ontouchstart' in window) return;
+        let lastJingle = 0;
+        const cards = [...document.querySelectorAll('.card[href*="/games/"]')];
+        cards.forEach((c) => {
+          c.addEventListener('pointerenter', () => {
+            const now = performance.now();
+            if (now - lastJingle < 800) return;
+            const m = (c.getAttribute('href') || '').match(/\/games\/([^/]+)/);
+            if (!m) return;
+            const gid = m[1];
+            let plays = 0; try { plays = Number(localStorage.getItem('wg:plays:' + gid)) || 0; } catch {}
+            if (plays < 3) return; // only jingle for played games
+            lastJingle = now;
+            try { playUI('hover'); } catch {}
+          });
+        });
+      })();
+
       // === Cloud sync indicator — small online/offline dot beside profile chip ===
       // Only render when Supabase is configured. The status reflects the
       // navigator.onLine flag + cloudSync's session presence.

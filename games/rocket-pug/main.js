@@ -186,7 +186,7 @@ let activePerkId = 'tough';
 // Kill thresholds: 10 → Lv1, 25 → Lv2, 50 → Lv3.
 // =============================================================================
 const MASTERY_KEY = 'rocket-pug:mastery';
-const MASTERY_THRESH = [10, 25, 50];
+const MASTERY_THRESH = [8, 20, 40];
 function loadMastery() {
   try { return JSON.parse(localStorage.getItem(MASTERY_KEY) || '{}'); } catch { return {}; }
 }
@@ -2631,5 +2631,83 @@ if (_startOv) {
       showReplayPrompt();
     };
     new MutationObserver(endUpdate).observe(endOv, { attributes: true, attributeFilter: ['hidden','class'] });
+  }
+})();
+
+// ============================================================================
+// v2.5 ROCKET-010: Arena hazard intensity dial — persists per-profile choice
+// LOW/MED/HIGH (default MED). Stored in localStorage `rocket:hazardDial` for
+// later wiring into the hazard spawn cadence.
+// ============================================================================
+(function _r5HazardDial() {
+  const key = 'rocket:hazardDial';
+  const cur = localStorage.getItem(key) || 'med';
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'position:fixed;top:14px;left:240px;z-index:50;display:flex;gap:4px;background:rgba(20,8,32,0.85);border:1px solid #4cc9f0;padding:4px 6px;border-radius:3px;font-family:"Press Start 2P",monospace;font-size:8px;';
+  ['low','med','high'].forEach((lvl) => {
+    const b = document.createElement('button');
+    b.textContent = lvl.toUpperCase();
+    b.style.cssText = 'background:none;border:none;color:' + (lvl === cur ? '#ffd23f' : '#888') + ';padding:2px 4px;cursor:pointer;font:inherit;';
+    b.addEventListener('click', () => {
+      localStorage.setItem(key, lvl);
+      [...wrap.children].forEach((c, i) => { c.style.color = ['low','med','high'][i] === lvl ? '#ffd23f' : '#888'; });
+      // Apply to game if it supports it
+      if (game && typeof game.setHazardIntensity === 'function') game.setHazardIntensity(lvl);
+      // Toast
+      const t = document.createElement('div');
+      t.textContent = 'HAZARDS: ' + lvl.toUpperCase();
+      t.style.cssText = 'position:fixed;top:48px;left:50%;transform:translateX(-50%);background:rgba(20,8,32,0.92);color:#4cc9f0;border:1px solid #4cc9f0;padding:4px 10px;font-family:"Press Start 2P",monospace;font-size:9px;border-radius:3px;z-index:9998;pointer-events:none;animation:hazToast 1.6s ease-out forwards;';
+      document.body.appendChild(t);
+      setTimeout(() => t.remove(), 1700);
+    });
+    wrap.appendChild(b);
+  });
+  const lbl = document.createElement('span');
+  lbl.textContent = 'HAZ';
+  lbl.style.cssText = 'color:#4cc9f0;padding:2px 6px 2px 2px;align-self:center;';
+  wrap.insertBefore(lbl, wrap.firstChild);
+  document.body.appendChild(wrap);
+  if (!document.getElementById('rocket-haz-toast-style')) {
+    const s = document.createElement('style');
+    s.id = 'rocket-haz-toast-style';
+    s.textContent = '@keyframes hazToast{0%{opacity:0;transform:translateX(-50%) translateY(-8px)}20%{opacity:1;transform:translateX(-50%) translateY(0)}80%{opacity:1}100%{opacity:0}}';
+    document.head.appendChild(s);
+  }
+})();
+
+// ============================================================================
+// v2.5 ROCKET-013: "TRIPLE FRAG" achievement — listens for kill-feed bursts
+// of 3+ within 1.2s, fires a toast + persists in localStorage.
+// ============================================================================
+(function _r5TripleFrag() {
+  const feed = document.getElementById('kill-feed');
+  if (!feed) return;
+  let recent = [];
+  const KEY = 'rocket:achievement:triplefrag';
+  setInterval(() => {
+    if (!game?.running) return;
+    const items = feed.querySelectorAll('.kill-feed__item, .kf-row');
+    const count = items.length;
+    const now = performance.now();
+    if (count !== (recent.lastCount || 0)) {
+      const diff = count - (recent.lastCount || 0);
+      for (let i = 0; i < diff; i++) recent.push(now);
+      recent.lastCount = count;
+    }
+    recent = recent.filter((t) => typeof t === 'number' && now - t < 1200);
+    if (recent.length >= 3 && localStorage.getItem(KEY) !== '1') {
+      localStorage.setItem(KEY, '1');
+      const toast = document.createElement('div');
+      toast.textContent = '★ ACHIEVEMENT: TRIPLE FRAG!';
+      toast.style.cssText = 'position:fixed;top:36%;left:50%;transform:translateX(-50%);background:linear-gradient(90deg,#ffd23f,#ff8e3c);color:#0a0716;padding:10px 18px;font-family:"Press Start 2P",monospace;font-size:11px;border-radius:6px;z-index:9999;pointer-events:none;animation:triFragPop 3.4s ease-out forwards;box-shadow:0 0 24px rgba(255,210,63,0.55);font-weight:bold;';
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 3500);
+    }
+  }, 250);
+  if (!document.getElementById('rocket-trifrag-style')) {
+    const s = document.createElement('style');
+    s.id = 'rocket-trifrag-style';
+    s.textContent = '@keyframes triFragPop{0%{opacity:0;transform:translateX(-50%) translateY(20px) scale(0.5)}12%{opacity:1;transform:translateX(-50%) translateY(0) scale(1.18)}28%{transform:translateX(-50%) translateY(0) scale(1)}90%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(-12px)}}';
+    document.head.appendChild(s);
   }
 })();

@@ -2242,7 +2242,7 @@ document.getElementById('end-restart').addEventListener('click', start);
 // handbag stealthy (lower heat gain in escape).
 // =============================================================================
 const GETAWAY_VEHICLES = [
-  { id: 'skateboard', name: 'SKATEBOARD', icon: '🛹', desc: '+40% speed in escape · -10% bag cap', speedMul: 1.40, bagMul: 0.90, heatMul: 1.0 },
+  { id: 'skateboard', name: 'SKATEBOARD', icon: '🛹', desc: '+55% speed in escape · -10% bag cap', speedMul: 1.55, bagMul: 0.90, heatMul: 1.0 },
   { id: 'cart',       name: 'BIG CART',   icon: '🛒', desc: '+40% bag cap · normal speed',         speedMul: 1.0,  bagMul: 1.40, heatMul: 1.1 },
   { id: 'handbag',    name: 'HANDBAG',    icon: '👜', desc: 'Half heat gain · normal speed',       speedMul: 1.0,  bagMul: 1.0,  heatMul: 0.50 },
 ];
@@ -2750,3 +2750,90 @@ function _renderMapPicker() {
   }
 }
 _renderMapPicker();
+
+// ============================================================================
+// v2.5 MART-019: Background ambient muzak track.
+// Tiny WebAudio loop (one major-chord arpeggio across 4s) that fades in
+// when game starts, fades out when overlays show or when muted.
+// ============================================================================
+(function _r5MartMuzak() {
+  let ac = null, master = null, on = false;
+  let pat = null;
+  function start() {
+    try {
+      ac = new (window.AudioContext || window.webkitAudioContext)();
+      master = ac.createGain();
+      master.gain.value = 0;
+      master.connect(ac.destination);
+    } catch {}
+  }
+  function note(freq, t, dur, vol) {
+    if (!ac) return;
+    const o = ac.createOscillator();
+    const g = ac.createGain();
+    o.type = 'triangle';
+    o.frequency.value = freq;
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(vol, t + 0.04);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    o.connect(g); g.connect(master);
+    o.start(t); o.stop(t + dur + 0.05);
+  }
+  function playBar() {
+    if (!ac) return;
+    const t = ac.currentTime;
+    const notes = [261.63, 329.63, 392.0, 523.25, 392.0, 329.63, 261.63, 196.0];
+    notes.forEach((n, i) => note(n, t + i * 0.5, 0.45, 0.018));
+  }
+  function setup() {
+    if (ac) return;
+    start();
+    if (!ac) return;
+    pat = setInterval(() => {
+      if (on) playBar();
+    }, 4000);
+  }
+  window.addEventListener('pointerdown', setup, { once: true });
+  window.addEventListener('keydown', setup, { once: true });
+  setInterval(() => {
+    if (!master) return;
+    const startOv = document.getElementById('overlay');
+    const endOv = document.getElementById('end-overlay');
+    const startV = startOv && !startOv.hidden && !startOv.classList.contains('is-hidden');
+    const endV = endOv && !endOv.hidden && !endOv.classList.contains('is-hidden');
+    const muted = localStorage.getItem('wg:settings:muted') === '1' || localStorage.getItem('wg:music') === '0';
+    const want = !startV && !endV && !muted;
+    on = want;
+    try {
+      master.gain.linearRampToValueAtTime(want ? 0.6 : 0, ac.currentTime + 0.8);
+    } catch {}
+  }, 500);
+})();
+
+// ============================================================================
+// v2.5 MART-013: First-run highlight stealth zones.
+// One-shot pulsing arrow tip showing player to hide behind shelves.
+// ============================================================================
+(function _r5MartTutorial() {
+  if (localStorage.getItem('mart:tutSeen') === '1') return;
+  const start = document.getElementById('overlay');
+  const fire = () => {
+    if (localStorage.getItem('mart:tutSeen') === '1') return;
+    localStorage.setItem('mart:tutSeen', '1');
+    const hint = document.createElement('div');
+    hint.style.cssText = 'position:fixed;bottom:120px;left:50%;transform:translateX(-50%);background:rgba(20,8,32,0.94);color:#fff;border:2px solid #4cc9f0;padding:10px 14px;font-family:"Press Start 2P",monospace;font-size:9px;border-radius:6px;z-index:9998;max-width:340px;text-align:center;line-height:1.6;';
+    hint.innerHTML = '<div style="color:#4cc9f0;margin-bottom:6px;">★ STEALTH TIP</div>'
+      + '<div>HIDE behind shelves to break guard line-of-sight.</div>'
+      + '<div style="margin-top:4px">Grab items, escape via EXIT.</div>'
+      + '<div style="margin-top:8px;color:#ffd23f;font-size:8px;opacity:0.8">click to dismiss</div>';
+    hint.addEventListener('click', () => hint.remove(), { once: true });
+    document.body.appendChild(hint);
+    setTimeout(() => hint.remove(), 10000);
+  };
+  if (start) {
+    new MutationObserver(() => {
+      const visible = !start.hidden && !start.classList.contains('is-hidden');
+      if (!visible) setTimeout(fire, 1500);
+    }).observe(start, { attributes: true, attributeFilter: ['hidden','class'] });
+  }
+})();

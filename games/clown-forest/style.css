@@ -1598,3 +1598,126 @@ body.reduced-motion .map-overlay.is-shown .map-overlay__paper,
 body.reduced-motion body.is-breathing #hud::before {
   animation: none !important;
 }
+
+/* =============================================================================
+   ROUND-5: STEALTH METER — small bar that lives just above the vitals stack.
+   Only shown (un-hidden) by JS while clown is HUNT or CHASE.
+   ============================================================================= */
+.hud-stealth {
+  position: fixed;
+  left: 16px;
+  bottom: 96px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: rgba(10, 8, 12, 0.62);
+  border: 1px solid rgba(150, 50, 50, 0.3);
+  border-radius: 2px;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.45rem;
+  letter-spacing: 0.16em;
+  color: #c8b890;
+  z-index: 15;
+  pointer-events: none;
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+.hud-stealth[hidden] { display: none; }
+.hud-stealth__label { color: #8a7a60; }
+.hud-stealth__bar {
+  width: 96px; height: 8px;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(120, 60, 40, 0.4);
+}
+.hud-stealth__bar i {
+  display: block; width: 0%; height: 100%;
+  background: linear-gradient(90deg, #4a6a5a, #d8c060);
+  transition: width 120ms ease;
+}
+.hud-stealth__pct { color: #c8b890; min-width: 36px; text-align: right; }
+.hud-stealth.is-high .hud-stealth__bar i {
+  background: linear-gradient(90deg, #d8c060, #e88030);
+}
+.hud-stealth.is-crit .hud-stealth__bar i {
+  background: linear-gradient(90deg, #e88030, #c81a14);
+  animation: stealthThrob 0.45s ease-in-out infinite alternate;
+}
+.hud-stealth.is-crit {
+  border-color: rgba(200, 26, 20, 0.7);
+  color: #e0a8a8;
+}
+@keyframes stealthThrob {
+  from { box-shadow: 0 0 0 rgba(200, 26, 20, 0); }
+  to   { box-shadow: 0 0 14px rgba(200, 26, 20, 0.55); }
+}
+body.reduced-motion .hud-stealth.is-crit .hud-stealth__bar i { animation: none; }
+
+/* =============================================================================
+   ROUND-5: PHOTOGRAPH FLASHBACK — full-screen tinted vignette + Polaroid +
+   victim line. Slides in for PHOTO_FLASH_DURATION then fades out.
+   ============================================================================= */
+.cf-photo-flash {
+  position: fixed; inset: 0; z-index: 36;
+  pointer-events: none;
+  display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(ellipse at center, rgba(20, 10, 8, 0.45) 0%, rgba(0, 0, 0, 0.82) 80%);
+  opacity: 0;
+  transition: opacity 0.45s ease;
+}
+.cf-photo-flash.is-on {
+  opacity: 1;
+  animation: cfPhotoIn 0.6s ease forwards;
+}
+@keyframes cfPhotoIn {
+  0%   { opacity: 0; filter: blur(8px) brightness(0.6); transform: scale(0.96); }
+  35%  { opacity: 1; filter: blur(0) brightness(1.18); transform: scale(1.0); }
+  100% { opacity: 1; filter: blur(0) brightness(1); transform: scale(1.0); }
+}
+.cf-photo-flash__frame {
+  position: relative;
+  padding: 14px 14px 36px;
+  background: #d8c8a0;
+  box-shadow: 0 6px 32px rgba(0, 0, 0, 0.9), inset 0 0 28px rgba(60, 40, 20, 0.32);
+  transform: rotate(-2deg);
+  max-width: 360px;
+}
+.cf-photo-flash__pic {
+  width: 320px; height: 220px;
+  background:
+    radial-gradient(circle at 50% 38%, rgba(220, 200, 170, 0.5) 0%, rgba(70, 30, 30, 0.7) 35%, rgba(0, 0, 0, 0.95) 70%),
+    repeating-linear-gradient(0deg, rgba(0,0,0,0.10) 0 1px, transparent 1px 3px);
+  border: 1px solid rgba(60, 30, 20, 0.55);
+  filter: contrast(1.2) saturate(0.6);
+  position: relative;
+}
+.cf-photo-flash__pic::before {
+  content: '';
+  position: absolute; left: 50%; top: 32%;
+  width: 26px; height: 36px;
+  margin-left: -13px;
+  background:
+    radial-gradient(ellipse at 30% 40%, #c81a14 1.5px, transparent 2.5px),
+    radial-gradient(ellipse at 70% 40%, #c81a14 1.5px, transparent 2.5px),
+    radial-gradient(ellipse at 50% 50%, rgba(220, 200, 180, 0.85), rgba(40, 30, 30, 0));
+  border-radius: 50%;
+}
+.cf-photo-flash__cap {
+  position: absolute;
+  left: 0; right: 0; bottom: 8px;
+  text-align: center;
+  font-family: 'Cormorant Garamond', serif;
+  font-style: italic;
+  color: #3a2818;
+  font-size: 0.95rem;
+  margin: 0;
+}
+body.reduced-motion .cf-photo-flash.is-on { animation: none; }
+
+/* Mobile: shrink the flashback frame so it fits portrait phones. */
+@media (max-width: 540px) {
+  .cf-photo-flash__frame { transform: rotate(-2deg) scale(0.78); }
+  .hud-stealth { left: 12px; bottom: 86px; font-size: 0.4rem; padding: 5px 8px; }
+  .hud-stealth__bar { width: 78px; height: 7px; }
+}
+

@@ -79,6 +79,58 @@ const playRainOnShelter = (v)  => { try { audio?.playRainOnShelter?.(v); } catch
 const setSurface       = (s)   => { try { audio?.setSurface?.(s); } catch {} };
 
 // ---------------------------------------------------------------------------
+// ROUND-5 — clown laugh variants. The audio module exposes a single
+// playClownLaugh(pan, dist). We layer three personalities on top of it via
+// pitch/distance shaping so each peek feels distinct:
+//   GIGGLING  — short, mid-pitch, near (sounds like he's right there)
+//   CACKLING  — broad mid-distance, drawn-out
+//   MENACING  — low, distant, slow — drop low-pass via long apparent dist
+// We additionally schedule a 2nd follow-up tap (~0.3-0.7s) at -2dB to fake a
+// reverb tail (no need to modify audio.js — Agent B owns it).
+// ---------------------------------------------------------------------------
+const LAUGH_VARIANTS = ['giggling', 'cackling', 'menacing'];
+function playClownLaughVariant(panX, dist) {
+  const variant = LAUGH_VARIANTS[Math.floor(Math.random() * 3)];
+  let d = dist;
+  if      (variant === 'giggling') d = Math.max(2,  dist * 0.55);
+  else if (variant === 'cackling') d = Math.max(8,  dist);
+  else                             d = Math.max(20, dist * 1.45); // menacing reads far + bassier
+  try { audio?.playClownLaugh?.(panX, d); } catch {}
+  // Reverb-tail tap — randomised 300-700ms later, quieter, slight pan drift.
+  const tail = 300 + Math.random() * 400;
+  setTimeout(() => {
+    try { audio?.playClownLaugh?.(panX * 0.7, d * 1.6); } catch {}
+  }, tail);
+  return variant;
+}
+
+// ---------------------------------------------------------------------------
+// ROUND-5 — touch-sensitivity persistence. Cycled by a small TURN button
+// rendered next to the mobile controls; desktop ignores both.
+// ---------------------------------------------------------------------------
+const TOUCH_SENS_KEY = (() => {
+  try { return profileKey('clown-forest:touchSens'); }
+  catch { return 'wg:clown-forest:touchSens'; }
+})();
+function _loadTouchSens() {
+  let idx = 1;
+  try {
+    const v = parseInt(localStorage.getItem(TOUCH_SENS_KEY) || '1', 10);
+    if (v >= 0 && v < TOUCH_SENS_PRESETS.length) idx = v;
+  } catch {}
+  return idx;
+}
+function _saveTouchSens(idx) {
+  try { localStorage.setItem(TOUCH_SENS_KEY, String(idx | 0)); } catch {}
+}
+function applyTouchSens(idx) {
+  touchSensIdx = Math.max(0, Math.min(TOUCH_SENS_PRESETS.length - 1, idx | 0));
+  TOUCH_SENS = TOUCH_SENS_PRESETS[touchSensIdx];
+  _saveTouchSens(touchSensIdx);
+}
+applyTouchSens(_loadTouchSens());
+
+// ---------------------------------------------------------------------------
 // SETTINGS — gear button auto-mounts top-right. Controls help on hover/click.
 // We keep the handle so the pause overlay can re-open the settings modal on
 // demand (player is in the dark — finding the gear icon is annoying).
@@ -124,7 +176,12 @@ const CROUCH_SPEED        = 1.2;
 const STAMINA_MAX         = 8.0;   // 8 seconds of sprint
 const STAMINA_REGEN       = 1.4;   // per sec when not sprinting
 const MOUSE_SENS          = 0.0022;
-const TOUCH_SENS          = 0.0050;
+// Touch sensitivity is a runtime preference (cycled via the TURN button on
+// mobile). Persisted per-profile so the player's choice survives reloads.
+const TOUCH_SENS_PRESETS  = [0.0030, 0.0050, 0.0075]; // LOW / MED / HIGH
+const TOUCH_SENS_LABELS   = ['LOW', 'MED', 'HIGH'];
+let   touchSensIdx        = 1;     // 0..2 — written by initTouchSensFromStorage()
+let   TOUCH_SENS          = TOUCH_SENS_PRESETS[1];
 
 const FLASHLIGHT_DRAIN    = 0.3;   // % per second
 const ITEMS_TO_ESCAPE     = 5;
@@ -168,6 +225,34 @@ const RANDOM_EVENT_MAX_GAP  = 150;
 
 // Ambush state — clown stalks from behind after item pickup, for this long.
 const AMBUSH_DURATION       = 60;
+
+// =============================================================================
+// ROUND-5: DEPTH ADDITIONS — photos, footprints, shrine, dawn birds, stealth
+// meter, owl-takes-flight, lengthening shadows, two new achievements,
+// per-laugh personality + reverb tail, mobile touch-sens cycle.
+// =============================================================================
+const PHOTO_MIN              = 1;
+const PHOTO_MAX              = 3;
+const PHOTO_FLASH_DURATION   = 2.2;
+const FOOTPRINT_INTERVAL_M   = 0.9;
+const FOOTPRINT_MAX          = 60;
+const FOOTPRINT_FADE_SECS    = 20;
+const SHRINE_INTERACT_DIST   = 4;
+const SHRINE_COOLDOWN_SECS   = 35;
+const SHRINE_SANITY_COST_S   = 12;
+const DAWN_BIRDS_THRESHOLD   = 70;
+const DAWN_BIRDS_MIN_GAP     = 14;
+const DAWN_BIRDS_MAX_GAP     = 34;
+const STEALTH_AWARE_MAX      = 100;
+const STEALTH_DECAY_PER_SEC  = 4.5;
+const STEALTH_SPRINT_GAIN    = 14;
+const STEALTH_FLASHLIGHT_GAIN= 6;
+const STEALTH_LOS_GAIN       = 24;
+const STEALTH_HUNT_GAIN      = 2.2;
+const OWL_FLIGHT_MIN_GAP     = 95;
+const OWL_FLIGHT_MAX_GAP     = 220;
+const ACH_DUSK_THRESHOLD     = 50;
+const ACH_SHADOW_MAX_SPRINT  = 30;
 
 // =============================================================================
 // ROUND-4: DIFFICULTY + ACHIEVEMENT + STATS + ENDINGS + EXTRAS
@@ -2273,6 +2358,275 @@ const lightningState = {
 // Frame counter used by tickAtmosphere() for any throttling needed.
 let atmosphereFrame = 0;
 
+// ROUND-5: FOOTPRINT TRAIL — drop muddy prints on dirt/path every ~1m walked.
+const footprintTex = (() => {
+  const c = document.createElement('canvas'); c.width = 64; c.height = 64;
+  const g = c.getContext('2d');
+  g.fillStyle = 'rgba(10, 6, 4, 0.85)';
+  g.beginPath(); g.ellipse(28, 30, 12, 18, 0, 0, Math.PI * 2); g.fill();
+  g.beginPath(); g.ellipse(28, 50, 9, 8, 0, 0, Math.PI * 2); g.fill();
+  const tex = new THREE.CanvasTexture(c);
+  tex.minFilter = THREE.LinearFilter;
+  return tex;
+})();
+const footprintMat = new THREE.MeshBasicMaterial({
+  map: footprintTex, transparent: true, depthWrite: false, fog: true,
+  polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3, opacity: 0.55,
+});
+const footprintGeom = new THREE.PlaneGeometry(0.35, 0.55);
+const footprints = []; // { mesh, spawnedAt }
+const footprintState = { lastPos: null, accum: 0, leftFoot: true };
+function _dropFootprint() {
+  const px = player.pos.x, pz = player.pos.z;
+  let surface = 'dirt';
+  try {
+    if (distToPath(px, pz) < 0) surface = 'path';
+    else if (distToLandmark(px, pz) < 6) surface = 'grass';
+  } catch {}
+  if (surface === 'grass') return;
+  const rightX = -Math.cos(player.yaw), rightZ = Math.sin(player.yaw);
+  const sign = footprintState.leftFoot ? -1 : 1;
+  footprintState.leftFoot = !footprintState.leftFoot;
+  const fx = px + rightX * sign * 0.18;
+  const fz = pz + rightZ * sign * 0.18;
+  let print;
+  if (footprints.length >= FOOTPRINT_MAX) {
+    print = footprints.shift();
+    print.mesh.position.set(fx, groundY(fx, fz) + 0.015, fz);
+  } else {
+    const m = new THREE.Mesh(footprintGeom, footprintMat.clone());
+    m.rotation.x = -Math.PI / 2;
+    m.position.set(fx, groundY(fx, fz) + 0.015, fz);
+    scene.add(m);
+    print = { mesh: m, spawnedAt: 0 };
+  }
+  print.mesh.rotation.z = -player.yaw;
+  print.mesh.material.opacity = 0.55;
+  print.spawnedAt = now();
+  footprints.push(print);
+}
+function tickFootprints(dt) {
+  const t = now();
+  // Drop a new print every FOOTPRINT_INTERVAL_M metres walked.
+  if (footprintState.lastPos) {
+    const moved = Math.hypot(
+      player.pos.x - footprintState.lastPos.x,
+      player.pos.z - footprintState.lastPos.z
+    );
+    footprintState.accum += moved;
+    if (footprintState.accum >= FOOTPRINT_INTERVAL_M) {
+      footprintState.accum = 0;
+      _dropFootprint();
+    }
+  }
+  footprintState.lastPos = { x: player.pos.x, z: player.pos.z };
+  // Fade existing prints over FOOTPRINT_FADE_SECS.
+  for (const p of footprints) {
+    const age = t - p.spawnedAt;
+    if (age < FOOTPRINT_FADE_SECS) {
+      p.mesh.material.opacity = 0.55 * Math.max(0, 1 - age / FOOTPRINT_FADE_SECS);
+    } else {
+      p.mesh.material.opacity = 0;
+      p.mesh.visible = false;
+    }
+  }
+}
+
+// ROUND-5: OWL TAKES FLIGHT — startle event, sprite swoops across view.
+const owlFlightTex = (() => {
+  const c = document.createElement('canvas'); c.width = 64; c.height = 48;
+  const g = c.getContext('2d');
+  g.fillStyle = '#2a241c';
+  g.beginPath(); g.ellipse(32, 26, 10, 8, 0, 0, Math.PI * 2); g.fill();
+  g.fillStyle = '#1a140e';
+  g.beginPath(); g.moveTo(32, 22); g.lineTo(6, 16); g.lineTo(20, 26); g.closePath(); g.fill();
+  g.beginPath(); g.moveTo(32, 22); g.lineTo(58, 16); g.lineTo(44, 26); g.closePath(); g.fill();
+  g.fillStyle = '#d8c050';
+  g.fillRect(28, 23, 2, 2); g.fillRect(34, 23, 2, 2);
+  return new THREE.CanvasTexture(c);
+})();
+const owlFlightSprite = (() => {
+  const mat = new THREE.SpriteMaterial({ map: owlFlightTex, transparent: true, depthWrite: false, fog: true, opacity: 0 });
+  const s = new THREE.Sprite(mat);
+  s.scale.set(1.1, 0.8, 1); s.visible = false;
+  scene.add(s);
+  return s;
+})();
+const owlFlightState = {
+  active: false, startAt: 0, endAt: 0, nextAt: 0,
+  vx: 0, vz: 0, vy: 0, x: 0, y: 0, z: 0,
+};
+function _scheduleNextOwlFlight() {
+  owlFlightState.nextAt = now() + OWL_FLIGHT_MIN_GAP + Math.random() * (OWL_FLIGHT_MAX_GAP - OWL_FLIGHT_MIN_GAP);
+}
+function _maybeTriggerOwlFlight() {
+  if (owlFlightState.active) return;
+  if (!owlFlightState.nextAt) { _scheduleNextOwlFlight(); return; }
+  if (now() < owlFlightState.nextAt) return;
+  if (clownState.phase === 'chase' || totalElapsed < CURVE_QUIET_UNTIL) {
+    owlFlightState.nextAt = now() + 40; return;
+  }
+  const side = Math.random() < 0.5 ? 1 : -1;
+  const fwdX = -Math.sin(player.yaw), fwdZ = -Math.cos(player.yaw);
+  const rightX = -fwdZ, rightZ = fwdX;
+  owlFlightState.x = player.pos.x + fwdX * 8 + rightX * side * 12;
+  owlFlightState.z = player.pos.z + fwdZ * 8 + rightZ * side * 12;
+  owlFlightState.y = player.pos.y + 3 + Math.random() * 1.5;
+  const speed = 9 + Math.random() * 4;
+  owlFlightState.vx = -rightX * side * speed + fwdX * 1.5;
+  owlFlightState.vz = -rightZ * side * speed + fwdZ * 1.5;
+  owlFlightState.vy = -1.5;
+  owlFlightState.active = true;
+  owlFlightState.startAt = now();
+  owlFlightState.endAt = now() + 1.4;
+  owlFlightSprite.position.set(owlFlightState.x, owlFlightState.y, owlFlightState.z);
+  owlFlightSprite.material.opacity = 0;
+  owlFlightSprite.visible = true;
+  try { audio?.playOwl?.(); } catch {}
+  try { wgCaption?.('OWL TAKES FLIGHT', 1400); } catch {}
+  try { showSubtitle('Something darts past your head.', 2.2); } catch {}
+}
+function tickOwlFlight(dt) {
+  if (!owlFlightState.active) { _maybeTriggerOwlFlight(); return; }
+  owlFlightState.x += owlFlightState.vx * dt;
+  owlFlightState.y += owlFlightState.vy * dt;
+  owlFlightState.z += owlFlightState.vz * dt;
+  owlFlightSprite.position.set(owlFlightState.x, owlFlightState.y, owlFlightState.z);
+  const elapsed = now() - owlFlightState.startAt;
+  const total = owlFlightState.endAt - owlFlightState.startAt;
+  let a = 0.8;
+  if (elapsed < 0.25) a *= elapsed / 0.25;
+  if (elapsed > total - 0.3) a *= Math.max(0, (total - elapsed) / 0.3);
+  owlFlightSprite.material.opacity = a;
+  if (now() > owlFlightState.endAt) {
+    owlFlightState.active = false;
+    owlFlightSprite.visible = false;
+    _scheduleNextOwlFlight();
+  }
+}
+
+// =============================================================================
+// ROUND-5: STEALTH METER — only visible while clown is HUNT or CHASE. Tracks
+// "awareness" 0..100. Rises with sprint / flashlight-on / line-of-sight,
+// decays passively. Exposed for HUD via window.clownForestAware so the rest
+// of the bookkeeping can stay in this file.
+// =============================================================================
+const stealthState = { aware: 0, lastShown: false };
+function tickStealth(dt) {
+  let delta = -STEALTH_DECAY_PER_SEC * dt;
+  const inDanger = clownState.phase === 'hunt' || clownState.phase === 'chase';
+  if (inDanger) delta += STEALTH_HUNT_GAIN * dt;
+  if (player.isSprinting) delta += STEALTH_SPRINT_GAIN * dt;
+  if (player.flashlightOn) delta += STEALTH_FLASHLIGHT_GAIN * dt;
+  if (inDanger && clownState.isVisible && playerCanSeeClown()) delta += STEALTH_LOS_GAIN * dt;
+  // Crouch / listen mode is a strong stealth bonus.
+  if (player.isCrouching) delta -= STEALTH_DECAY_PER_SEC * 0.6 * dt;
+  stealthState.aware = Math.max(0, Math.min(STEALTH_AWARE_MAX, stealthState.aware + delta));
+  try { window.clownForestAware = stealthState.aware | 0; } catch {}
+  // Bias the existing CHASE trigger window: 90+ awareness while in HUNT acts
+  // like a "spotted" event, slightly accelerating the chase. Cheap and effective.
+  if (inDanger && stealthState.aware > 90 && clownState.phase === 'hunt') {
+    clownState.lastSeenAt = now();
+  }
+}
+
+// =============================================================================
+// ROUND-5: SHRINE INTERACTION — pressing E while standing within
+// SHRINE_INTERACT_DIST of the shrine landmark flickers the torch, drops
+// sanity-low for SHRINE_SANITY_COST_S seconds, and reveals the clown's
+// approximate sector via showObjective().
+// =============================================================================
+const shrineState = { nextOkAt: 0, sanityUntil: 0, hintedThisVisit: false, wasInRange: false };
+function isAtShrine() {
+  const lm = world.landmarks.find((l) => l.name === 'shrine');
+  if (!lm) return false;
+  const d = Math.hypot(lm.x - player.pos.x, lm.z - player.pos.z);
+  return d < SHRINE_INTERACT_DIST;
+}
+function tryShrineConsult() {
+  if (now() < shrineState.nextOkAt) { showSubtitle('The shrine is silent.', 2); return false; }
+  if (!isAtShrine()) return false;
+  shrineState.nextOkAt = now() + SHRINE_COOLDOWN_SECS;
+  shrineState.sanityUntil = now() + SHRINE_SANITY_COST_S;
+  if (player.flashlightOn) {
+    flashState.blinkOutUntil = now() + 0.25;
+    try { audio?.playFlashlightFlicker?.(); } catch {}
+  }
+  const dx = clownState.pos.x - player.pos.x;
+  const dz = clownState.pos.z - player.pos.z;
+  const ang = Math.atan2(dx, -dz);
+  const abs = Math.abs(ang);
+  const sideLR = ang < 0 ? 'left' : 'right';
+  let dir;
+  if (abs < Math.PI / 8) dir = 'directly ahead';
+  else if (abs < Math.PI * 3 / 8) dir = `ahead-${sideLR}`;
+  else if (abs < Math.PI * 5 / 8) dir = `on your ${sideLR}`;
+  else dir = `behind-${sideLR}`;
+  showObjective(`HE IS ${dir.toUpperCase()}`, 4.0);
+  showSubtitle('The skulls show you. You feel cold.', 3, 'SHRINE WHISPER');
+  try { wgCaption?.('SHRINE WHISPER', 1800); } catch {}
+  try { audio?.playClownLaugh?.(0, 28); } catch {}
+  return true;
+}
+function tickShrineSanity() {
+  if (shrineState.sanityUntil && now() < shrineState.sanityUntil) {
+    document.body.classList.add('is-sanity-low');
+  }
+  // Soft hint on entering shrine range — once per visit. We track wasInRange so
+  // the player has to leave + come back before another nudge.
+  const inRange = isAtShrine();
+  if (inRange && !shrineState.wasInRange && !shrineState.hintedThisVisit && now() > shrineState.nextOkAt) {
+    shrineState.hintedThisVisit = true;
+    showSubtitle('The shrine watches. Press E to ask.', 3);
+  }
+  if (!inRange && shrineState.wasInRange) {
+    shrineState.hintedThisVisit = false;
+  }
+  shrineState.wasInRange = inRange;
+}
+
+// =============================================================================
+// ROUND-5: DAWN BIRDS — at 70% night clock start playing rare distant bird
+// songs (foreshadowing dawn). Uses the existing playOwl as the closest
+// approximation since the audio module owns ambient sounds; tunes pan and
+// timing so it reads as "distant chorus" rather than "owl event".
+// =============================================================================
+const dawnBirdsState = { nextAt: 0, firedAnyThisRun: false };
+function tickDawnBirds() {
+  if (player.nightPercent < DAWN_BIRDS_THRESHOLD) return;
+  if (!dawnBirdsState.nextAt) { dawnBirdsState.nextAt = now() + 4; return; }
+  if (now() < dawnBirdsState.nextAt) return;
+  try { audio?.playOwl?.(); } catch {}
+  if (!dawnBirdsState.firedAnyThisRun) {
+    dawnBirdsState.firedAnyThisRun = true;
+    showSubtitle('Birds begin to sing. Dawn is coming.', 4, 'DISTANT BIRDS');
+  } else {
+    try { wgCaption?.('DISTANT BIRDS', 900); } catch {}
+  }
+  dawnBirdsState.nextAt = now() + DAWN_BIRDS_MIN_GAP + Math.random() * (DAWN_BIRDS_MAX_GAP - DAWN_BIRDS_MIN_GAP);
+}
+
+// =============================================================================
+// ROUND-5: TREE-SHADOW LENGTHENING — as night progresses (well past midnight)
+// the moon ostensibly sets lower, so shadows lengthen. We simulate by pushing
+// the moon directional light's X/Z further out as nightPercent climbs and
+// pulling it down on Y so the angle is shallower (more rake = longer shadow).
+// Cheap: just one .position.set per frame, no shadow-map cost change.
+// =============================================================================
+function tickMoonAngle() {
+  const t01 = Math.max(0, Math.min(1, player.nightPercent / 100));
+  // Original moon was at (60, 100, 40). Push out & down as night progresses.
+  const x = 60 + t01 * 60;
+  const y = 100 - t01 * 55;
+  const z = 40 + t01 * 45;
+  moon.position.set(x, y, z);
+  // Subtle tint shift — lower-angle moon reads slightly warmer.
+  if (t01 > 0.5) {
+    const k = (t01 - 0.5) / 0.5;
+    moon.color.setRGB(0.42 + k * 0.16, 0.47 + k * 0.10, 0.62 - k * 0.10);
+  }
+}
+
 // =============================================================================
 // ITEMS — 5 lost objects. Each is a billboard sprite with a faint glow that
 // brightens within ITEM_GLOW_DIST. Stored so we can update + check pickup.
@@ -2415,7 +2769,88 @@ const ach = createAchievements('clown-forest', {
   brave:        { name:'BRAVE',         desc:'Five minutes without the flashlight on.',icon:'🕯' },
   exorcist:     { name:'EXORCIST',      desc:'Kill the clown in the defiant ending.',  icon:'✟' },
   sleepless:    { name:'SLEEPLESS',     desc:'Survive five runs in total.',            icon:'☾' },
+  // ROUND-5 additions
+  dusk_dweller: { name:'DUSK DWELLER',  desc:'Find every required item before night reaches 50%.', icon:'◐' },
+  shadow:       { name:'SHADOW',        desc:'Survive a full run with under 30s of sprinting.',     icon:'◌' },
 });
+
+// ROUND-5: PHOTOGRAPHS — 1-3 per run, hidden near bloodstains.
+const photos = []; // { sprite, x, z, picked, victimIdx }
+const PHOTO_VICTIM_LINES = [
+  '"He stood by the window. Smiling."',
+  '"I dropped the camera. He was already running."',
+  '"The film caught his eyes. They glow."',
+];
+const photoTex = (() => {
+  const c = document.createElement('canvas'); c.width = 96; c.height = 96;
+  const g = c.getContext('2d');
+  const halo = g.createRadialGradient(48, 48, 0, 48, 48, 44);
+  halo.addColorStop(0, 'rgba(240, 220, 180, 0.55)');
+  halo.addColorStop(1, 'rgba(240, 220, 180, 0)');
+  g.fillStyle = halo; g.fillRect(0, 0, 96, 96);
+  g.fillStyle = '#dccfa4'; g.fillRect(28, 24, 40, 52);
+  g.fillStyle = '#1a1a1a'; g.fillRect(32, 28, 32, 32);
+  g.fillStyle = '#3a3028'; g.fillRect(34, 30, 28, 28);
+  g.fillStyle = '#e8d8b0';
+  g.fillRect(42, 40, 2, 2); g.fillRect(54, 40, 2, 2);
+  return new THREE.CanvasTexture(c);
+})();
+// Pre-allocate PHOTO_MAX sprites; resetPhotosForRun() decides how many show.
+for (let i = 0; i < PHOTO_MAX; i++) {
+  const mat = new THREE.SpriteMaterial({
+    map: photoTex, transparent: true, depthWrite: false, fog: true, opacity: 0.55,
+  });
+  const sprite = new THREE.Sprite(mat);
+  sprite.scale.set(0.5, 0.5, 1);
+  sprite.visible = false;
+  scene.add(sprite);
+  photos.push({ sprite, x: 0, z: 0, picked: true, victimIdx: i });
+}
+function resetPhotosForRun() {
+  const count = PHOTO_MIN + Math.floor(Math.random() * (PHOTO_MAX - PHOTO_MIN + 1));
+  const stains = (world.hiddenDetails || []).filter((h) => h.kind === 'bloodstain');
+  for (let i = 0; i < photos.length; i++) {
+    const p = photos[i];
+    if (i >= count) { p.picked = true; p.sprite.visible = false; continue; }
+    let x, z;
+    if (stains.length && Math.random() < 0.6) {
+      const s = stains[(i + Math.floor(Math.random() * stains.length)) % stains.length];
+      const a = Math.random() * Math.PI * 2;
+      x = s.x + Math.cos(a) * (1.2 + Math.random() * 0.6);
+      z = s.z + Math.sin(a) * (1.2 + Math.random() * 0.6);
+    } else {
+      const a = Math.random() * Math.PI * 2;
+      const r = 45 + Math.random() * 80;
+      x = Math.cos(a) * r; z = Math.sin(a) * r;
+    }
+    p.x = x; p.z = z; p.picked = false;
+    p.sprite.material.opacity = 0.55;
+    p.sprite.position.set(x, groundY(x, z) + 0.55, z);
+    p.sprite.visible = true;
+  }
+}
+
+// Brief flashback overlay — drawn into the existing kill-canvas if available,
+// otherwise built lazily as a DOM div. Used by photograph pickup.
+let _photoFlashEl = null;
+function _ensurePhotoFlashEl() {
+  if (_photoFlashEl) return _photoFlashEl;
+  const el = document.createElement('div');
+  el.className = 'cf-photo-flash';
+  document.body.appendChild(el);
+  _photoFlashEl = el;
+  return el;
+}
+function triggerPhotoFlashback(victimIdx) {
+  const el = _ensurePhotoFlashEl();
+  const line = PHOTO_VICTIM_LINES[Math.min(victimIdx, PHOTO_VICTIM_LINES.length - 1)] || '"...He smiled."';
+  el.innerHTML = `<div class="cf-photo-flash__frame">
+      <div class="cf-photo-flash__pic"></div>
+      <p class="cf-photo-flash__cap">${line}</p>
+    </div>`;
+  el.classList.add('is-on');
+  setTimeout(() => { el.classList.remove('is-on'); }, PHOTO_FLASH_DURATION * 1000);
+}
 
 const TAPE_LIFETIME_KEY = 'wg:clown-forest:tapes:lifetime';
 function _loadTapesLifetime() {
@@ -2903,6 +3338,9 @@ window.addEventListener('keydown', (e) => {
     } else if (clownState.isVisible) {
       const cd = Math.hypot(clownState.pos.x - player.pos.x, clownState.pos.z - player.pos.z);
       if (cd <= DEFIANT_RANGE) tryDefiantConfront();
+      else if (isAtShrine()) tryShrineConsult();
+    } else if (isAtShrine()) {
+      tryShrineConsult();
     }
   }
   // R — restart, but only when on the death screen (avoids accidental
@@ -2962,13 +3400,15 @@ if (_isTouch) {
     keys,
     onMove: (x, y, mag) => { mcMove.x = x; mcMove.y = y; mcMove.mag = mag; },
     buttons: [
-      // Action buttons stack — TAKE + F (flashlight) + Shift (sprint) + CROUCH + LISTEN.
+      // Action buttons stack — TAKE + F (flashlight) + Shift (sprint) + CROUCH + LISTEN + TURN.
       // 'INTERACT' synthesises an E keydown via the keys Set + handler below.
+      // 'TURN' cycles touch-look sensitivity (LOW/MED/HIGH) — ROUND-5.
       { id: 'INTERACT', label: 'TAKE' },
       { id: 'F', label: 'TORCH', key: 'F' },
       { id: 'Shift', label: 'RUN', key: 'Shift' },
       { id: 'CROUCH', label: 'CROUCH' },
       { id: 'LISTEN', label: 'LISTEN' },
+      { id: 'TURN', label: 'TURN ' + TOUCH_SENS_LABELS[touchSensIdx] },
     ],
     onButton: (id, down) => {
       if (id === 'LISTEN')   player.isListening = !!down;
@@ -2977,6 +3417,21 @@ if (_isTouch) {
       }
       if (id === 'INTERACT' && down && gameState === 'play' && player.pendingInteract) {
         tryInteractPickup(player.pendingInteract);
+      }
+      if (id === 'TURN' && down) {
+        applyTouchSens((touchSensIdx + 1) % TOUCH_SENS_PRESETS.length);
+        // Find the TURN button and re-label it. The mc-btn list is small (~6 items).
+        try {
+          const btns = document.querySelectorAll('.mc-btn');
+          for (const b of btns) {
+            const txt = (b.textContent || '').trim();
+            if (txt.startsWith('TURN ')) {
+              b.textContent = 'TURN ' + TOUCH_SENS_LABELS[touchSensIdx];
+              break;
+            }
+          }
+        } catch {}
+        try { showPopup?.(`TURN SENSITIVITY: <b>${TOUCH_SENS_LABELS[touchSensIdx]}</b>`, 1.6); } catch {}
       }
     },
   });
@@ -3105,6 +3560,9 @@ const heartLine    = document.getElementById('hud-heart-line');
 const crosshairEl  = document.getElementById('hud-crosshair');
 const compassEl    = document.getElementById('hud-compass');
 const compassArrow = document.getElementById('hud-compass-arrow');
+const stealthEl    = document.getElementById('hud-stealth');
+const stealthFill  = document.getElementById('hud-stealth-fill');
+const stealthN     = document.getElementById('hud-stealth-n');
 const popupsEl     = document.getElementById('hud-popups');
 const objectiveEl  = document.getElementById('hud-objective');
 const warningEl    = document.getElementById('hud-warning');
@@ -3941,6 +4399,27 @@ function startGame() {
   // ROUND-4 — maybe spawn the NPC stranger this run (20% chance, places a
   // sprite at a cabin-adjacent spot). Independent of items/caffeine/map.
   resetNpcForRun();
+  // ROUND-5 — reset photographs, footprints, owl-flight, stealth, shrine.
+  resetPhotosForRun();
+  player.photosFound = 0;
+  // Clear lingering footprints from the previous run (recycle the array).
+  for (const p of footprints) { try { p.mesh.material.opacity = 0; p.mesh.visible = false; } catch {} }
+  footprints.length = 0;
+  footprintState.lastPos = null;
+  footprintState.accum = 0;
+  footprintState.leftFoot = true;
+  owlFlightState.active = false;
+  owlFlightState.nextAt = now() + OWL_FLIGHT_MIN_GAP + Math.random() * (OWL_FLIGHT_MAX_GAP - OWL_FLIGHT_MIN_GAP);
+  owlFlightSprite.visible = false;
+  stealthState.aware = 0;
+  shrineState.nextOkAt = 0;
+  shrineState.sanityUntil = 0;
+  shrineState.hintedThisVisit = false;
+  shrineState.wasInRange = false;
+  dawnBirdsState.nextAt = 0;
+  dawnBirdsState.firedAnyThisRun = false;
+  // Round-5 achievement trackers — reset DUSK DWELLER flag (carried per-run).
+  _achDuskDwellerEligible = true;
   // ROUND-4 — schedule fog rolls + per-run achievement trackers.
   fogRollState.active = false;
   fogRollState.peakUntil = 0;
@@ -4042,6 +4521,7 @@ function startGame() {
   if (warningEl)   { warningEl.classList.remove('is-shown');   warningClearTo  = 0; }
   if (pauseHintEl) { pauseHintEl.classList.remove('is-shown'); pauseHintClearTo = 0; }
   if (compassEl)   compassEl.classList.remove('is-shown');
+  if (stealthEl)   stealthEl.hidden = true;
   if (crosshairEl) crosshairEl.classList.remove('is-shown');
   if (vfxStamCrit) vfxStamCrit.classList.remove('is-on');
   if (vfxBatStatic) vfxBatStatic.classList.remove('is-on');
@@ -4212,6 +4692,14 @@ function updateLifetimeStatsAndAchievements({ escaped, ending, elapsed }) {
   if (ending === 'defiant') ach.unlock('exorcist');
   // SLEEPLESS — 5 total survived runs.
   if (s.escapes >= 5) ach.unlock('sleepless');
+  // ROUND-5 — DUSK DWELLER: every required item before night >= 50%.
+  if (_achDuskDwellerEligible && player.itemsFound >= requiredItems) {
+    ach.unlock('dusk_dweller');
+  }
+  // ROUND-5 — SHADOW: survived (escaped) with under ACH_SHADOW_MAX_SPRINT sprint seconds.
+  if (escaped && (player.playerSprintTime || 0) < ACH_SHADOW_MAX_SPRINT) {
+    ach.unlock('shadow');
+  }
 }
 
 // =============================================================================
@@ -4787,8 +5275,41 @@ function tickPlay(dt) {
   // ---- Tutorial auto-advance ----
   _tickTutorial();
 
+  // ---- ROUND-5: depth ticks ----
+  tickFootprints(dt);
+  tickOwlFlight(dt);
+  tickStealth(dt);
+  tickShrineSanity();
+  tickDawnBirds();
+  tickMoonAngle();
+  tickPhotos();
+
   // ---- HUD ticking (Agent C) ----
   tickHUD(dt);
+}
+
+// =============================================================================
+// ROUND-5 — Photograph pickup tick. Mirrors the cassette-tape pickup loop.
+// =============================================================================
+function tickPhotos() {
+  for (const ph of photos) {
+    if (ph.picked) continue;
+    const d = Math.hypot(ph.x - player.pos.x, ph.z - player.pos.z);
+    if (d < ITEM_PICKUP_DIST) {
+      ph.picked = true;
+      ph.sprite.visible = false;
+      player.photosFound = (player.photosFound | 0) + 1;
+      try { playPickup?.(); } catch {}
+      triggerPhotoFlashback(ph.victimIdx);
+      try { wgCaption?.('PHOTOGRAPH FOUND', 1800); } catch {}
+      showPopup('<b>PHOTOGRAPH</b> · a memory replays', 3);
+    } else if (d < ITEM_GLOW_DIST) {
+      const t = 1 - d / ITEM_GLOW_DIST;
+      ph.sprite.material.opacity = 0.55 + t * 0.3;
+    } else {
+      ph.sprite.material.opacity = 0.55;
+    }
+  }
 }
 
 // =============================================================================
@@ -4961,7 +5482,7 @@ function randomEventNearMiss() {
   clownState.visibleStartedAt = now();
   clownState.fleeUntil = now() + 4;
   const a = Math.atan2(cz - player.pos.z, cx - player.pos.x) - player.yaw;
-  try { playClownLaugh(Math.sin(a), 30); } catch {}
+  try { playClownLaughVariant(Math.sin(a), 30); } catch {}
   try { wgCaption?.('SOMETHING PASSED BY', 1500); } catch {}
   setTimeout(() => {
     if (!clownState.isVisible) return;
@@ -4977,7 +5498,7 @@ function randomEventCircle() {
 }
 function randomEventWhisper() {
   const pan = (Math.random() - 0.5) * 2;
-  try { playClownLaugh(pan, 25); } catch {}
+  try { playClownLaughVariant(pan, 25); } catch {}
   try { wgCaption?.('WHISPER', 1200); } catch {}
 }
 function randomEventObjectDisturbance() {
@@ -4987,6 +5508,9 @@ function randomEventObjectDisturbance() {
 // Round-4 — BRAVE-achievement run trackers (reset in startGame()).
 let _achNoFlashlightAccum = 0;
 let _achNoFlashlightFired = false;
+// Round-5 — DUSK DWELLER eligibility. Once nightPercent crosses 50% without
+// the player having collected all required items the flag flips false.
+let _achDuskDwellerEligible = true;
 function tickPlayerBehaviorTrackers(dt) {
   if (player.isSprinting) player.playerSprintTime += dt;
   if (player.isCrouching) player.playerCrouchTime += dt;
@@ -5148,7 +5672,7 @@ function tickClown(dt) {
         cx = player.pos.x + backX * 6; cz = player.pos.z + backZ * 6;
         clownState.pos.x = cx; clownState.pos.z = cz;
         const a = Math.atan2(cz - player.pos.z, cx - player.pos.x) - player.yaw;
-        try { playClownLaugh(Math.sin(a), 6); } catch {}
+        try { playClownLaughVariant(Math.sin(a), 6); } catch {}
         try { wgCaption?.('LAUGH BEHIND YOU', 1500); } catch {}
         clownState.stalkVariant = variant;
         clownState.lastStalkEvent = now();
@@ -5201,8 +5725,12 @@ function tickClown(dt) {
         const a = Math.atan2(cz - player.pos.z, cx - player.pos.x) - player.yaw;
         const pan = Math.sin(a);
         const d = Math.hypot(cx - player.pos.x, cz - player.pos.z);
-        if (Math.random() < 0.5) { playClownLaugh(pan, d); try { wgCaption?.('DISTANT LAUGH', 1400); } catch {} }
-        else                     { playClownStep(pan, d);  try { wgCaption?.('FOOTSTEPS NEAR', 1400); } catch {} }
+        if (Math.random() < 0.5) {
+          const v = playClownLaughVariant(pan, d);
+          try { wgCaption?.(v === 'menacing' ? 'LOW LAUGH' : v === 'cackling' ? 'CACKLE' : 'GIGGLE', 1400); } catch {}
+        } else {
+          playClownStep(pan, d);  try { wgCaption?.('FOOTSTEPS NEAR', 1400); } catch {}
+        }
         clownState.lastStalkEvent = now();
         // Stalk frequency scales with search interest.
         // ROUND-4: difficulty `stalkGapMul` scales (NIGHTMARE shortens, EASY widens).
@@ -5580,6 +6108,11 @@ function tickNightClock(dt) {
     player._brightenAnnounced = true;
     showSubtitle('The sky is paling. Dawn is near.', 5);
   }
+  // ROUND-5: lock out DUSK DWELLER as soon as we cross 50% without all items.
+  if (_achDuskDwellerEligible && player.nightPercent >= ACH_DUSK_THRESHOLD) {
+    const reqI = (diffCfg && diffCfg.itemsRequired) || ITEMS_TO_ESCAPE;
+    if (player.itemsFound < reqI) _achDuskDwellerEligible = false;
+  }
   // Alternate win at 100% — only if we haven't already escaped some other way.
   // ROUND-4: when the player reached 100% night-clock WITHOUT collecting all
   // required items, route to the TRAGIC ending ("YOU SURVIVED... BUT HE'S
@@ -5714,6 +6247,21 @@ function tickHUD(dt) {
   // Crosshair + compass.
   tickCrosshair();
   tickCompass();
+
+  // ROUND-5: stealth-awareness meter — show only while in HUNT or CHASE.
+  if (stealthEl) {
+    const inDanger = clownState.phase === 'hunt' || clownState.phase === 'chase';
+    if (inDanger) {
+      stealthEl.hidden = false;
+      const pct = stealthState.aware | 0;
+      if (stealthFill) stealthFill.style.width = pct + '%';
+      if (stealthN)    stealthN.textContent    = pct + '%';
+      stealthEl.classList.toggle('is-high', pct >= 60);
+      stealthEl.classList.toggle('is-crit', pct >= 85);
+    } else {
+      stealthEl.hidden = true;
+    }
+  }
 }
 
 // =============================================================================

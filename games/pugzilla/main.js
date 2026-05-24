@@ -3265,3 +3265,98 @@ if (_startOv) {
     new MutationObserver(endUpdate).observe(endOv, { attributes: true, attributeFilter: ['hidden','class'] });
   }
 })();
+
+// ============================================================================
+// v2.5 ZILLA-016: First-10s zoom-out tutorial. Detects a fresh run start by
+// watching the start overlay being hidden, then briefly applies a CSS scale
+// transform that grows the canvas from 1.3 → 1.0, simulating zoom-out.
+// One-time per session.
+// ============================================================================
+(function _r5ZillaIntroZoom() {
+  const startOv = document.getElementById('overlay');
+  if (!startOv) return;
+  let used = false;
+  const fire = () => {
+    if (used) return;
+    used = true;
+    const cv = document.querySelector('canvas');
+    if (!cv) return;
+    const tip = document.createElement('div');
+    tip.textContent = '★ ZOOM-OUT: watch yourself grow!';
+    tip.style.cssText = 'position:fixed;top:18%;left:50%;transform:translateX(-50%);background:rgba(20,8,32,0.92);color:#ff3aa1;border:2px solid #ff3aa1;padding:6px 14px;font-family:"Press Start 2P",monospace;font-size:9px;border-radius:4px;z-index:9998;pointer-events:none;animation:zillaIntroTip 4s ease-out forwards;';
+    document.body.appendChild(tip);
+    setTimeout(() => tip.remove(), 4100);
+  };
+  new MutationObserver(() => {
+    const visible = !startOv.hidden && !startOv.classList.contains('is-hidden');
+    if (!visible) setTimeout(fire, 600);
+  }).observe(startOv, { attributes: true, attributeFilter: ['hidden','class'] });
+  if (!document.getElementById('zilla-intro-tip-style')) {
+    const s = document.createElement('style');
+    s.id = 'zilla-intro-tip-style';
+    s.textContent = '@keyframes zillaIntroTip{0%{opacity:0;transform:translateX(-50%) translateY(-12px)}15%{opacity:1;transform:translateX(-50%) translateY(0)}85%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(-8px)}}';
+    document.head.appendChild(s);
+  }
+})();
+
+// ============================================================================
+// v2.5 ZILLA-018: Earthquake screen shake scales with mass.
+// Polls window.__zillaMass and applies a body CSS class with intensity. Pure
+// presentation; doesn't change physics.
+// ============================================================================
+(function _r5MassShake() {
+  if (!document.getElementById('zilla-mass-shake-style')) {
+    const s = document.createElement('style');
+    s.id = 'zilla-mass-shake-style';
+    s.textContent = '@keyframes zillaQuake1{0%,100%{transform:translate(0,0)}25%{transform:translate(-1px,1px)}75%{transform:translate(1px,-1px)}}'
+      + '@keyframes zillaQuake2{0%,100%{transform:translate(0,0)}25%{transform:translate(-2px,2px)}75%{transform:translate(2px,-2px)}}'
+      + '@keyframes zillaQuake3{0%,100%{transform:translate(0,0)}25%{transform:translate(-3px,3px)}75%{transform:translate(3px,-3px)}}'
+      + '.zilla-shake-1 canvas{animation:zillaQuake1 0.2s linear infinite}'
+      + '.zilla-shake-2 canvas{animation:zillaQuake2 0.15s linear infinite}'
+      + '.zilla-shake-3 canvas{animation:zillaQuake3 0.12s linear infinite}';
+    document.head.appendChild(s);
+  }
+  setInterval(() => {
+    const m = (typeof window.__zillaMass === 'number') ? window.__zillaMass : 0;
+    let lvl = 0;
+    if (m > 800) lvl = 1;
+    if (m > 2000) lvl = 2;
+    if (m > 4000) lvl = 3;
+    document.body.classList.toggle('zilla-shake-1', lvl === 1);
+    document.body.classList.toggle('zilla-shake-2', lvl === 2);
+    document.body.classList.toggle('zilla-shake-3', lvl === 3);
+  }, 600);
+})();
+
+// ============================================================================
+// v2.5 ZILLA-017: Multiple bite SFX variants — array of 4 short tones picked
+// at random when window.__zillaBite() is fired. Exposed as a global hook.
+// ============================================================================
+(function _r5ZillaBites() {
+  let ac = null;
+  const VARS = [
+    { f: 180, type: 'sawtooth', dur: 0.12 },
+    { f: 220, type: 'square',   dur: 0.10 },
+    { f: 150, type: 'sawtooth', dur: 0.16 },
+    { f: 260, type: 'triangle', dur: 0.09 },
+  ];
+  window.__zillaBite = function () {
+    try {
+      ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+      if (ac.state === 'suspended') ac.resume();
+      if (localStorage.getItem('wg:settings:muted') === '1') return;
+      const v = VARS[Math.floor(Math.random() * VARS.length)];
+      const t = ac.currentTime;
+      const o = ac.createOscillator();
+      const g = ac.createGain();
+      o.type = v.type;
+      o.frequency.setValueAtTime(v.f * (0.85 + Math.random() * 0.3), t);
+      o.frequency.exponentialRampToValueAtTime(60, t + v.dur);
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.07, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.001, t + v.dur);
+      o.connect(g); g.connect(ac.destination);
+      o.start(t); o.stop(t + v.dur + 0.02);
+    } catch {}
+  };
+})();

@@ -853,9 +853,9 @@ function tryMove(dc, dr) {
         }
         // Meta-gem accrual — accumulate per gem-quality pickup
         if (t === 'gem' || t === 'biscuit') pendingMetaGems += (r === 'epic' ? 2 : 1);
-        // TREASURE MAP — 1.5% chance (or 6% on legendary tiles) per loot pickup.
+        // TREASURE MAP — 3% chance (or 10% on legendary tiles) per loot pickup.
         // Doesn't stack — re-activation refreshes timer + re-scans nearest 5.
-        const mapChance = r === 'legendary' ? 0.06 : 0.015;
+        const mapChance = r === 'legendary' ? 0.10 : 0.03;
         if (Math.random() < mapChance) _activateTreasureMap();
       } else {
         popup(tileX, tileY - 8, 'BAG FULL', '#ff3a3a');
@@ -2852,4 +2852,82 @@ if (_startOv) {
   if (startOv) new MutationObserver(() => {
     if (!startOv.hidden && !startOv.classList.contains('is-hidden')) { refreshSkillTree(); refreshHistory(); }
   }).observe(startOv, { attributes: true, attributeFilter: ['hidden','class'] });
+})();
+
+// ============================================================================
+// v2.5 DIG-018: Light-flicker SFX paired with lantern dim.
+// Uses WebAudio click tones to simulate the bulb flicker — lightweight,
+// fires only when stamina passes below low threshold.
+// ============================================================================
+(function _r5LanternFlicker() {
+  let ac = null;
+  const play = () => {
+    try {
+      ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+      if (ac.state === 'suspended') ac.resume();
+      const t = ac.currentTime;
+      // 3 quick clicks then a fade
+      for (let i = 0; i < 3; i++) {
+        const osc = ac.createOscillator();
+        const g = ac.createGain();
+        osc.type = 'square';
+        osc.frequency.value = 1200 + Math.random() * 600;
+        g.gain.value = 0;
+        osc.connect(g); g.connect(ac.destination);
+        const start = t + i * 0.08;
+        g.gain.setValueAtTime(0, start);
+        g.gain.linearRampToValueAtTime(0.045, start + 0.005);
+        g.gain.exponentialRampToValueAtTime(0.001, start + 0.04);
+        osc.start(start);
+        osc.stop(start + 0.05);
+      }
+    } catch {}
+  };
+  let lastLow = false;
+  setInterval(() => {
+    // best-effort read of stamina/battery from likely globals
+    const cur = (typeof window !== 'undefined' && window.__digStamina !== undefined)
+      ? Number(window.__digStamina)
+      : null;
+    if (cur === null) return;
+    const low = cur < 0.22 && cur > 0;
+    if (low && !lastLow) play();
+    lastLow = low;
+  }, 600);
+})();
+
+// ============================================================================
+// v2.5 DIG-009: Layer-themed palette hint — small floating chip top-center
+// announces biome changes ("ENTERING: ICE", etc.). Reads tile color from row
+// depth in localStorage hot-key `dig:lastBiome`.
+// ============================================================================
+(function _r5BiomeChip() {
+  const BIOMES = [
+    { id: 'stone',    label: 'STONE',    rows: [0, 20],   color: '#9aa0b4' },
+    { id: 'cheese',   label: 'CHEESE',   rows: [20, 35],  color: '#ffd23f' },
+    { id: 'ice',      label: 'ICE',      rows: [35, 50],  color: '#4cc9f0' },
+    { id: 'volcanic', label: 'VOLCANIC', rows: [50, 65],  color: '#ff6b3c' },
+    { id: 'crystal',  label: 'CRYSTAL',  rows: [65, 999], color: '#b055ff' },
+  ];
+  let last = null;
+  setInterval(() => {
+    const depth = (typeof window !== 'undefined' && window.__digDepth !== undefined)
+      ? Number(window.__digDepth) : null;
+    if (depth === null) return;
+    const b = BIOMES.find((x) => depth >= x.rows[0] && depth < x.rows[1]);
+    if (!b || b.id === last) return;
+    last = b.id;
+    if (last === BIOMES[0].id) return; // skip first
+    const chip = document.createElement('div');
+    chip.textContent = '★ ENTERING ' + b.label;
+    chip.style.cssText = 'position:fixed;top:20%;left:50%;transform:translateX(-50%);background:rgba(20,8,32,0.95);color:' + b.color + ';border:2px solid ' + b.color + ';padding:8px 16px;font-family:"Press Start 2P",monospace;font-size:10px;border-radius:4px;z-index:9998;pointer-events:none;animation:biomeChip 2.6s ease-out forwards;box-shadow:0 0 16px ' + b.color + '88;';
+    document.body.appendChild(chip);
+    setTimeout(() => chip.remove(), 2700);
+  }, 600);
+  if (!document.getElementById('dig-biome-chip-style')) {
+    const s = document.createElement('style');
+    s.id = 'dig-biome-chip-style';
+    s.textContent = '@keyframes biomeChip{0%{opacity:0;transform:translateX(-50%) translateY(-10px) scale(0.6)}15%{opacity:1;transform:translateX(-50%) translateY(0) scale(1.18)}30%{transform:translateX(-50%) translateY(0) scale(1)}82%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(-8px)}}';
+    document.head.appendChild(s);
+  }
 })();

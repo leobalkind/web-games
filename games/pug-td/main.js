@@ -1284,7 +1284,7 @@ const WAVE_MODIFIERS = [
   { id: 'swift',     name: 'SWIFT',       icon: '💨', desc: '+30% speed',       hpMul: 1.0,  speedMul: 1.30, splitOnDeath: false },
   { id: 'splitter',  name: 'SPLITTER',    icon: '💥', desc: 'Spawn 2 squirrels on death', hpMul: 0.85, speedMul: 1.0, splitOnDeath: true },
   { id: 'horde',     name: 'HORDE',       icon: '🐀', desc: '+50% count · -20% HP', hpMul: 0.80, speedMul: 1.0, countMul: 1.5 },
-  { id: 'tough',     name: 'TOUGH BREED', icon: '💎', desc: '+100% HP · -15% speed', hpMul: 2.0, speedMul: 0.85 },
+  { id: 'tough',     name: 'TOUGH BREED', icon: '💎', desc: '+70% HP · -15% speed', hpMul: 1.7, speedMul: 0.85 },
 ];
 let activeWaveMod = null;
 function _rollWaveModifier() {
@@ -2627,4 +2627,60 @@ if (_startOv) {
     };
     new MutationObserver(endUpdate).observe(endOv, { attributes: true, attributeFilter: ['hidden','class'] });
   }
+})();
+
+// ============================================================================
+// v2.5 TD-006: Tower targeting mode toggle. Adds a button to the pinned-tower
+// popup cycling FIRST/LAST/STRONGEST. Writes to tower.targetMode.
+// Best-effort — depends on window.__tdSelectedTower being set by game.
+// ============================================================================
+(function _r5TdTargeting() {
+  const MODES = ['FIRST','LAST','STRONG'];
+  setInterval(() => {
+    const pin = document.querySelector('.td-tower-pin, .tower-popup, .td-popover');
+    if (!pin || pin.querySelector('.td-target-btn-r5')) return;
+    const t = (typeof window !== 'undefined' ? window.__tdSelectedTower : null);
+    const btn = document.createElement('button');
+    btn.className = 'td-target-btn-r5';
+    btn.style.cssText = 'display:block;margin:6px auto;background:rgba(76,201,240,0.15);border:1px solid #4cc9f0;color:#4cc9f0;font-family:"Press Start 2P",monospace;font-size:8px;padding:4px 8px;border-radius:3px;cursor:pointer;';
+    const curMode = (t && t.targetMode) || 'FIRST';
+    btn.textContent = 'TARGET: ' + curMode;
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (!t) return;
+      const idx = MODES.indexOf(t.targetMode || 'FIRST');
+      const next = MODES[(idx + 1) % MODES.length];
+      t.targetMode = next;
+      btn.textContent = 'TARGET: ' + next;
+    });
+    pin.appendChild(btn);
+  }, 500);
+})();
+
+// ============================================================================
+// v2.5 TD-013: Per-tower fire SFX hook via WebAudio. Exposes a global
+// __tdFireBlip('type') the game can call later for tower-specific tones.
+// ============================================================================
+(function _r5TdToweredSfx() {
+  let ac = null;
+  const types = { basic: 600, sniper: 1200, gatling: 400, cannon: 180, frost: 900, bone: 720, tar: 240, teleport: 1500, banner: 800 };
+  function blip(type) {
+    try {
+      ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+      if (ac.state === 'suspended') ac.resume();
+      if (localStorage.getItem('wg:settings:muted') === '1') return;
+      const t = ac.currentTime;
+      const o = ac.createOscillator();
+      const g = ac.createGain();
+      const f = types[type] || 600;
+      o.type = (type === 'cannon' || type === 'tar') ? 'sawtooth' : 'square';
+      o.frequency.value = f;
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.04, t + 0.005);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+      o.connect(g); g.connect(ac.destination);
+      o.start(t); o.stop(t + 0.09);
+    } catch {}
+  }
+  window.__tdFireBlip = blip;
 })();

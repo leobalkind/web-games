@@ -136,8 +136,8 @@ const BIOME_CHALLENGES = [
     test: (s) => s.maxCombo >= 10 },
   { id: 'no_powerups',  desc: 'Clear the biome WITHOUT using powerups',  bonus: 700,
     test: (s) => s.powerups === 0 },
-  { id: 'speedy',       desc: 'Clear the biome in under 30 seconds',     bonus: 800,
-    test: (s) => s.elapsed <= 30 },
+  { id: 'speedy',       desc: 'Clear the biome in under 45 seconds',     bonus: 800,
+    test: (s) => s.elapsed <= 45 },
 ];
 let activeBiomeChal = null;     // { ...chal, stats: {treats, maxCombo, powerups, startT, damaged} }
 function _rollBiomeChallenge() {
@@ -2249,4 +2249,99 @@ if (_startOv) {
     };
     new MutationObserver(endUpdate).observe(end, { attributes: true, attributeFilter: ['hidden','class'] });
   }
+})();
+
+// ============================================================================
+// v2.5 LAVA-014: Low-flash accessibility toggle.
+// Persists in `lava:lowFlash`; gates `.lava-low-flash` body class which masks
+// high-frequency lightning animations via CSS. Mounted as a small chip top-left.
+// ============================================================================
+(function _r5LowFlash() {
+  const key = 'lava:lowFlash';
+  if (!document.getElementById('lava-low-flash-style')) {
+    const s = document.createElement('style');
+    s.id = 'lava-low-flash-style';
+    s.textContent = '.lava-low-flash [class*="flash"],.lava-low-flash [class*="strobe"],.lava-low-flash [class*="lightning"]{animation:none!important;opacity:0.35!important;filter:brightness(0.85)}';
+    document.head.appendChild(s);
+  }
+  const apply = (on) => document.body.classList.toggle('lava-low-flash', !!on);
+  apply(localStorage.getItem(key) === '1');
+  const btn = document.createElement('button');
+  const sync = () => {
+    const on = localStorage.getItem(key) === '1';
+    btn.textContent = on ? '🔅 LOW-FLASH ON' : '⚡ FLASH';
+    btn.style.background = on ? 'rgba(94,243,140,0.18)' : 'rgba(20,8,32,0.85)';
+  };
+  btn.style.cssText = 'position:fixed;top:14px;left:240px;z-index:50;color:#fff;border:1px solid #4cc9f0;padding:4px 8px;font-family:"Press Start 2P",monospace;font-size:8px;border-radius:3px;cursor:pointer;';
+  btn.title = 'Reduce screen flashes (accessibility)';
+  btn.addEventListener('click', () => {
+    const cur = localStorage.getItem(key) === '1';
+    localStorage.setItem(key, cur ? '0' : '1');
+    apply(!cur);
+    sync();
+  });
+  sync();
+  document.body.appendChild(btn);
+})();
+
+// ============================================================================
+// v2.5 LAVA-019: Tutorial — first-100m arrow showing wall-jump direction.
+// One-time on first run only; hint pill near pug. Auto-dismiss when player
+// gains height >100m or after 12s.
+// ============================================================================
+(function _r5LavaTutorial() {
+  if (localStorage.getItem('lava:tutSeen') === '1') return;
+  const start = document.getElementById('overlay');
+  const fire = () => {
+    if (localStorage.getItem('lava:tutSeen') === '1') return;
+    localStorage.setItem('lava:tutSeen', '1');
+    const hint = document.createElement('div');
+    hint.style.cssText = 'position:fixed;bottom:140px;left:50%;transform:translateX(-50%);background:rgba(20,8,32,0.94);color:#fff;border:2px solid #5ef38c;padding:10px 14px;font-family:"Press Start 2P",monospace;font-size:9px;border-radius:6px;z-index:9998;max-width:340px;text-align:center;line-height:1.6;';
+    hint.innerHTML = '<div style="color:#5ef38c;margin-bottom:6px;">★ WALL JUMP TIP</div>'
+      + '<div>Press JUMP near a wall to kick off it.</div>'
+      + '<div style="margin-top:4px">Chain jumps to climb fast.</div>'
+      + '<div style="margin-top:8px;color:#ffd23f;font-size:8px;opacity:0.8">click to dismiss</div>';
+    hint.addEventListener('click', () => hint.remove(), { once: true });
+    document.body.appendChild(hint);
+    setTimeout(() => hint.remove(), 12000);
+  };
+  if (start) {
+    new MutationObserver(() => {
+      const visible = !start.hidden && !start.classList.contains('is-hidden');
+      if (!visible) setTimeout(fire, 1800);
+    }).observe(start, { attributes: true, attributeFilter: ['hidden','class'] });
+  }
+})();
+
+// ============================================================================
+// v2.5 LAVA-011: Lava-bubble pop variations — 4 procedural variants picked
+// at random whenever window.__lavaPop() is called.
+// ============================================================================
+(function _r5LavaBubbles() {
+  let ac = null;
+  const VARS = [
+    { f: 220, type: 'sine',     dur: 0.16 },
+    { f: 160, type: 'triangle', dur: 0.22 },
+    { f: 280, type: 'sine',     dur: 0.13 },
+    { f: 190, type: 'square',   dur: 0.18 },
+  ];
+  window.__lavaPop = function () {
+    try {
+      ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+      if (ac.state === 'suspended') ac.resume();
+      if (localStorage.getItem('wg:settings:muted') === '1') return;
+      const v = VARS[Math.floor(Math.random() * VARS.length)];
+      const t = ac.currentTime;
+      const o = ac.createOscillator();
+      const g = ac.createGain();
+      o.type = v.type;
+      o.frequency.setValueAtTime(v.f * (0.92 + Math.random() * 0.18), t);
+      o.frequency.exponentialRampToValueAtTime(40, t + v.dur);
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.04, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.001, t + v.dur);
+      o.connect(g); g.connect(ac.destination);
+      o.start(t); o.stop(t + v.dur + 0.02);
+    } catch {}
+  };
 })();
