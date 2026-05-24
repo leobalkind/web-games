@@ -221,9 +221,20 @@
         <p class="overlay__sub">Survive the bork-pocalypse. 3 nights to victory.</p>
         <div class="difficulty-row">
           <span class="difficulty-label">DIFFICULTY</span>
-          <button class="diff-btn" data-diff="easy">🟢 EASY</button>
-          <button class="diff-btn diff-btn--active" data-diff="normal">🟡 NORMAL</button>
-          <button class="diff-btn" data-diff="hard">🔴 HARD</button>
+          <button class="diff-btn" data-diff="easy" title="Easy — fewer + weaker zombies">🟢 EASY</button>
+          <button class="diff-btn diff-btn--active" data-diff="normal" title="Normal — balanced">🟡 NORMAL</button>
+          <button class="diff-btn" data-diff="hard" title="Hard — more + tougher zombies">🔴 HARD</button>
+        </div>
+        <div class="difficulty-row">
+          <span class="difficulty-label">MAP</span>
+          <button class="map-btn map-btn--active" data-map="courtyard" title="The classic outdoor arena.">🏟 COURTYARD</button>
+          <button class="map-btn" data-map="rooftop" title="Vertical map. Compact arena.">🏢 ROOFTOP</button>
+          <button class="map-btn" data-map="underground" title="Claustrophobic tunnels.">🕳 UNDERGROUND</button>
+        </div>
+        <div class="difficulty-row">
+          <span class="difficulty-label">MODE</span>
+          <button class="mode-btn mode-btn--active" data-mode="3nights" title="Survive 3 nights. Beat the boss.">⚔ 3 NIGHTS</button>
+          <button class="mode-btn" data-mode="endless" title="No win condition. Survive as long as you can.">∞ ENDLESS</button>
         </div>
         <ul class="overlay__controls">
           <li><b>WASD</b> move &nbsp;·&nbsp; <b>MOUSE</b> aim &nbsp;·&nbsp; <b>CLICK</b> fire</li>
@@ -314,6 +325,26 @@
         <b>Q</b>/<b>E</b> rotate · <b>R</b> snap 90° · <b>ESC</b> cancel · <b>CLICK</b> place
       </div>
       <div id="hud-toast" class="hud-toast"></div>
+
+      <!-- Stats overlay (TAB to toggle) -->
+      <div id="hud-stats-overlay" class="pf-stats-overlay" hidden>
+        <div class="pf-stats-panel">
+          <h3>★ RUN STATS ★</h3>
+          <div class="pf-stats-grid">
+            <div><b>NIGHTS</b> <span id="pf-stat-nights">0</span></div>
+            <div><b>TIME ALIVE</b> <span id="pf-stat-time">0:00</span></div>
+            <div><b>KILLS</b> <span id="pf-stat-kills">0</span></div>
+            <div><b>WALLS BUILT</b> <span id="pf-stat-walls">0</span></div>
+            <div><b>TURRETS BUILT</b> <span id="pf-stat-turrets">0</span></div>
+            <div><b>GENERATOR HP</b> <span id="pf-stat-gen">—</span></div>
+            <div><b>WOOD</b> <span id="pf-stat-wood">0</span></div>
+            <div><b>SCRAP</b> <span id="pf-stat-scrap">0</span></div>
+            <div><b>EXPLOSIVES</b> <span id="pf-stat-explosives">0</span></div>
+            <div><b>ELECTRONICS</b> <span id="pf-stat-electronics">0</span></div>
+          </div>
+          <div class="pf-stats-hint">TAB to toggle · R to repair-all</div>
+        </div>
+      </div>
 
       <div id="hud-boss" class="hud-boss" hidden>
         <div class="hud-boss__title">👑 THE KENNEL KING 👑</div>

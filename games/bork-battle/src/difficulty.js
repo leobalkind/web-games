@@ -43,6 +43,64 @@ export const DIFFICULTIES = {
     moneyMult: 0.85,
     desc: 'Bots are tougher and hit harder. Glory awaits.',
   },
+  // MAYHEM — endgame chaos: 10 elite bots + faster shrinking zone + bonus XP/$.
+  // Bot composition is enforced separately (see Game._spawnBot eliteRatio).
+  mayhem: {
+    id: 'mayhem',
+    name: 'MAYHEM',
+    icon: '🔥',
+    iconName: 'flame',
+    botHpMult: 1.7,
+    botDmgMult: 1.55,
+    playerHpMult: 0.85,
+    playerDmgMult: 1.0,
+    xpMult: 1.6,
+    moneyMult: 1.6,
+    eliteRatio: 0.8,    // 80% of bots will be elites
+    zoneSpeedMult: 1.6, // shrink interval cut by 1/1.6
+    desc: '10 elite bots. Faster zone. Glory or pain.',
+  },
 };
 
 export function defaultDifficulty() { return DIFFICULTIES.normal; }
+
+// =============================================================================
+// LOADOUT PERKS — passive boosts the player picks alongside difficulty/weapon.
+// Each perk applies a fixed-value tweak to player.bonus + tag flags. Picked
+// from the start screen; applied in Game.start() before the first frame.
+// =============================================================================
+export const PERKS = {
+  none: {
+    id: 'none', name: 'NONE', icon: '·',
+    apply: (_p) => { /* no-op */ },
+    desc: 'No perk. Pure baseline.',
+  },
+  run_and_gun: {
+    id: 'run_and_gun', name: 'RUN & GUN', icon: '⚡',
+    apply: (p) => { p.bonus.spdMult *= 1.15; },
+    desc: '+15% movement speed.',
+  },
+  glass_cannon: {
+    id: 'glass_cannon', name: 'GLASS CANNON', icon: '💥',
+    apply: (p) => {
+      p.bonus.dmgMult *= 1.30;
+      // -30% HP — applied via tag handling in Game (after maxHp is computed).
+      p.bonus.hpPctMult = (p.bonus.hpPctMult || 1) * 0.70;
+    },
+    desc: '+30% damage. -30% max HP.',
+  },
+  tank: {
+    id: 'tank', name: 'TANK', icon: '🛡️',
+    apply: (p) => {
+      p.bonus.hp += 40;
+      p.bonus.spdMult *= 0.88;
+    },
+    desc: '+40 HP. -12% speed.',
+  },
+  vampire: {
+    id: 'vampire', name: 'VAMPIRE', icon: '🩸',
+    apply: (p) => { p.bonus.lifestealPct += 0.15; },
+    desc: '+15% lifesteal.',
+  },
+};
+export function defaultPerk() { return PERKS.none; }

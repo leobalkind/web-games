@@ -12,6 +12,7 @@ import { showOrientationHint } from '../../src/shared/orientationHint.js';
 import { showGradeCard } from '../../src/shared/gradeCard.js';
 import { createSettingsMenu } from '../../src/shared/settingsMenu.js';
 import { getShakeMul as _shakeMul } from '../../src/shared/screenShake.js';
+import { drawShadow as _depthShadow } from '../../src/shared/depth3D.js';
 
 // --- Custom item icons for ones not in the shared library ---------------------
 // Chicken drumstick — beige leg + brown bone tip
@@ -85,6 +86,7 @@ function resize() {
 }
 window.addEventListener('resize', resize); resize();
 
+// Generic ITEMS fallback. SECTION_ITEMS below = per-section products.
 const ITEMS = [
   { drawIconFn: drawIcon.meat,     name: 'steak',   val: 40 },
   { drawIconFn: drawChicken,       name: 'chicken', val: 20 },
@@ -95,6 +97,77 @@ const ITEMS = [
   { drawIconFn: drawIcon.bone,     name: 'bone',    val: 50 },
   { drawIconFn: drawDonut,         name: 'donut',   val: 18 },
 ];
+// SECTION-specific item rosters (30+ across all sections).
+const SECTION_ITEMS = {
+  produce: [
+    { name: 'apple',    val: 12, color: '#ff5a3a', shape: 'round', fragile: true },
+    { name: 'orange',   val: 10, color: '#ff8e3c', shape: 'round', fragile: true },
+    { name: 'banana',   val: 8,  color: '#ffd23f', shape: 'curve', fragile: true },
+    { name: 'lettuce',  val: 7,  color: '#5ef38c', shape: 'round' },
+    { name: 'carrot',   val: 9,  color: '#ff8e3c', shape: 'cone' },
+    { name: 'tomato',   val: 11, color: '#ff3a3a', shape: 'round', fragile: true },
+    { name: 'grape',    val: 14, color: '#b055ff', shape: 'cluster' },
+  ],
+  frozen: [
+    { name: 'icecream', val: 22, color: '#ffe0e8', shape: 'cone' },
+    { name: 'frozenPizza',val: 35, color: '#ff8e3c', shape: 'box' },
+    { name: 'peas',     val: 12, color: '#5ef38c', shape: 'box' },
+    { name: 'frozenFish',val: 38, color: '#8aa8d8', shape: 'fish' },
+    { name: 'icecake',  val: 30, color: '#fff', shape: 'box' },
+  ],
+  electronics: [
+    { name: 'phone',    val: 85, color: '#1a1a22', shape: 'box', expensive: true },
+    { name: 'headphones',val: 75, color: '#4cc9f0', shape: 'round', expensive: true },
+    { name: 'tablet',   val: 120,color: '#3a3a4a', shape: 'box', expensive: true },
+    { name: 'watch',    val: 95, color: '#ffd23f', shape: 'round', expensive: true },
+  ],
+  deli: [
+    { name: 'salami',   val: 24, color: '#a04030', shape: 'tube', smelly: true },
+    { name: 'cheeseWheel',val: 30,color: '#ffce5e', shape: 'round', smelly: true },
+    { name: 'sausage',  val: 22, color: '#a06030', shape: 'tube', smelly: true },
+    { name: 'oliveJar', val: 18, color: '#5a8a3a', shape: 'jar' },
+    { name: 'pickle',   val: 14, color: '#5ef38c', shape: 'tube', smelly: true },
+  ],
+  clearance: [
+    { name: 'oldBread', val: 4,  color: '#a87a4a', shape: 'box' },
+    { name: 'dentedCan',val: 6,  color: '#8a8aac', shape: 'box' },
+    { name: 'discBox',  val: 16, color: '#ff3aa1', shape: 'box', trap: true },
+    { name: 'lastSeason',val: 8, color: '#5ea0c8', shape: 'box' },
+  ],
+};
+const SECTION_ORDER = ['produce', 'frozen', 'electronics', 'deli', 'clearance'];
+const SECTION_TINT = {
+  produce:    'rgba(94,243,140,0.10)',
+  frozen:     'rgba(76,201,240,0.18)',
+  electronics:'rgba(176,85,255,0.10)',
+  deli:       'rgba(255,142,60,0.10)',
+  clearance:  'rgba(255,210,63,0.10)',
+};
+// Per-map config — chosen on the start overlay; persisted as runMeta.lastMap.
+const MAPS = [
+  { id: 'cornerStore', label: 'CORNER STORE',  rows: 3, cols: 4, goalHaul: 200 },
+  { id: 'supermarket', label: 'SUPERMARKET',   rows: 4, cols: 5, goalHaul: 400 },
+  { id: 'warehouse',   label: 'WAREHOUSE',     rows: 5, cols: 6, goalHaul: 700 },
+];
+// 10 different shoplist combinations — pick one at start for variety/replay.
+const SHOPLISTS = [
+  { id: 'meat',   labels: ['Grab 2 DELI items',      'Hit $80+',          'Escape clean'] },
+  { id: 'tech',   labels: ['Snag 1 ELECTRONICS',     'Knock 3 shelves',   'Escape $150+'] },
+  { id: 'fresh',  labels: ['Grab 3 PRODUCE',         'Bag full',          'No bribes'] },
+  { id: 'sweet',  labels: ['Grab 1 FROZEN',          'Hit $100',          'Knock 2 shelves'] },
+  { id: 'bargain',labels: ['Grab 2 CLEARANCE',       'Avoid the trap',    'Escape $50+'] },
+  { id: 'chaos',  labels: ['Knock 5 shelves',        'Steal 5 items',     'Survive alarm'] },
+  { id: 'stealth',labels: ['Never alert a guard',    'Escape with $60',   'Skip electronics'] },
+  { id: 'gourmet',labels: ['Grab 1 DELI + PRODUCE',  'Hit $90',           'Bag full'] },
+  { id: 'spree',  labels: ['Steal 7 items',          'Escape $120+',      'No frozen'] },
+  { id: 'jackpot',labels: ['Grab 1 ELECTRONICS',     'Hit $200+',         'Knock 1 shelf'] },
+];
+const RUN_KEY = 'supermarket-pug:meta';
+let runMeta = (() => {
+  try { return JSON.parse(localStorage.getItem(RUN_KEY) || '{}'); } catch { return {}; }
+})();
+function _saveMeta() { try { localStorage.setItem(RUN_KEY, JSON.stringify(runMeta)); } catch {} }
+let currentMapIdx = Math.min(MAPS.length - 1, runMeta.lastMap || 0);
 
 let pug, inCart, shelves, items, guards, exitZ, haul, bag, maxBag, heat, shelvesKnocked, running;
 let popups, aisles, lights, cameras, decorCarts, pallets, sceneRows, sceneCols, sceneGx, sceneGy;
@@ -140,6 +213,17 @@ let cleanerBot = null;  // {x, y, ang, speed, brushPhase}
 let counter = null;     // {x, y, w, h}
 let alarm = { on: false, T: 0, escaped: false, bonus: 0 };
 let breathPuffs = [];   // {x, y, vy, life, max}
+// Wave 1B map upgrades
+let sections = {};      // section id -> {rect: {x,y,w,h}, id}
+let customers = [];     // [{x,y,vx,vy,t,witness,witnessCd,color}]
+let secOffice = null;   // {x,y,w,h} — guards "dispatch" from here if heat>0.7
+let activeShoplist = null; // current shoplist {id, labels}
+let lastGrabT = 0;      // timestamp of last small-grab — used for combo window
+let comboChain = 0;     // consecutive small-grab counter for SHOPLIFTER bonus
+let openBoxFired = false; // CLEARANCE trap state per-run
+let currentMap = MAPS[currentMapIdx]; // active map config
+let wantedLvl = runMeta.wanted || 1;  // grows with each successful escape
+let miniMapOn = true;                 // M toggles HUD radar
 function shake(amp, dur) { const k = _shakeMul(); shakeAmp = Math.max(shakeAmp, amp * k); shakeT = Math.max(shakeT, dur); }
 function popup(x, y, text, color) {
   if (!popups) return;
@@ -165,19 +249,36 @@ function reset() {
   alarm = { on: false, T: 0, escaped: false, bonus: 0, timeoutFired: false };
   shakeT = 0; shakeAmp = 0; spotFlashT = 0;
   haul = 0; bag = 0; maxBag = 8; heat = 0; shelvesKnocked = 0;
-  // Generate shelf grid
-  const rows = 4, cols = 5;
-  const sw = 80, sh = 24, gx = (W - cols * 120) / 2, gy = 100;
+  // Reset Wave-1B state
+  sections = {}; customers = []; secOffice = null;
+  lastGrabT = 0; comboChain = 0; openBoxFired = false;
+  currentMap = MAPS[currentMapIdx] || MAPS[0];
+  // Pick a shoplist for variety
+  activeShoplist = SHOPLISTS[Math.floor(Math.random() * SHOPLISTS.length)];
+  // Generate shelf grid — uses currentMap dims; 1.5x growth on supermarket
+  const rows = currentMap.rows, cols = currentMap.cols;
+  // Bag scales with map difficulty.
+  maxBag = currentMap.id === 'warehouse' ? 12 : (currentMap.id === 'supermarket' ? 10 : 8);
+  const cellW = Math.min(110, Math.max(80, (W - 80) / cols));
+  const sw = Math.min(80, cellW - 30), sh = 22, gx = (W - cols * cellW) / 2, gy = 90;
   sceneRows = rows; sceneCols = cols; sceneGx = gx; sceneGy = gy;
+  // Assign sections by row (each row = one section, cycle the list).
   for (let r = 0; r < rows; r++) {
-    aisles.push({ x: gx, y: gy + r * 100 + sh + 30, w: cols * 120, n: r + 1 });
+    const secId = SECTION_ORDER[r % SECTION_ORDER.length];
+    sections[r] = secId;
+    aisles.push({ x: gx, y: gy + r * 100 + sh + 30, w: cols * cellW, n: r + 1, sec: secId });
     for (let c = 0; c < cols; c++) {
-      const sh1 = { x: gx + c * 120 + 20, y: gy + r * 100, w: sw, h: sh, hp: 2, seed: (r * 13 + c * 7) | 0 };
+      const sh1 = { x: gx + c * cellW + 20, y: gy + r * 100, w: sw, h: sh, hp: 2, seed: (r * 13 + c * 7) | 0, sec: secId };
       shelves.push(sh1);
-      // Items on top of shelf — keep deterministic-ish product slots so render can show varied colors below
+      // Use section-specific items where available; fall back to generic ITEMS.
+      const pool = SECTION_ITEMS[secId] || ITEMS;
       for (let i = 0; i < 3; i++) {
-        const it = ITEMS[Math.floor(Math.random() * ITEMS.length)];
-        items.push({ x: sh1.x + 12 + i * 22, y: sh1.y - 4, item: it, on: sh1, taken: false });
+        const sec = pool[Math.floor(Math.random() * pool.length)];
+        const it = sec.drawIconFn ? sec : {
+          name: sec.name, val: sec.val, color: sec.color, shape: sec.shape,
+          fragile: sec.fragile, smelly: sec.smelly, expensive: sec.expensive, trap: sec.trap,
+        };
+        items.push({ x: sh1.x + 12 + i * 22, y: sh1.y - 4, item: it, on: sh1, taken: false, sec: secId });
       }
     }
   }
@@ -196,9 +297,37 @@ function reset() {
   for (let r = 0; r < rows - 1; r++) {
     pallets.push({ x: gx + (r % 2 ? cols - 1 : 0) * 120 + 4, y: gy + r * 100 + 60, w: 28, h: 22 });
   }
-  // Guards (2)
-  guards.push({ x: 60, y: 60, vx: 0, vy: 0, ang: 0, alertT: 0, target: null });
-  guards.push({ x: W - 60, y: 60, vx: 0, vy: 0, ang: 0, alertT: 0, target: null });
+  // Guards — 4 kinds: walker/patrol/chaser (alerts others)/manager (instant game-over on touch).
+  const guardTypeCount = currentMap.id === 'warehouse' ? 4 : (currentMap.id === 'supermarket' ? 3 : 2);
+  const guardKinds = ['walker', 'patrol', 'chaser', 'manager'];
+  for (let i = 0; i < guardTypeCount; i++) {
+    const kind = guardKinds[i % guardKinds.length];
+    const speed = { walker: 90, patrol: 110, chaser: 170, manager: 80 }[kind];
+    const x = 60 + (i % 2) * (W - 120);
+    const y = 60 + Math.floor(i / 2) * (H - 200);
+    guards.push({
+      x, y, vx: 0, vy: 0, ang: Math.random() * Math.PI * 2,
+      alertT: 0, target: null, kind, speed,
+      patrol: [
+        { x: x + (Math.random() - 0.5) * 200, y: y + (Math.random() - 0.5) * 200 },
+        { x: x + (Math.random() - 0.5) * 200, y: y + (Math.random() - 0.5) * 200 },
+      ],
+      patrolIdx: 0,
+    });
+  }
+  // SECURITY OFFICE — windowed room top-left with two monitors.
+  secOffice = { x: 16, y: 24, w: 96, h: 56 };
+  // CUSTOMERS — wander; witnessing theft = +30% heat.
+  const customerCount = currentMap.id === 'warehouse' ? 5 : (currentMap.id === 'supermarket' ? 3 : 2);
+  for (let i = 0; i < customerCount; i++) {
+    const colors = ['#ff8e3c', '#5ea0c8', '#b055ff', '#5ef38c', '#ff3aa1'];
+    customers.push({
+      x: 100 + Math.random() * (W - 200), y: 120 + Math.random() * (H - 240),
+      vx: (Math.random() - 0.5) * 30, vy: (Math.random() - 0.5) * 30,
+      t: 0, witness: false, witnessCd: 0, color: colors[i % colors.length],
+      pauseT: Math.random() * 2,
+    });
+  }
   // SALE SIGNS hanging from ceiling between aisle rows
   const saleTexts = [
     { text: '50% OFF KIBBLE', color: '#ff3a3a' },
@@ -287,6 +416,7 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'e' || e.key === 'E') grabNear();
   if (e.key === ' ' || e.code === 'Space') ram();
   if (e.key === 'c' || e.key === 'C') toggleCart();
+  if (e.key === 'm' || e.key === 'M') miniMapOn = !miniMapOn;
 });
 window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 document.getElementById('cart-btn').addEventListener('click', toggleCart);
@@ -318,8 +448,30 @@ function grabNear() {
       if (bag < maxBag) {
         it.taken = true;
         bag++;
-        haul += it.item.val;
-        popup(it.x, it.y - 10, '+$' + it.item.val);
+        let val = it.item.val;
+        // CLEARANCE trap — OPEN BOX drops loot loudly + +heat penalty
+        if (it.item.trap && !openBoxFired) {
+          openBoxFired = true;
+          heat = Math.min(1, heat + 0.45);
+          shake(8, 0.3);
+          sfx.tone(140, 'sawtooth', 0.18, 0.3);
+          popup(it.x, it.y - 18, 'OPEN BOX! +HEAT', '#ff3a3a');
+        }
+        // ELECTRONICS heavily watched: +heat per grab
+        if (it.item.expensive) heat = Math.min(1, heat + 0.18);
+        // SHOPLIFTER combo — 5 small items (<25 val) within 1.5s window each
+        const now = performance.now();
+        if (it.item.val < 25 && now - lastGrabT < 1500) comboChain++;
+        else comboChain = 1;
+        lastGrabT = now;
+        if (comboChain >= 5) {
+          val = Math.round(val * 1.25);
+          popup(pug.x, pug.y - 22, 'SHOPLIFTER +25%', '#ffd23f');
+          sfx.arp([880, 1320, 1760], 'triangle', 0.05, 0.18, 0.18);
+          comboChain = 0;
+        }
+        haul += val;
+        popup(it.x, it.y - 10, '+$' + val, it.item.expensive ? '#b055ff' : '#5ef38c');
         sfx.tone(880, 'triangle', 0.07, 0.18);
         checkObjectives();
         return;
@@ -536,6 +688,31 @@ function tick(dt) {
       if (Math.random() < dt * 1.5) popup(cleanerBot.x, cleanerBot.y - 14, 'SPOTTED!', '#ff3a3a');
     }
   }
+  // CUSTOMERS — wander; spot pug stealing within 90px = +heat 30%
+  for (const c of customers) {
+    c.t += dt;
+    c.witnessCd = Math.max(0, c.witnessCd - dt);
+    c.pauseT -= dt;
+    if (c.pauseT <= 0) {
+      const a = Math.random() * Math.PI * 2;
+      c.vx = Math.cos(a) * 30; c.vy = Math.sin(a) * 30;
+      c.pauseT = 1.5 + Math.random() * 2;
+    }
+    c.x += c.vx * dt; c.y += c.vy * dt;
+    c.x = Math.max(50, Math.min(W - 50, c.x));
+    c.y = Math.max(100, Math.min(H - 100, c.y));
+    // Witness check — proximity + just-stole gate (lastGrabT recent + cooldown)
+    if (c.witnessCd <= 0 && bag > 0 && performance.now() - lastGrabT < 800) {
+      const d = Math.hypot(c.x - pug.x, c.y - pug.y);
+      if (d < 90 && cameraBlinkT <= 0) {
+        c.witnessCd = 4;
+        heat = Math.min(1, heat + 0.3);
+        popup(c.x, c.y - 18, 'WITNESS!', '#ff3a3a');
+        sfx.tone(330, 'square', 0.06, 0.16);
+        everSpotted = true;
+      }
+    }
+  }
   // Guards (alarm = omniscient + 1.5x speed)
   for (const g of guards) {
     const dx = pug.x - g.x, dy = pug.y - g.y;
@@ -549,7 +726,10 @@ function tick(dt) {
       g.alertT = 0;
       continue;
     }
-    const sees = d < 200 && Math.abs(diff) < 0.5;
+    // CHASER sees from further. MANAGER tighter cone.
+    const sightRange = g.kind === 'chaser' ? 240 : (g.kind === 'manager' ? 180 : 200);
+    const sightFov = g.kind === 'manager' ? 0.4 : 0.5;
+    const sees = d < sightRange && Math.abs(diff) < sightFov;
     // CAMERA BLINK suppresses sight-based heat gain too
     if (sees) {
       // Rising-edge: guard newly spots player → bark + speech bubble (1.2s) +
@@ -569,20 +749,37 @@ function tick(dt) {
     }
     if (heat > 0.7) g.alertT = Math.max(g.alertT || 0, 1.5);
     if (alarm.on) g.alertT = 5; // always know
+    // Rising-edge: newly-alerted CHASER bumps every guard to alert too.
+    if (sees && (g.alertT || 0) <= 0 && cameraBlinkT <= 0 && g.kind === 'chaser') {
+      for (const og of guards) if (og !== g) og.alertT = Math.max(og.alertT || 0, 2.5);
+    }
     if (g.alertT > 0) {
       g.alertT -= dt;
       g.ang = ang;
-      const gs = alarm.on ? 140 * 1.5 : 140;
+      const gs = (alarm.on ? g.speed * 1.5 : g.speed);
       g.x += (dx / d) * gs * dt; g.y += (dy / d) * gs * dt;
+    } else if (g.kind === 'patrol' && g.patrol) {
+      const t = g.patrol[g.patrolIdx];
+      const pdx = t.x - g.x, pdy = t.y - g.y, pd = Math.hypot(pdx, pdy);
+      if (pd < 20) g.patrolIdx = (g.patrolIdx + 1) % g.patrol.length;
+      else {
+        g.ang = Math.atan2(pdy, pdx);
+        g.x += (pdx / pd) * g.speed * 0.5 * dt;
+        g.y += (pdy / pd) * g.speed * 0.5 * dt;
+      }
     } else {
-      // patrol along x
-      g.ang += dt * 0.4;
-      g.x += Math.cos(g.ang) * 30 * dt;
-      g.y += Math.sin(g.ang) * 30 * dt;
+      // walker / manager — slow patrol along curve
+      g.ang += dt * (g.kind === 'manager' ? 0.6 : 0.4);
+      g.x += Math.cos(g.ang) * g.speed * 0.3 * dt;
+      g.y += Math.sin(g.ang) * g.speed * 0.3 * dt;
       g.x = Math.max(40, Math.min(W - 40, g.x));
       g.y = Math.max(40, Math.min(H - 100, g.y));
     }
-    if (d < 22) return caught();
+    // MANAGER catch = instant alarm-bypass game-over (priority witness).
+    if (d < 22) {
+      if (g.kind === 'manager') { alarm.on = true; alarm.T = 0; alarm.escaped = false; }
+      return caught();
+    }
   }
   // Exit reach
   if (Math.hypot(exitZ.x - pug.x, exitZ.y - pug.y) < exitZ.r) {
@@ -625,6 +822,97 @@ function tick(dt) {
   updateHud();
 }
 
+// Generic shape-based drawer for section items without explicit icon fns.
+function drawSectionItem(it) {
+  const x = it.x, y = it.y, c = it.item.color || '#fff';
+  switch (it.item.shape) {
+    case 'round':
+      ctx.fillStyle = c;
+      ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.4)';
+      ctx.beginPath(); ctx.arc(x - 2, y - 3, 2, 0, Math.PI * 2); ctx.fill();
+      break;
+    case 'curve':
+      ctx.fillStyle = c;
+      ctx.beginPath(); ctx.ellipse(x, y, 9, 3, -0.4, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#1a0d05'; ctx.fillRect(x - 8, y - 1, 2, 2);
+      break;
+    case 'cone':
+      ctx.fillStyle = c;
+      ctx.beginPath(); ctx.moveTo(x - 5, y + 6); ctx.lineTo(x + 5, y + 6); ctx.lineTo(x, y - 6); ctx.closePath(); ctx.fill();
+      break;
+    case 'box':
+      ctx.fillStyle = c; ctx.fillRect(x - 7, y - 6, 14, 12);
+      ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(x - 7, y + 5, 14, 1);
+      ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.fillRect(x - 7, y - 6, 14, 1);
+      break;
+    case 'cluster':
+      ctx.fillStyle = c;
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2;
+        ctx.beginPath(); ctx.arc(x + Math.cos(a) * 3, y + Math.sin(a) * 3, 2, 0, Math.PI * 2); ctx.fill();
+      }
+      break;
+    case 'fish':
+      ctx.fillStyle = c;
+      ctx.beginPath(); ctx.ellipse(x, y, 8, 4, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(x + 7, y); ctx.lineTo(x + 12, y - 3); ctx.lineTo(x + 12, y + 3); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.fillRect(x - 4, y - 1, 2, 2);
+      break;
+    case 'tube':
+      ctx.fillStyle = c; ctx.fillRect(x - 6, y - 2, 12, 5);
+      ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(x - 6, y + 2, 12, 1);
+      break;
+    case 'jar':
+      ctx.fillStyle = '#a8d0c8'; ctx.fillRect(x - 5, y - 5, 10, 11);
+      ctx.fillStyle = c; ctx.fillRect(x - 4, y - 4, 8, 9);
+      ctx.fillStyle = '#3a3a3a'; ctx.fillRect(x - 4, y - 6, 8, 2);
+      break;
+    default:
+      ctx.fillStyle = c; ctx.fillRect(x - 5, y - 5, 10, 10);
+  }
+  // Trap badge (small "?" on trap items)
+  if (it.item.trap) {
+    ctx.fillStyle = '#ff3a3a'; ctx.font = "6px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText('?', x, y + 10);
+  }
+}
+// MINI-MAP — small radar top-right with shelves/guards/customers/pug/exit
+function drawMartMiniMap() {
+  const mw = 140, mh = 90;
+  const mx = W - mw - 16, my = 50;
+  ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(mx - 2, my - 2, mw + 4, mh + 4);
+  ctx.strokeStyle = '#4cc9f0'; ctx.lineWidth = 1; ctx.strokeRect(mx, my, mw, mh);
+  // shelves
+  ctx.fillStyle = 'rgba(160,100,40,0.5)';
+  for (const s of shelves) {
+    if (s.toppled) continue;
+    ctx.fillRect(mx + (s.x / W) * mw, my + (s.y / H) * mh,
+                 Math.max(1, (s.w / W) * mw), Math.max(1, (s.h / H) * mh));
+  }
+  // exit
+  if (exitZ) {
+    ctx.fillStyle = '#5ef38c';
+    ctx.fillRect(mx + (exitZ.x / W) * mw - 2, my + (exitZ.y / H) * mh - 2, 4, 4);
+  }
+  // guards
+  for (const g of guards || []) {
+    ctx.fillStyle = g.alertT > 0 ? '#ff3a3a' : ({ chaser: '#ff8a8a', manager: '#ffd23f' }[g.kind] || '#4cc9f0');
+    ctx.fillRect(mx + (g.x / W) * mw - 1, my + (g.y / H) * mh - 1, 3, 3);
+  }
+  // customers
+  for (const c of customers) {
+    ctx.fillStyle = '#b055ff';
+    ctx.fillRect(mx + (c.x / W) * mw - 1, my + (c.y / H) * mh - 1, 2, 2);
+  }
+  // pug
+  if (pug) {
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(mx + (pug.x / W) * mw - 2, my + (pug.y / H) * mh - 2, 4, 4);
+  }
+  ctx.fillStyle = '#4cc9f0'; ctx.font = "6px 'Press Start 2P', monospace"; ctx.textAlign = 'right';
+  ctx.fillText('MAP [M]', mx + mw, my - 4);
+}
 function drawCart(x, y, ang, big) {
   ctx.save();
   ctx.translate(x, y); ctx.rotate(ang);
@@ -667,6 +955,36 @@ function render() {
   for (let y = 0; y <= H; y += TS) { ctx.moveTo(0, y + 0.5); ctx.lineTo(W, y + 0.5); }
   ctx.stroke();
 
+  // PER-SECTION row tint — each aisle row gets a soft coloured band.
+  for (let r = 0; r < sceneRows; r++) {
+    const secId = sections[r];
+    if (!secId) continue;
+    ctx.fillStyle = SECTION_TINT[secId] || 'rgba(255,255,255,0.02)';
+    ctx.fillRect(0, sceneGy + r * 100 - 20, W, 100);
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.font = "bold 7px 'Press Start 2P', monospace"; ctx.textAlign = 'right';
+    ctx.fillText('· ' + secId.toUpperCase() + ' ·', W - 12, sceneGy + r * 100 - 6);
+  }
+  // SECURITY OFFICE — small windowed room top-left with 2 monitors + door
+  if (secOffice) {
+    const s = secOffice;
+    ctx.fillStyle = '#1a1a26'; ctx.fillRect(s.x, s.y, s.w, s.h);
+    ctx.strokeStyle = '#4cc9f0'; ctx.lineWidth = 2; ctx.strokeRect(s.x, s.y, s.w, s.h);
+    // monitors
+    ctx.fillStyle = '#4cc9f0';
+    const mon1Pulse = 0.6 + 0.4 * Math.sin(performance.now() / 200);
+    ctx.globalAlpha = mon1Pulse;
+    ctx.fillRect(s.x + 8, s.y + 8, 30, 20);
+    ctx.fillRect(s.x + 44, s.y + 8, 30, 20);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#ffd23f'; ctx.font = "6px 'Press Start 2P', monospace"; ctx.textAlign = 'left';
+    ctx.fillText('SECURITY', s.x + 4, s.y - 2);
+    // door
+    ctx.fillStyle = '#5a3a1c'; ctx.fillRect(s.x + s.w - 14, s.y + s.h - 16, 10, 16);
+    // tiny indicator: red when dispatch is "watching"
+    ctx.fillStyle = heat > 0.4 ? '#ff3a3a' : '#5ef38c';
+    ctx.fillRect(s.x + s.w - 6, s.y + 4, 4, 4);
+  }
   // FROZEN AISLE tint (drawn before aisle numbers so labels are on top)
   if (frozenAisleH) {
     const fg = ctx.createLinearGradient(0, frozenAisleY - frozenAisleH / 2, 0, frozenAisleY + frozenAisleH / 2);
@@ -841,6 +1159,7 @@ function render() {
       ctx.restore();
     }
     if (it.item.drawIconFn) it.item.drawIconFn(ctx, it.x, it.y, 18);
+    else drawSectionItem(it);
   }
   // Security cameras at corners (decorative, animated pan)
   const tNow = performance.now() * 0.001;
@@ -862,7 +1181,31 @@ function render() {
       : (((tNow * 1.5 | 0) & 1) ? '#ff3a3a' : '#7a1a1a');
     ctx.fillRect(cam.x - 2, cam.y + 2, 2, 2);
   }
-  // Guards — vision cone + high-detail security pug
+  // CUSTOMERS — small pug NPCs that wander. Yellow "?" if witnessed recently.
+  for (const c of customers) {
+    drawPug(ctx, c.x, c.y, { size: 22, body: c.color, mask: '#3a2810' });
+    if (c.witnessCd > 2) {
+      ctx.fillStyle = '#ffd23f'; ctx.font = "10px sans-serif"; ctx.textAlign = 'center';
+      ctx.fillText('?', c.x, c.y - 18);
+    }
+  }
+  // WANTED POSTER — pinned on the side wall. Grows with successful escapes.
+  if (wantedLvl > 0) {
+    const wx = 16, wy = 100;
+    const ww = 60 + Math.min(40, wantedLvl * 6);
+    const wh = 76 + Math.min(60, wantedLvl * 8);
+    ctx.fillStyle = '#c8a872'; ctx.fillRect(wx, wy, ww, wh);
+    ctx.fillStyle = '#1a0d05';
+    ctx.font = "bold 7px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText('WANTED', wx + ww / 2, wy + 10);
+    ctx.fillStyle = '#a06030';
+    ctx.beginPath(); ctx.arc(wx + ww / 2, wy + 30 + wantedLvl, 10 + Math.min(8, wantedLvl), 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#1a0d05'; ctx.fillRect(wx + ww / 2 - 7, wy + 28, 14, 4);
+    ctx.fillStyle = '#5ef38c'; ctx.fillRect(wx + ww / 2 - 4, wy + 29, 2, 1); ctx.fillRect(wx + ww / 2 + 2, wy + 29, 2, 1);
+    ctx.fillStyle = '#a02828'; ctx.font = "bold 6px 'Press Start 2P', monospace";
+    ctx.fillText('$' + (wantedLvl * 50), wx + ww / 2, wy + wh - 6);
+  }
+  // Guards — vision cone + high-detail security pug (depth3D shadow under each)
   for (const g of guards) {
     const frozen = guardFreezeT > 0;
     ctx.fillStyle = frozen
@@ -872,7 +1215,17 @@ function render() {
     ctx.moveTo(g.x, g.y);
     ctx.arc(g.x, g.y, 200, g.ang - 0.5, g.ang + 0.5);
     ctx.closePath(); ctx.fill();
-    drawPug(ctx, g.x, g.y, { size: 34, body: frozen ? '#8a8aac' : '#4cc9f0', mask: '#1a3a55', hat: true, hatColor: '#0a1a2a' });
+    _depthShadow(ctx, g.x, g.y + 18, 20, { alpha: 0.4 });
+    // Body color hints at guard kind (chaser=red, manager=gold, patrol=cyan, walker=teal)
+    const kindColor = frozen ? '#8a8aac' : ({
+      chaser: '#ff5a5a', manager: '#ffd23f', patrol: '#4cc9f0', walker: '#5ea0c8',
+    }[g.kind] || '#4cc9f0');
+    drawPug(ctx, g.x, g.y, { size: 34, body: kindColor, mask: '#1a3a55', hat: true, hatColor: '#0a1a2a' });
+    // Tiny kind label above
+    if (!frozen) {
+      ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.font = "5px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+      ctx.fillText((g.kind || 'guard').toUpperCase(), g.x, g.y + 24);
+    }
     if (frozen) {
       ctx.fillStyle = '#b0e0ff'; ctx.font = "bold 12px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
       ctx.fillText('Zzz', g.x, g.y - 28);
@@ -941,6 +1294,8 @@ function render() {
     ctx.rotate(jiggleAng);
     ctx.translate(-pug.x, -pug.y);
   }
+  // depth3D drop shadow under the pug (and cart if any)
+  _depthShadow(ctx, pug.x, pug.y + 14, inCart ? 22 : 16, { alpha: 0.45 });
   if (inCart) drawCart(pug.x, pug.y + 4, 0);
   drawPug(ctx, pug.x, pug.y - (inCart ? 6 : 0), { size: 28 });
   if (jiggleAng !== 0) ctx.restore();
@@ -1029,6 +1384,31 @@ function render() {
     ctx.fillStyle = `rgba(220,240,255,${a * 0.5})`;
     ctx.beginPath(); ctx.arc(b.x, b.y, 4 + (1 - a) * 4, 0, Math.PI * 2); ctx.fill();
   }
+  // STEALTH EYE icon — opens/closes based on alert level (easier to read than text).
+  {
+    let sus = 0;
+    for (const g of guards || []) sus = Math.max(sus, g.alertT > 0 ? 1 : 0);
+    if (alarm.on) sus = 1;
+    if (heat > 0.5) sus = Math.max(sus, 0.6);
+    const eyeOpen = sus > 0.35;
+    const ex = 28, ey = 30;
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.beginPath(); ctx.arc(ex, ey, 14, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = eyeOpen ? '#ff3a3a' : '#5ef38c';
+    ctx.beginPath(); ctx.ellipse(ex, ey, 10, eyeOpen ? 7 : 2, 0, 0, Math.PI * 2); ctx.fill();
+    if (eyeOpen) {
+      ctx.fillStyle = '#1a0d05'; ctx.beginPath(); ctx.arc(ex, ey, 3, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  // MINI-MAP (M toggle) — radar top-right
+  if (miniMapOn) drawMartMiniMap();
+  // OBJECTIVE banner (current shoplist) — under HUD card
+  if (activeShoplist) {
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(W / 2 - 100, H - 32, 200, 16);
+    ctx.fillStyle = '#b0e8ff'; ctx.font = "6px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText('SHOPLIST: ' + activeShoplist.id.toUpperCase() + ' · MAP: ' + (currentMap.label || ''), W / 2, H - 21);
+  }
   // Heat bar — pulses if hot
   const hotPulse = heat > 0.7 ? (0.7 + 0.3 * Math.sin(performance.now() * 0.02)) : 1;
   ctx.fillStyle = 'rgba(0,0,0,0.5)';
@@ -1087,6 +1467,12 @@ function render() {
     ctx.restore();
   }
   ctx.restore();
+  // depth3D: subtle screen-space vignette so the bright supermarket floor
+  // feels framed and the action centers visually on the player.
+  const _vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.45, W / 2, H / 2, Math.max(W, H) * 0.75);
+  _vg.addColorStop(0, 'rgba(0,0,0,0)');
+  _vg.addColorStop(1, 'rgba(0,0,0,0.35)');
+  ctx.fillStyle = _vg; ctx.fillRect(0, 0, W, H);
 }
 
 // Perf: cache DOM refs + prev values; only touch DOM when something changed.
@@ -1142,6 +1528,16 @@ function end(escaped) {
   document.getElementById('end-sub').textContent = escaped ? (alarm.escaped ? `Escaped the alarm! +50% bonus (+$${alarm.bonus})` : 'You made it to the parking lot.') : 'Security got you. The snacks are gone.';
   // Apply alarm bonus to haul before recording
   if (escaped && alarm.escaped) haul += alarm.bonus;
+  // Multi-run progression: successful escape → bump wanted poster + maybe unlock next map.
+  if (escaped) {
+    wantedLvl = Math.min(15, wantedLvl + 1);
+    runMeta.wanted = wantedLvl;
+    if (haul >= currentMap.goalHaul && currentMapIdx < MAPS.length - 1) {
+      runMeta.unlocked = Math.max(runMeta.unlocked || 0, currentMapIdx + 1);
+    }
+    _saveMeta();
+    _renderMapPicker();
+  }
   document.getElementById('end-haul').textContent = '$' + haul;
   document.getElementById('end-shelves').textContent = shelvesKnocked;
   const finalScore = haul + (escaped ? 100 : 0);
@@ -1565,3 +1961,39 @@ if (_startOv) {
     new MutationObserver(endUpdate).observe(endOv, { attributes: true, attributeFilter: ['hidden','class'] });
   }
 })();
+
+// MAP picker on start overlay — also persists the picked map.
+function _renderMapPicker() {
+  const root = document.getElementById('mart-map-pick');
+  if (!root) return;
+  root.innerHTML = '';
+  const unlocked = Math.max(0, runMeta.unlocked || 0);
+  MAPS.forEach((m, i) => {
+    const btn = document.createElement('button');
+    const locked = i > unlocked;
+    btn.className = 'overlay__btn overlay__btn--small';
+    btn.textContent = (locked ? '🔒 ' : '') + m.label;
+    if (locked) {
+      btn.disabled = true; btn.style.opacity = '0.45';
+    } else if (i === currentMapIdx) {
+      btn.style.borderColor = 'var(--neon-yellow)';
+      btn.style.color = 'var(--neon-yellow)';
+    }
+    btn.addEventListener('click', () => {
+      if (locked) return;
+      currentMapIdx = i;
+      runMeta.lastMap = i;
+      _saveMeta();
+      _renderMapPicker();
+      const hint = document.getElementById('mart-map-hint');
+      if (hint) hint.textContent = `Goal: $${m.goalHaul} · ${m.rows}×${m.cols} grid`;
+    });
+    root.appendChild(btn);
+  });
+  const hint = document.getElementById('mart-map-hint');
+  if (hint) {
+    const m = MAPS[currentMapIdx];
+    hint.textContent = `Goal: $${m.goalHaul} · ${m.rows}×${m.cols} grid · Clear it to unlock the next`;
+  }
+}
+_renderMapPicker();

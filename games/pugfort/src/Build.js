@@ -695,6 +695,7 @@ export class Build {
   cancel() {
     this.selected = null;
     if (this.ghost) { this.ghost.destroy({ children: true }); this.ghost = null; }
+    if (this.rangeCircle) { this.rangeCircle.destroy(); this.rangeCircle = null; }
   }
 
   rotate(delta) {
@@ -705,10 +706,39 @@ export class Build {
 
   _refreshGhost() {
     if (this.ghost) { this.ghost.destroy({ children: true }); this.ghost = null; }
+    if (this.rangeCircle) { this.rangeCircle.destroy(); this.rangeCircle = null; }
     if (!this.selected) return;
-    this.ghost = BUILDABLES[this.selected].build();
+    const def = BUILDABLES[this.selected];
+    this.ghost = def.build();
     this.ghost.alpha = 0.55;
     this.scene.addChild(this.ghost);
+    // Range circle for ranged buildings — shown as a faint cyan ring
+    if (def.range) {
+      this.rangeCircle = new Graphics();
+      this.rangeCircle.circle(0, 0, def.range)
+        .stroke({ color: 0x4cc9f0, width: 2, alpha: 0.5 });
+      this.rangeCircle.circle(0, 0, def.range)
+        .fill({ color: 0x4cc9f0, alpha: 0.04 });
+      this.scene.addChild(this.rangeCircle);
+    }
+    // Mine trigger circle
+    if (def.mineRadius) {
+      this.rangeCircle = new Graphics();
+      this.rangeCircle.circle(0, 0, def.mineRadius)
+        .stroke({ color: 0xff5a3a, width: 2, alpha: 0.6 });
+      this.rangeCircle.circle(0, 0, def.mineRadius)
+        .fill({ color: 0xff5a3a, alpha: 0.06 });
+      this.scene.addChild(this.rangeCircle);
+    }
+    // Repair-bay heal radius
+    if (def.healRadius) {
+      this.rangeCircle = new Graphics();
+      this.rangeCircle.circle(0, 0, def.healRadius)
+        .stroke({ color: 0x5ef38c, width: 2, alpha: 0.6 });
+      this.rangeCircle.circle(0, 0, def.healRadius)
+        .fill({ color: 0x5ef38c, alpha: 0.08 });
+      this.scene.addChild(this.rangeCircle);
+    }
   }
 
   update(mouseWorld, canPlace) {
@@ -719,6 +749,11 @@ export class Build {
     this.ghost.rotation = this.rotation;
     this.ghost.pivot.set(def.width / 2, def.height / 2);
     this.ghost.tint = canPlace ? 0x5ef38c : 0xff3a3a;
+    // Range circle tracks the cursor too
+    if (this.rangeCircle) {
+      this.rangeCircle.x = mouseWorld.x;
+      this.rangeCircle.y = mouseWorld.y;
+    }
   }
 
   placeAt(mouseWorld) {

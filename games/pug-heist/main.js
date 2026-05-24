@@ -10,6 +10,7 @@ import { drawPug } from '../../src/shared/pugSprite.js';
 import { createMobileControls } from '../../src/shared/mobileControls.js';
 import { showGradeCard } from '../../src/shared/gradeCard.js';
 import { createSettingsMenu } from '../../src/shared/settingsMenu.js';
+import { drawShadow as _depthShadow, depthSort as _depthSort } from '../../src/shared/depth3D.js';
 
 const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
@@ -51,6 +52,33 @@ const LOOT_TYPES = [
   { iconName: 'diamond',   val: 150, rare: true },   // diamond
   { iconName: 'camera',    val: 120, rare: true },   // was remote — camera is the closest jackpot tech icon
 ];
+
+// THEMED LOOT — per building: museum=gems(rare), bank=goldbars(slow),
+// mansion=paintings, office=laptops. Lives alongside generic LOOT_TYPES.
+const THEME_LOOT = {
+  museum:  [ { kind: 'gem',     val: 220, color: '#ff3aa1', shape: 'gem' },
+             { kind: 'artifact',val: 180, color: '#c89c20', shape: 'urn' } ],
+  bank:    [ { kind: 'goldBar', val: 160, color: '#ffd23f', shape: 'bar' },
+             { kind: 'cashStack',val: 110,color: '#5ef38c', shape: 'stack' } ],
+  mansion: [ { kind: 'painting',val: 150, color: '#a06030', shape: 'painting' },
+             { kind: 'chandelier',val: 130,color: '#ffce5e', shape: 'chand' } ],
+  office:  [ { kind: 'laptop',  val: 45,  color: '#4cc9f0', shape: 'laptop' },
+             { kind: 'monitor', val: 35,  color: '#8a8aac', shape: 'monitor' } ],
+};
+const BUILDING_THEMES = ['museum', 'bank', 'mansion', 'office'];
+// DIFFICULTY — picked on the start overlay (defaults to MASTERMIND).
+const DIFFICULTY = {
+  student:    { timeBonus: 1.4, guardSpeed: 0.7, lootTimer: 60, label: 'STUDENT',    hint: 'More time · slower guards' },
+  mastermind: { timeBonus: 1.0, guardSpeed: 1.0, lootTimer: 60, label: 'MASTERMIND', hint: 'Default' },
+  ghost:      { timeBonus: 0.8, guardSpeed: 1.25, lootTimer: 45, label: 'GHOST',     hint: 'No smoke · no decoys · faster guards' },
+};
+let difficulty = 'mastermind';
+// HEIST DIARY — per-theme clears + MASTER badge (no-alert clear).
+const DIARY_KEY = 'pug-heist:diary';
+let heistDiary = (() => {
+  try { return JSON.parse(localStorage.getItem(DIARY_KEY) || '{}'); } catch { return {}; }
+})();
+function _saveDiary() { try { localStorage.setItem(DIARY_KEY, JSON.stringify(heistDiary)); } catch {} }
 let pug, humans, walls, loot, exitZ, floor, barkCd, fartCd, running;
 // Last-shown grade-card handle so start() can dismiss it (otherwise a CAUGHT
 // grade card lingers on top of the new floor when the user clicks REMATCH
@@ -95,6 +123,26 @@ let popups = []; // {x, y, text, color, t}
 let lights = []; // ceiling lights placed per-floor: {x, y, flickerT, on}
 let scatter = []; // floor decorations: cracks, stains, debris
 let dustMotes = []; // ambient dust motes drifting
+// Wave 1B — themed building + map upgrades
+let buildingTheme = 'museum';     // current floor's building theme
+let secCams = [];                 // {x, y, baseAng, sweep, phase, range, fov}
+let vents = [];                   // {x, y, w, h, pair} — shortcut pads (slow but undetectable)
+let lasers = [];                  // {x, y, w, h, axis:'h'|'v', phase, period} — alarm-trigger beams
+let perfectFloor = true;          // resets per-floor; true = no detection at all on this floor
+let comboBonus = 0;               // 2x multiplier banner counter (popups only)
+let slowmoT = 0;                  // active slow-mo timer in seconds (0=off)
+let slowmoUsed = 0;               // count this floor (limit per floor to avoid abuse)
+let quickRestartCd = 0;           // (R) prevents accidental multi-press
+let miniMapOn = true;             // M toggles HUD radar
+let ghostReplay = null;           // recorded last successful floor: { samples:[{x,y,t}], floor, theme }
+let _curRecord = null;            // recording buffer for current run
+let _ghostT = 0;                  // playback head
+let _floorBriefingPending = false; // briefing overlay shown before each new floor
+let _floorPreviewMeta = null;     // {theme, lootCount, estHaul, floor}
+let _jumpT = 0;                   // brief jump arc (s) — lets pug clear lasers
+let alarmTier = 0;                // 0 idle · 1 suspicion · 2 alert · 3 full alarm
+let _alarmAt = 0;                 // gate: throttles alarm sirens to ≥1/2s
+let _stealthPop = 0;              // last "+10 STEALTH" popup time
 function addShake(mag, dur) { shakeMag = Math.max(shakeMag, mag); shakeT = Math.max(shakeT, dur); }
 function addPopup(x, y, text, color) {
   // Spawn with small random horizontal drift + jitter so back-to-back popups
@@ -113,7 +161,9 @@ function addPopup(x, y, text, color) {
 }
 
 function genFloor(level) {
-  pug = { x: 60, y: H - 100, vx: 0, vy: 0, alive: true, fartT: 0, sound: 0 };
+  // Theme cycles by floor (museum → bank → mansion → office → museum…)
+  buildingTheme = BUILDING_THEMES[(level - 1) % BUILDING_THEMES.length];
+  pug = { x: 60, y: H - 100, vx: 0, vy: 0, alive: true, fartT: 0, sound: 0, held: [] };
   walls = [];
   // Outer walls
   walls.push({ x: 0, y: 0, w: W, h: 12 });
@@ -189,18 +239,77 @@ function genFloor(level) {
       }
     }
   }
-  // Loot - one per room (roughly)
+  // Loot - one per room (roughly). Now mixes generic LOOT_TYPES with the
+  // current theme's themed-loot (gems/gold-bars/paintings/laptops) at 35%.
   loot = [];
+  const themedPool = THEME_LOOT[buildingTheme] || [];
   const lootCount = 4 + level;
   for (let i = 0; i < lootCount; i++) {
     for (let tries = 0; tries < 40; tries++) {
       const x = 30 + Math.random() * (W - 60);
       const y = 30 + Math.random() * (H - 60);
       if (!isWallNear(x, y, 16)) {
-        // 12% rare drop chance
-        const pool = Math.random() < 0.12 ? LOOT_TYPES.filter((t) => t.rare) : LOOT_TYPES.filter((t) => !t.rare);
-        const ltype = pool[Math.floor(Math.random() * pool.length)];
-        loot.push({ x, y, ...ltype, taken: false });
+        let lootObj;
+        if (themedPool.length && Math.random() < 0.35) {
+          const t = themedPool[Math.floor(Math.random() * themedPool.length)];
+          lootObj = {
+            x, y, taken: false, themed: true, theme: buildingTheme,
+            iconName: t.shape, val: t.val, rare: t.val >= 150, ...t,
+          };
+        } else {
+          const pool = Math.random() < 0.12 ? LOOT_TYPES.filter((t) => t.rare) : LOOT_TYPES.filter((t) => !t.rare);
+          const ltype = pool[Math.floor(Math.random() * pool.length)];
+          lootObj = { x, y, ...ltype, taken: false };
+        }
+        loot.push(lootObj);
+        break;
+      }
+    }
+  }
+  // SECURITY CAMERAS — rotating sweep cones; skipped in STUDENT mode.
+  secCams = [];
+  if (difficulty !== 'student') {
+    const camCount = Math.min(3, Math.floor(level / 2));
+    for (let i = 0; i < camCount; i++) {
+      for (let tries = 0; tries < 20; tries++) {
+        const x = 30 + Math.random() * (W - 60);
+        const y = 30 + Math.random() * (H - 60);
+        if (!isWallNear(x, y, 24) && Math.hypot(x - pug.x, y - pug.y) > 180) {
+          secCams.push({ x, y, baseAng: Math.random() * Math.PI * 2,
+            sweep: 0.7, phase: Math.random() * Math.PI * 2, range: 140, fov: 0.45 });
+          break;
+        }
+      }
+    }
+  }
+  // VENTS — shortcut pair: enter A → teleport to B. 1 pair/floor.
+  vents = [];
+  if (Math.random() < 0.7) {
+    const ax = 50 + Math.random() * 80;
+    const ay = H - 60 - Math.random() * 60;
+    const bx = W - 90 - Math.random() * 80;
+    const by = 60 + Math.random() * 60;
+    vents.push({ x: ax - 12, y: ay - 12, w: 24, h: 24, pair: 1, cd: 0 });
+    vents.push({ x: bx - 12, y: by - 12, w: 24, h: 24, pair: 1, cd: 0 });
+  }
+  // LASERS — pulsing floor beams. Cross while not jumping (J) = full alarm.
+  lasers = [];
+  if (level >= 2 && difficulty !== 'student') {
+    const laserCount = Math.min(3, Math.floor((level - 1) / 2) + 1);
+    for (let i = 0; i < laserCount; i++) {
+      for (let tries = 0; tries < 16; tries++) {
+        const horizontal = Math.random() < 0.5;
+        const len = 120 + Math.random() * 160;
+        const x = 40 + Math.random() * (W - 80 - (horizontal ? len : 6));
+        const y = 60 + Math.random() * (H - 120 - (horizontal ? 6 : len));
+        const beam = horizontal
+          ? { x, y, w: len, h: 4, axis: 'h', phase: Math.random() * Math.PI * 2, period: 3 + Math.random() * 3 }
+          : { x, y, w: 4, h: len, axis: 'v', phase: Math.random() * Math.PI * 2, period: 3 + Math.random() * 3 };
+        // avoid spawn area + walls along the line
+        const midX = beam.x + beam.w / 2, midY = beam.y + beam.h / 2;
+        if (Math.hypot(midX - pug.x, midY - pug.y) < 120) continue;
+        if (isWallNear(midX, midY, 8)) continue;
+        lasers.push(beam);
         break;
       }
     }
@@ -324,6 +433,12 @@ function genFloor(level) {
   }
   shakeT = 0; shakeMag = 0; hitFlashT = 0;
   popups = [];
+  // Stealth combo + ghost recording reset
+  perfectFloor = true; comboBonus = 0;
+  slowmoT = 0; slowmoUsed = 0; _jumpT = 0; alarmTier = 0;
+  _curRecord = { samples: [], floor, theme: buildingTheme, t: 0 };
+  _ghostT = 0;
+  if (difficulty === 'ghost') { smokeCd = 9999; decoyCd = 9999; }
 }
 
 function isWallNear(x, y, r) {
@@ -401,13 +516,16 @@ window.addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   keys.add(k);
   // Block browser shortcuts (e.g. Quick Find on /, scroll on space) for keys we own.
-  if (e.code === 'Space' || ['q','g','t','x','w','a','s','d'].includes(k)) e.preventDefault();
+  if (e.code === 'Space' || ['q','g','t','x','j','r','m','w','a','s','d'].includes(k)) e.preventDefault();
   if (e.key === ' ' || e.code === 'Space') doBark();
   if (e.key === 'Shift' || k === 'shift') doFart();
   if (k === 'q') doSmoke();
   if (k === 'g') doTongue();
   if (k === 't') doDecoy();
   if (k === 'x') doThrow();
+  if (k === 'j') doJump();           // hop over lasers
+  if (k === 'r') doQuickRestart();   // restart this floor (keep run progress)
+  if (k === 'm') miniMapOn = !miniMapOn;
 });
 window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 // Mobile controls — wasd-only joystick + action buttons. Buttons synth keys so
@@ -458,10 +576,32 @@ function doBark() {
 
 function doSmoke() {
   if (smokeCd > 0 || !running) return;
+  if (difficulty === 'ghost') { popup_locked('GHOST: no smoke'); return; }
   smokeCd = 7;
   // 3s smoke cloud at pug position, blocks vision cones in radius 90
   smokeBombs.push({ x: pug.x, y: pug.y, t: 0, life: 3 });
   sfx.tone(330, 'sawtooth', 0.2, 0.2);
+}
+// Brief locked-action toast — surfaced when difficulty disallows an action.
+function popup_locked(text) {
+  if (!pug) return;
+  addPopup(pug.x, pug.y - 18, text, '#ff5a82');
+}
+// JUMP — 0.45s hop; lasers ignored while airborne.
+function doJump() {
+  if (!running || _jumpT > 0) return;
+  _jumpT = 0.45;
+  sfx.tone(540, 'triangle', 0.06, 0.16);
+}
+// QUICK RESTART (R) — reset current floor, keep run-totals.
+function doQuickRestart() {
+  if (!running || quickRestartCd > 0) return;
+  quickRestartCd = 0.6;
+  totalLootValue -= lootValueThisFloor;
+  lootStolen -= loot.filter((l) => l.taken).length;
+  if (lootStolen < 0) lootStolen = 0;
+  genFloor(floor);
+  addPopup(pug.x, pug.y - 16, 'FLOOR RESTARTED', '#4cc9f0');
 }
 function doTongue() {
   if (tongueCd > 0 || !running) return;
@@ -491,6 +631,7 @@ function doTongue() {
 }
 function doDecoy() {
   if (decoyCd > 0 || !running) return;
+  if (difficulty === 'ghost') { popup_locked('GHOST: no decoy'); return; }
   decoyCd = 8;
   // Distract nearest human: walk away from pug for 4s
   let near = null, bestD = 280;
@@ -613,10 +754,26 @@ function tick(dt) {
   if (shopPending) return; // pause world while shop overlay is open
   // Hit-pause — freeze the world for a few frames after a knockout (set in caught()).
   if (_hitstopT && _hitstopT > 0) { _hitstopT -= dt; return; }
+  // Slow-mo scales dt by 0.4.
+  if (slowmoT > 0) { slowmoT = Math.max(0, slowmoT - dt); dt *= 0.4; }
+  if (_jumpT > 0) _jumpT = Math.max(0, _jumpT - dt);
+  if (quickRestartCd > 0) quickRestartCd = Math.max(0, quickRestartCd - dt);
   barkCd = Math.max(0, barkCd - dt);
   fartCd = Math.max(0, fartCd - dt);
   pug.fartT = Math.max(0, pug.fartT - dt);
   pug.sound = Math.max(0, pug.sound - dt * 0.5);
+  // Ghost-replay sample every 0.1s
+  if (_curRecord) {
+    _curRecord.t += dt;
+    const lastS = _curRecord.samples[_curRecord.samples.length - 1];
+    if (!lastS || _curRecord.t - lastS.t > 0.1) {
+      _curRecord.samples.push({ x: pug.x, y: pug.y, t: _curRecord.t });
+      if (_curRecord.samples.length > 800) _curRecord.samples.shift();
+    }
+  }
+  if (ghostReplay && ghostReplay.samples.length) _ghostT += dt;
+  for (const cam of secCams) cam.phase += dt;
+  for (const lz of lasers) lz.phase += dt;
 
   // Move
   let mx = 0, my = 0;
@@ -632,7 +789,11 @@ function tick(dt) {
   }
   // Subtle acceleration ramp from rest — feels weightier than instant zoom.
   // Smooth blend toward target velocity, then apply that velocity via rectCollide.
-  const targetSpeed = (pug.fartT > 0 ? 220 : 110);
+  // Held bank loot ("goldBar") slows the carrier — 6% per bar carried.
+  let heldBars = 0;
+  for (const lt of loot) if (lt.taken && lt.kind === 'goldBar') heldBars++;
+  const heavyMul = Math.max(0.55, 1 - heldBars * 0.06);
+  const targetSpeed = (pug.fartT > 0 ? 220 : 110) * heavyMul;
   let tvx = 0, tvy = 0;
   if (mx || my) {
     const l = Math.hypot(mx, my);
@@ -790,6 +951,25 @@ function tick(dt) {
   // Exit check
   if (loot.every((l) => l.taken)) {
     if (Math.hypot(exitZ.x - pug.x, exitZ.y - pug.y) < exitZ.r) {
+      // PERFECT STEALTH combo: floor cleared with no detection AT ALL → 2x value bonus
+      if (perfectFloor) {
+        const bonus = Math.round(lootValueThisFloor);
+        totalLootValue += bonus;
+        addPopup(pug.x, pug.y - 22, 'PERFECT STEALTH! +$' + bonus, '#ffd23f');
+        sfx.arp([523, 784, 1320], 'triangle', 0.08, 0.18, 0.2);
+      }
+      // Heist Diary update — count clears per theme; MASTER if perfectFloor.
+      const t = buildingTheme;
+      const d = heistDiary[t] || { cleared: 0, master: false };
+      d.cleared++;
+      if (perfectFloor) d.master = true;
+      heistDiary[t] = d;
+      _saveDiary();
+      // Save replay buffer as ghost for the NEXT attempt of this same floor.
+      if (_curRecord && _curRecord.samples.length > 4) {
+        ghostReplay = { ..._curRecord, floor };
+        _ghostT = 0;
+      }
       // Trigger BETWEEN-FLOOR SHOP overlay before advancing
       pendingFloor = floor + 1;
       shopPending = true;
@@ -813,7 +993,8 @@ function tick(dt) {
         h.lookT = 1.2; // pause to look
       } else if (h.lookT <= 0) {
         h.ang = Math.atan2(dy, dx);
-        rectCollide(h, (dx / d) * 50 * dt, (dy / d) * 50 * dt);
+        const gm = (DIFFICULTY[difficulty] || DIFFICULTY.mastermind).guardSpeed;
+        rectCollide(h, (dx / d) * 50 * gm * dt, (dy / d) * 50 * gm * dt);
       }
     } else if (h.state === 'distracted' && h.distractTarget) {
       const dx = h.distractTarget.x - h.x, dy = h.distractTarget.y - h.y;
@@ -854,7 +1035,14 @@ function tick(dt) {
     }
     // Cone-color escalation: mark suspicion based on closeness
     if (inCone && d < 240) h._closeT = (h._closeT || 0) + dt; else h._closeT = Math.max(0, (h._closeT || 0) - dt);
-    if (inCone && !blocked) { alertedThisFloor = true; caught(); }
+    // SLOW-MO trigger (max 2/floor) — gives 0.5s @ 0.4x speed.
+    if (inCone && !blocked && slowmoT <= 0 && slowmoUsed < 2 && d < 220) {
+      slowmoT = 0.5;
+      slowmoUsed++;
+      sfx.tone(180, 'sine', 0.18, 0.14);
+      addPopup(pug.x, pug.y - 14, 'CLOSE!', '#4cc9f0');
+    }
+    if (inCone && !blocked) { alertedThisFloor = true; perfectFloor = false; alarmTier = Math.max(alarmTier, 2); caught(); }
     // Sound detection (QUIETER PAWS: halve effective sound radius)
     const soundReach = runUpgrades.quietPaws ? 120 : 240;
     if (pug.sound > 0.6 && d < soundReach) {
@@ -865,7 +1053,83 @@ function tick(dt) {
       h.alertT = 1.5;
     }
   }
+  // SECURITY CAMERAS — sweep cone hits = caught (same as guard).
+  for (const cam of secCams) {
+    const ang = cam.baseAng + Math.sin(cam.phase * cam.sweep) * 1.0;
+    const dx = pug.x - cam.x, dy = pug.y - cam.y;
+    const d = Math.hypot(dx, dy);
+    if (d > cam.range) continue;
+    let diff = Math.atan2(dy, dx) - ang;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    if (Math.abs(diff) > cam.fov) continue;
+    // line-of-sight via walls
+    let blocked = false;
+    const steps = 14;
+    for (let i = 1; i < steps && !blocked; i++) {
+      const t = i / steps;
+      const sx = cam.x + (pug.x - cam.x) * t;
+      const sy = cam.y + (pug.y - cam.y) * t;
+      if (isWallNear(sx, sy, 2)) blocked = true;
+      for (const sb of smokeBombs) {
+        if (Math.hypot(sx - sb.x, sy - sb.y) < 90) { blocked = true; break; }
+      }
+    }
+    if (!blocked) {
+      alertedThisFloor = true; perfectFloor = false; alarmTier = Math.max(alarmTier, 2);
+      caught();
+    }
+  }
+  // LASERS — beam active when sin(phase * 2π/period) > 0. Touching while not
+  // jumping = full alarm. Standing on a vent pad and exiting it instead = safe.
+  if (_jumpT <= 0) {
+    for (const lz of lasers) {
+      const active = Math.sin(lz.phase * (Math.PI * 2 / lz.period)) > 0;
+      if (!active) continue;
+      const px = pug.x, py = pug.y;
+      if (px > lz.x - 8 && px < lz.x + lz.w + 8 && py > lz.y - 8 && py < lz.y + lz.h + 8) {
+        alertedThisFloor = true; perfectFloor = false; alarmTier = 3;
+        _trySiren(now_perf());
+        addShake(8, 0.35);
+        for (const h of humans) h.alertT = 4.5; // wake all
+        caught();
+        break;
+      }
+    }
+  }
+  // VENTS — step on a pad → 0.4s crawl tween → teleport to paired pad.
+  for (const v of vents) {
+    if (v.cd > 0) { v.cd -= dt; continue; }
+    if (pug.x > v.x && pug.x < v.x + v.w && pug.y > v.y && pug.y < v.y + v.h) {
+      const other = vents.find((o) => o !== v && o.pair === v.pair);
+      if (other) {
+        pug.x = other.x + other.w / 2;
+        pug.y = other.y + other.h / 2;
+        v.cd = 1.2; other.cd = 1.2;
+        sfx.tone(220, 'sine', 0.18, 0.18);
+        addPopup(pug.x, pug.y - 14, 'VENT', '#b0e8ff');
+        // Bonus: silent dodge = +10 STEALTH popup
+        if (perfectFloor && performance.now() - _stealthPop > 1500) {
+          _stealthPop = performance.now();
+          addPopup(pug.x + 12, pug.y - 28, '+10 STEALTH', '#5ef38c');
+        }
+      }
+    }
+  }
+  // Alarm tier audio (siren / klaxon / soft beep). Decays back to 0 over 2s.
+  if (alarmTier > 0) {
+    // any guard alerted bumps to ≥1
+    for (const h of humans) if (h.alertT > 0) { alarmTier = Math.max(alarmTier, 2); break; }
+  }
   updateHud();
+}
+// Throttled alarm siren.
+function now_perf() { return performance.now() / 1000; }
+function _trySiren(t) {
+  if (t - _alarmAt < 0.5) return;
+  _alarmAt = t;
+  sfx.sweep(880, 220, 'square', 0.5, 0.32);
+  sfx.tone(110, 'sawtooth', 0.4, 0.4);
 }
 
 function caught() {
@@ -1023,6 +1287,60 @@ function render() {
     ctx.fillStyle = grd;
     ctx.beginPath(); ctx.arc(tv.x, tv.y + 18, 80, 0, Math.PI * 2); ctx.fill();
   }
+  // VENTS — silver grate, recessed
+  for (const v of vents) {
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(v.x, v.y, v.w, v.h);
+    ctx.fillStyle = '#7a7a8a';
+    ctx.fillRect(v.x + 1, v.y + 1, v.w - 2, v.h - 2);
+    ctx.fillStyle = 'rgba(20,20,30,0.85)';
+    for (let i = 0; i < 4; i++) ctx.fillRect(v.x + 2, v.y + 4 + i * 5, v.w - 4, 2);
+    ctx.fillStyle = '#b0e8ff'; ctx.font = "5px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText('VENT', v.x + v.w / 2, v.y - 2);
+  }
+  // LASERS — pulsing red beams (active = bright, inactive = faint)
+  for (const lz of lasers) {
+    const active = Math.sin(lz.phase * (Math.PI * 2 / lz.period)) > 0;
+    ctx.fillStyle = active ? 'rgba(255,40,40,0.85)' : 'rgba(255,40,40,0.18)';
+    ctx.fillRect(lz.x, lz.y, lz.w, lz.h);
+    if (active) {
+      ctx.shadowColor = '#ff3a3a'; ctx.shadowBlur = 10;
+      ctx.fillStyle = 'rgba(255,180,180,0.9)';
+      ctx.fillRect(lz.x + 1, lz.y + 1, lz.w - 2, lz.h - 2);
+      ctx.shadowBlur = 0;
+    }
+    // emitter caps
+    ctx.fillStyle = '#3a1a1a';
+    if (lz.axis === 'h') { ctx.fillRect(lz.x - 4, lz.y - 2, 4, 8); ctx.fillRect(lz.x + lz.w, lz.y - 2, 4, 8); }
+    else { ctx.fillRect(lz.x - 2, lz.y - 4, 8, 4); ctx.fillRect(lz.x - 2, lz.y + lz.h, 8, 4); }
+  }
+  // SECURITY CAMERAS — wall-bracket + lens + sweep beam (only renders if not in smoke)
+  for (const cam of secCams) {
+    const ang = cam.baseAng + Math.sin(cam.phase * cam.sweep) * 1.0;
+    // beam cone
+    ctx.fillStyle = 'rgba(255,40,40,0.16)';
+    ctx.beginPath(); ctx.moveTo(cam.x, cam.y);
+    ctx.arc(cam.x, cam.y, cam.range, ang - cam.fov, ang + cam.fov);
+    ctx.closePath(); ctx.fill();
+    // bracket + body
+    ctx.fillStyle = '#2a2a3a'; ctx.fillRect(cam.x - 6, cam.y - 5, 12, 4);
+    ctx.save(); ctx.translate(cam.x, cam.y); ctx.rotate(ang);
+    ctx.fillStyle = '#1a1a26'; ctx.fillRect(-7, -3, 14, 6);
+    ctx.fillStyle = '#ff3a3a'; ctx.fillRect(4, -1, 4, 2);
+    ctx.restore();
+  }
+  // GHOST-REPLAY overlay — faint pug trail tracking last successful run
+  if (ghostReplay && ghostReplay.samples && ghostReplay.samples.length > 0 && ghostReplay.floor === floor) {
+    // Find sample nearest current playback time
+    const samples = ghostReplay.samples;
+    let idx = 0;
+    for (; idx < samples.length - 1; idx++) if (samples[idx + 1].t > _ghostT) break;
+    const g = samples[idx];
+    ctx.globalAlpha = 0.35;
+    drawPug(ctx, g.x, g.y, { size: 26, body: '#b0e8ff', mask: '#5a8aac' });
+    ctx.globalAlpha = 1;
+    if (_ghostT > samples[samples.length - 1].t) _ghostT = 0;
+  }
   // Walls — thicker with highlight/shadow for depth
   ctx.fillStyle = '#1a0d05';
   for (const w of walls) ctx.fillRect(w.x, w.y, w.w, w.h);
@@ -1032,12 +1350,13 @@ function render() {
   // side highlight (left)
   ctx.fillStyle = 'rgba(0,0,0,0.4)';
   for (const w of walls) ctx.fillRect(w.x + w.w - 2, w.y + 2, 2, w.h - 2);
-  // Loot — pixel-art icons from shared library
+  // Loot — pixel-art icons from shared library (or themed fallback)
   for (const lt of loot) {
     if (lt.taken) continue;
     ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 12;
     const fn = drawIcon[lt.iconName];
     if (fn) fn(ctx, lt.x, lt.y, 22);
+    else drawThemedLoot(lt);
     ctx.shadowBlur = 0;
   }
   // Loot-value tooltip — Monaco-style: hover/proximity reveals value BEFORE
@@ -1067,7 +1386,9 @@ function render() {
     ctx.fillStyle = '#5ef38c'; ctx.font = "20px sans-serif"; ctx.textAlign = 'center';
     ctx.fillText('EXIT', exitZ.x, exitZ.y + 6);
   }
-  // Humans + vision cones (color shifts with suspicion)
+  // Humans + vision cones (color shifts with suspicion) — depth-sort so
+  // overlapping guards layer back-to-front for a fake 3D feel.
+  _depthSort(humans);
   for (const h of humans) {
     // cone color: yellow safe → orange suspicious → red alerted
     const sus = Math.min(1, (h._closeT || 0) / 1.5);
@@ -1096,6 +1417,8 @@ function render() {
     ctx.moveTo(h.x, h.y);
     ctx.arc(h.x, h.y, 180, h.ang - 0.6, h.ang + 0.6);
     ctx.closePath(); ctx.fill();
+    // depth3D drop shadow under guard
+    _depthShadow(ctx, h.x, h.y + 16, 18, { alpha: 0.4 });
     // body — high-detail human-pug
     drawPug(ctx, h.x, h.y, { size: 32, body: '#a89888', mask: '#3a2810' });
     // facing dot
@@ -1158,13 +1481,27 @@ function render() {
     ctx.fillStyle = '#aa6abe'; ctx.fillRect(cx - 3, cy - 5, 6, 2);
     ctx.fillStyle = '#5a2a6a'; ctx.fillRect(cx - 4, cy + 4, 8, 2);
   }
-  // Cat allies — small grey pug variant
+  // Cat allies — small grey pug variant (depth3D shadow under each)
   for (const c of cats) {
+    _depthShadow(ctx, c.x, c.y + 12, 12, { alpha: 0.35 });
     drawPug(ctx, c.x, c.y, { size: 22, body: '#5a5a5a', mask: '#2a2a2a', tongueOut: false });
     ctx.fillStyle = '#5ef38c'; ctx.font = "8px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
     ctx.fillText('ALLY', c.x, c.y - 22);
   }
+  // JUMP arc — translate pug upward briefly. Drawn just before pug rendering.
+  let _jumpLift = 0;
+  if (_jumpT > 0) {
+    const k = _jumpT / 0.45;
+    _jumpLift = Math.sin(k * Math.PI) * 14;
+    // shadow underneath
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.beginPath(); ctx.ellipse(pug.x, pug.y + 8, 12, 4, 0, 0, Math.PI * 2); ctx.fill();
+  }
   // Pug — hero (with hit flash overlay + ragdoll tilt if knocked out)
+  const _origY = pug.y;
+  if (_jumpLift) pug.y -= _jumpLift;
+  // depth3D drop shadow under the pug (stays on the floor, doesn't lift with jump)
+  _depthShadow(ctx, pug.x, _origY + 14, 16, { alpha: 0.45 });
   const isKnocked = pug.knockedT != null;
   if (isKnocked) {
     // Tilt + drop animation: rotates to knockedAng over ~0.5s, fades to 0.6 alpha.
@@ -1183,6 +1520,8 @@ function render() {
     drawPug(ctx, pug.x, pug.y, { size: 30 });
   }
   if (isKnocked) { ctx.restore(); }
+  // restore actual y after jump-lift draw offset
+  if (_jumpLift) pug.y = _origY;
   // fart cloud
   if (pug.fartT > 0) {
     ctx.fillStyle = `rgba(94,243,140,${pug.fartT / 1.5 * 0.6})`;
@@ -1295,6 +1634,58 @@ function render() {
   vg.addColorStop(1, 'rgba(0,0,0,0.6)');
   ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
   drawGadgetHud();
+}
+
+// Themed-loot icons — small pixel art for gem/bar/painting/laptop.
+function drawThemedLoot(lt) {
+  const x = lt.x, y = lt.y, c = lt.color || '#ffd23f';
+  switch (lt.iconName) {
+    case 'gem':
+      ctx.fillStyle = c;
+      ctx.beginPath();
+      ctx.moveTo(x, y - 9); ctx.lineTo(x + 7, y - 1); ctx.lineTo(x + 4, y + 8);
+      ctx.lineTo(x - 4, y + 8); ctx.lineTo(x - 7, y - 1); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.55)';
+      ctx.beginPath(); ctx.moveTo(x - 3, y - 4); ctx.lineTo(x + 1, y - 6); ctx.lineTo(x - 2, y - 1); ctx.closePath(); ctx.fill();
+      break;
+    case 'urn':
+      ctx.fillStyle = '#a06030'; ctx.fillRect(x - 5, y - 4, 10, 9);
+      ctx.fillStyle = '#c89c20'; ctx.fillRect(x - 6, y - 5, 12, 2);
+      ctx.fillStyle = '#5a3010'; ctx.fillRect(x - 5, y + 4, 10, 2);
+      break;
+    case 'bar':
+      ctx.fillStyle = '#ffd23f'; ctx.fillRect(x - 9, y - 4, 18, 8);
+      ctx.fillStyle = '#c89c20'; ctx.fillRect(x - 9, y + 2, 18, 2);
+      ctx.fillStyle = '#fff4a0'; ctx.fillRect(x - 8, y - 3, 16, 2);
+      break;
+    case 'stack':
+      ctx.fillStyle = '#1a8a40'; ctx.fillRect(x - 8, y - 4, 16, 8);
+      ctx.fillStyle = '#5ef38c'; ctx.fillRect(x - 8, y - 4, 16, 1);
+      ctx.fillStyle = '#fff'; ctx.fillRect(x - 2, y - 1, 4, 2);
+      break;
+    case 'painting':
+      ctx.fillStyle = '#3a2010'; ctx.fillRect(x - 10, y - 7, 20, 14);
+      ctx.fillStyle = '#5ea0c8'; ctx.fillRect(x - 8, y - 5, 16, 10);
+      ctx.fillStyle = '#ffd23f'; ctx.fillRect(x - 3, y - 2, 6, 4);
+      break;
+    case 'chand':
+      ctx.fillStyle = '#ffce5e';
+      ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.fillRect(x - 4, y - 5, 2, 3); ctx.fillRect(x + 2, y - 5, 2, 3);
+      break;
+    case 'laptop':
+      ctx.fillStyle = '#2a2a3a'; ctx.fillRect(x - 9, y - 6, 18, 10);
+      ctx.fillStyle = '#4cc9f0'; ctx.fillRect(x - 8, y - 5, 16, 8);
+      ctx.fillStyle = '#3a3a4a'; ctx.fillRect(x - 9, y + 4, 18, 2);
+      break;
+    case 'monitor':
+      ctx.fillStyle = '#1a1a22'; ctx.fillRect(x - 8, y - 6, 16, 11);
+      ctx.fillStyle = '#5ef38c'; ctx.fillRect(x - 7, y - 5, 14, 9);
+      ctx.fillStyle = '#1a1a22'; ctx.fillRect(x - 3, y + 5, 6, 2);
+      break;
+    default:
+      ctx.fillStyle = c; ctx.fillRect(x - 5, y - 5, 10, 10);
+  }
 }
 
 function drawFurniture(f) {
@@ -1510,6 +1901,75 @@ function drawGadgetHud() {
   // Loot value running total
   ctx.fillStyle = '#ffd23f'; ctx.font = "11px 'Press Start 2P', monospace"; ctx.textAlign = 'right';
   ctx.fillText(`$ ${totalLootValue}`, W - 16, 26);
+  // THEME banner — current building above HUD
+  const themeLbl = (buildingTheme || '').toUpperCase();
+  ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(W / 2 - 60, 6, 120, 16);
+  ctx.fillStyle = '#b0e8ff'; ctx.font = "8px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+  ctx.fillText(themeLbl + (perfectFloor ? ' *' : ''), W / 2, 17);
+  // STEALTH EYE icon (open=seen, closed=hidden). Reads faster than text.
+  // Aggregate any current suspicion.
+  let sus = 0;
+  for (const h of humans || []) sus = Math.max(sus, (h._closeT || 0) / 1.5, h.alertT > 0 ? 1 : 0);
+  const eyeOpen = sus > 0.35;
+  const ex = 24, ey = 28;
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.beginPath(); ctx.arc(ex, ey, 14, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = eyeOpen ? '#ff3a3a' : '#5ef38c';
+  ctx.beginPath(); ctx.ellipse(ex, ey, 10, eyeOpen ? 7 : 2, 0, 0, Math.PI * 2); ctx.fill();
+  if (eyeOpen) {
+    ctx.fillStyle = '#1a0d05';
+    ctx.beginPath(); ctx.arc(ex, ey, 3, 0, Math.PI * 2); ctx.fill();
+  }
+  // MINI-MAP (toggle M) — top-right
+  if (miniMapOn) drawMiniMap();
+  // SLOW-MO chroma + scanlines while active
+  if (slowmoT > 0) {
+    ctx.fillStyle = 'rgba(76,201,240,0.06)'; ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = 'rgba(76,201,240,0.12)'; ctx.lineWidth = 1;
+    for (let y = 0; y < H; y += 4) {
+      ctx.beginPath(); ctx.moveTo(0, y + 0.5); ctx.lineTo(W, y + 0.5); ctx.stroke();
+    }
+  }
+}
+// MINI-MAP — radar w/ pug+guards+cameras+vents+exit.
+function drawMiniMap() {
+  const mw = 130, mh = 90;
+  const mx = W - mw - 14, my = 46;
+  ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(mx - 2, my - 2, mw + 4, mh + 4);
+  ctx.strokeStyle = '#4cc9f0'; ctx.lineWidth = 1; ctx.strokeRect(mx, my, mw, mh);
+  // walls
+  ctx.fillStyle = 'rgba(120,80,40,0.5)';
+  for (const w of walls) {
+    ctx.fillRect(mx + (w.x / W) * mw, my + (w.y / H) * mh,
+                 Math.max(1, (w.w / W) * mw), Math.max(1, (w.h / H) * mh));
+  }
+  // exit
+  if (exitZ) {
+    ctx.fillStyle = '#5ef38c';
+    ctx.fillRect(mx + (exitZ.x / W) * mw - 1, my + (exitZ.y / H) * mh - 1, 3, 3);
+  }
+  // guards
+  for (const h of humans || []) {
+    ctx.fillStyle = h.alertT > 0 ? '#ff3a3a' : '#ffd23f';
+    ctx.fillRect(mx + (h.x / W) * mw - 1, my + (h.y / H) * mh - 1, 3, 3);
+  }
+  // cameras
+  for (const cam of secCams) {
+    ctx.fillStyle = 'rgba(255,80,80,0.6)';
+    ctx.fillRect(mx + (cam.x / W) * mw - 1, my + (cam.y / H) * mh - 1, 2, 2);
+  }
+  // vents
+  for (const v of vents) {
+    ctx.fillStyle = '#b0e8ff';
+    ctx.fillRect(mx + ((v.x + v.w / 2) / W) * mw - 1, my + ((v.y + v.h / 2) / H) * mh - 1, 2, 2);
+  }
+  // pug
+  if (pug) {
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(mx + (pug.x / W) * mw - 2, my + (pug.y / H) * mh - 2, 4, 4);
+  }
+  ctx.fillStyle = '#4cc9f0'; ctx.font = "6px 'Press Start 2P', monospace"; ctx.textAlign = 'right';
+  ctx.fillText('MAP [M]', mx + mw, my - 4);
 }
 
 function calcGrade() {
@@ -1559,21 +2019,55 @@ function showFloorGrade(escaped) {
 
 document.getElementById('start-btn').addEventListener('click', start);
 document.getElementById('end-restart').addEventListener('click', start);
+// Difficulty pick
+const _diffPanel = document.getElementById('heist-diff');
+const _diffHint = document.getElementById('heist-diff-hint');
+function _highlightDiff() {
+  if (!_diffPanel) return;
+  _diffPanel.querySelectorAll('button').forEach((b) => {
+    const sel = b.dataset.d === difficulty;
+    b.style.borderColor = sel ? 'var(--neon-yellow)' : 'var(--border)';
+    b.style.color = sel ? 'var(--neon-yellow)' : 'var(--text-soft)';
+  });
+  if (_diffHint) _diffHint.textContent = (DIFFICULTY[difficulty] || {}).hint || '';
+}
+if (_diffPanel) {
+  _diffPanel.addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-d]'); if (!b) return;
+    difficulty = b.dataset.d; _highlightDiff();
+  });
+  _highlightDiff();
+}
+function _renderDiary() {
+  const el = document.getElementById('heist-diary');
+  if (!el) return;
+  let h = '';
+  for (const t of BUILDING_THEMES) {
+    const d = heistDiary[t] || { cleared: 0, master: false };
+    const c = d.master ? 'var(--neon-yellow)' : 'var(--text-soft)';
+    h += `<span style="padding:3px 5px;border:1px solid ${c};border-radius:3px;color:${c};">${t.toUpperCase()} ${d.cleared}${d.master ? ' ★' : ''}</span>`;
+  }
+  el.innerHTML = h;
+}
+_renderDiary();
 function start() {
   floor = 1; running = true;
   lootStolen = 0; totalLootValue = 0; achievementsSeen = new Set();
   runUpgrades = {}; shopPending = false; pendingFloor = 0;
+  ghostReplay = null; _ghostT = 0;
   closeHeistShop();
   renderHeistShopChips();
   // Dismiss any lingering grade card from the previous run.
   try { _activeGradeCard?.close?.(); } catch (e) { /* */ }
   _activeGradeCard = null;
-  genFloor(floor);
+  _renderDiary();
   document.getElementById('overlay').hidden = true; document.getElementById('overlay').classList.add('is-hidden');
   document.getElementById('end-overlay').hidden = true; document.getElementById('end-overlay').classList.add('is-hidden');
   document.getElementById('hud').hidden = false;
   sfx.resume();
   try { music.setIntensity(0.3); music.play(); } catch {}
+  // Floor 1 briefing — sets up the run with theme context.
+  showFloorBriefing(floor);
 }
 // Music dynamics — sample guard-alert state in the main loop and adjust intensity.
 let _heistMusicAt = 0;
@@ -1738,9 +2232,44 @@ function advancePendingFloor() {
   if (pendingFloor > 0) {
     floor = pendingFloor;
     pendingFloor = 0;
-    genFloor(floor);
+    showFloorBriefing(floor);
   }
 }
+// PRE-FLOOR BRIEFING — calls genFloor when player hits INFILTRATE.
+const _briefingOv = document.createElement('div');
+_briefingOv.id = 'heist-briefing';
+_briefingOv.style.cssText = 'position:fixed;inset:0;z-index:280;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,0.78);padding:16px;font-family:var(--font-display);';
+_briefingOv.innerHTML = `<div style="background:#1a0f2e;border:3px solid var(--neon-cyan);border-radius:10px;padding:18px 22px;max-width:440px;text-align:center;">
+<h2 style="color:var(--neon-cyan);font-size:0.8rem;margin:0 0 6px;">FLOOR <span id="brief-floor">1</span> · <span id="brief-theme">MUSEUM</span></h2>
+<p id="brief-flavor" style="font-size:0.45rem;color:var(--text-soft);margin:4px 0 10px;"></p>
+<canvas id="brief-map" width="220" height="140" style="background:#0a0716;border:1px solid var(--border);border-radius:4px;"></canvas>
+<p style="font-size:0.5rem;color:var(--neon-yellow);margin:8px 0 12px;">EST HAUL: $<span id="brief-haul">0</span></p>
+<button id="brief-go" class="overlay__btn">INFILTRATE</button></div>`;
+document.body.appendChild(_briefingOv);
+function showFloorBriefing(level) {
+  if (!_briefingOv || !document.getElementById('brief-floor')) { genFloor(level); return; }
+  const theme = BUILDING_THEMES[(level - 1) % BUILDING_THEMES.length];
+  const flavor = { museum: 'Gems + artifacts. Fragile haul.', bank: 'Heavy gold bars slow you.',
+    mansion: 'Paintings block vision while held.', office: 'Plentiful laptops, low value.' }[theme] || '';
+  document.getElementById('brief-floor').textContent = level;
+  document.getElementById('brief-theme').textContent = theme.toUpperCase();
+  document.getElementById('brief-flavor').textContent = flavor;
+  const lootCount = 4 + level;
+  const pool = THEME_LOOT[theme] || [];
+  const avg = pool.length ? pool.reduce((s, t) => s + t.val, 0) / pool.length : 80;
+  document.getElementById('brief-haul').textContent = Math.round(lootCount * 0.65 * avg);
+  const c2 = document.getElementById('brief-map').getContext('2d');
+  c2.fillStyle = '#0a0716'; c2.fillRect(0, 0, 220, 140);
+  c2.fillStyle = { museum: '#3a2a5a', bank: '#5a3a1c', mansion: '#5a1e2a', office: '#1e3a4a' }[theme] || '#3a3a3a';
+  for (let r = 0; r < 3; r++) for (let cc = 0; cc < 4; cc++) c2.fillRect(cc * 55 + 1, r * 47 + 1, 53, 45);
+  c2.fillStyle = '#5ef38c'; c2.fillRect(200, 6, 6, 6);
+  c2.fillStyle = '#fff'; c2.fillRect(14, 122, 6, 6);
+  _briefingOv.style.display = 'flex';
+}
+document.getElementById('brief-go').addEventListener('click', () => {
+  _briefingOv.style.display = 'none';
+  genFloor(floor);
+});
 
 // Tutorial tip — shows briefly when the game starts (every match)
 const _startOv = document.getElementById('overlay');

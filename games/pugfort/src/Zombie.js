@@ -111,6 +111,37 @@ export const ZOMBIE_TYPES = {
     cloakRange: 110,
     desc: 'Invisible at range. Strikes from shadows.',
   },
+  // STEALTHED — briefly invisible (alpha drops to 0.05) on a 4-second cycle.
+  // Players must time their shots / wait for the reveal phase.
+  stealthed: {
+    name: 'Stealthed',
+    hpBase: 50, dmgBase: 24, speedBase: 110,
+    scale: 0.95,
+    color: 0x6a3a8a,            // purple-violet phasing skin
+    colorShade: 0x2a1244,
+    radius: 14,
+    isRanged: false,
+    explodes: false,
+    isStealthed: true,
+    stealthInterval: 4.0,       // full cycle (visible 2.5s + invis 1.5s)
+    stealthVisibleDur: 2.5,
+    desc: 'Phases in and out. Time your shots.',
+  },
+  // SHIELDED — frontal armor shaved off only by hits from behind. Renders a
+  // chunky riot shield on its front (rotated with movement).
+  shielded: {
+    name: 'Shielded',
+    hpBase: 90, dmgBase: 24, speedBase: 78,
+    scale: 1.15,
+    color: 0x5a7a3a,            // muddy military-green
+    colorShade: 0x2a4a1a,
+    radius: 18,
+    isRanged: false,
+    explodes: false,
+    hasShield: true,
+    shieldArc: Math.PI * 0.55,  // 99°-wide frontal arc absorbs damage
+    desc: 'Frontal riot shield. Hit from BEHIND.',
+  },
 };
 
 const TYPE_IDS = Object.keys(ZOMBIE_TYPES);
@@ -430,6 +461,42 @@ export class Zombie {
       crown.circle(0, -14, 1).fill(COLORS.bloodRed);
       this.visual.addChild(crown);
     }
+
+    // ===== STEALTHED — purple shimmer + phase rune on chest =====
+    if (d.isStealthed) {
+      const phase = new Graphics();
+      // Rune marking on chest
+      phase.rect(-3, -2, 6, 1).fill(0xb055ff);
+      phase.rect(-1, -4, 2, 6).fill(0xb055ff);
+      phase.rect(-3, 0, 1, 2).fill(0xb055ff);
+      phase.rect(2, 0, 1, 2).fill(0xb055ff);
+      // Aura ring
+      phase.circle(0, -2, 16).stroke({ color: 0xb055ff, width: 1, alpha: 0.45 });
+      this.visual.addChild(phase);
+    }
+
+    // ===== SHIELDED — riot shield mounted on the FRONT (right side, +X)
+    // The arc test in takeDamage uses the zombie's aim/facing to decide if a
+    // hit lands in the protected zone.
+    if (d.hasShield) {
+      const shieldG = new Graphics();
+      // Shield slab (vertical riot shield extending past the body to the right)
+      shieldG.rect(10, -16, 6, 32).fill(0x444450);
+      shieldG.rect(10, -16, 6, 4).fill(0x6a6a72);
+      shieldG.rect(10, 12, 6, 4).fill(0x222228);
+      shieldG.rect(10, -16, 2, 32).fill(0x9a9aa8); // outer rim
+      shieldG.rect(14, -16, 2, 32).fill(0x222228); // inner shadow
+      // Visor band
+      shieldG.rect(10, -6, 6, 4).fill({ color: 0x4cc9f0, alpha: 0.6 });
+      shieldG.rect(10, -6, 6, 1).fill(0xb0e8ff);
+      // Rivets
+      shieldG.circle(12, -10, 0.8).fill(0xaaaaaa);
+      shieldG.circle(12, 0, 0.8).fill(0xaaaaaa);
+      shieldG.circle(12, 10, 0.8).fill(0xaaaaaa);
+      // Skull-glyph on the shield centerline
+      shieldG.rect(12, 4, 2, 2).fill(COLORS.bloodRed);
+      this.visual.addChild(shieldG);
+    }
   }
 
   _renderHpBar() {
@@ -441,8 +508,28 @@ export class Zombie {
     this.hpBar.rect(-w / 2 + 0.5, -15.5 - this.scale * 4, (w - 1) * ratio, h - 1).fill(c);
   }
 
-  takeDamage(amount) {
+  // takeDamage now accepts an optional projectile angle so SHIELDED zombies can
+  // reject frontal hits. `projectileAngle` is the world-angle of the projectile's
+  // velocity (radians). If absent, damage applies as normal.
+  takeDamage(amount, projectileAngle = null) {
     if (!this.alive) return;
+    // Shield logic — block frontal hits within the shieldArc.
+    if (this.def.hasShield && projectileAngle != null) {
+      // Projectile travels toward the zombie at `projectileAngle`; the angle
+      // from zombie to projectile-source is the OPPOSITE. So the hit-direction
+      // from the zombie's POV is `projectileAngle + PI`.
+      const hitFromAngle = projectileAngle + Math.PI;
+      let diff = hitFromAngle - this.aim;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      const arc = this.def.shieldArc || (Math.PI * 0.55);
+      if (Math.abs(diff) < arc / 2) {
+        // Blocked — small spark flash but no HP loss
+        this.flashT = 0.08;
+        this._shieldBlockFlash = 0.18;
+        return;
+      }
+    }
     this.hp -= amount;
     this.flashT = 0.15;
     if (this.hp <= 0) { this.hp = 0; this.alive = false; }
@@ -537,6 +624,19 @@ export class Zombie {
       else if (d > cr * 0.6) baseAlpha = 0.12 + (1 - 0.12) * (1 - (d - cr * 0.6) / (cr * 0.4));
       else baseAlpha = 1;
     }
+    // Stealthed cycle — visible for stealthVisibleDur, then invisible for the
+    // remainder of stealthInterval. Tied to performance.now for a smooth phase
+    // that doesn't reset across pauses.
+    if (this.def.isStealthed) {
+      const phase = (performance.now() / 1000) % this.def.stealthInterval;
+      const visiblePhase = phase < this.def.stealthVisibleDur;
+      baseAlpha *= visiblePhase ? 1 : 0.06;
+    }
+    // Shield-block visual flash
+    if (this._shieldBlockFlash > 0) {
+      this._shieldBlockFlash -= dt;
+      baseAlpha = Math.min(1, baseAlpha + 0.3);
+    }
     if (this.flashT > 0) {
       this.flashT -= dt;
       this.visual.alpha = baseAlpha * (0.5 + Math.random() * 0.5);
@@ -565,11 +665,14 @@ export function pickZombieType(nightIdx) {
   // (Was 60/25/10/5 walker/runner/cloaker/digger — too punishing for first-time players.)
   const compositions = {
     1: [['walker', 0.80], ['runner', 0.20]],
-    2: [['walker', 0.40], ['runner', 0.28], ['tank', 0.10], ['spitter', 0.08],
-        ['cloaker', 0.06], ['digger', 0.05], ['screamer', 0.03]],
-    3: [['walker', 0.20], ['runner', 0.18], ['tank', 0.14], ['spitter', 0.12],
-        ['exploder', 0.10], ['cloaker', 0.10], ['digger', 0.08], ['screamer', 0.08]],
+    2: [['walker', 0.35], ['runner', 0.25], ['tank', 0.09], ['spitter', 0.08],
+        ['cloaker', 0.06], ['digger', 0.05], ['screamer', 0.03],
+        ['stealthed', 0.05], ['shielded', 0.04]],
+    3: [['walker', 0.16], ['runner', 0.16], ['tank', 0.12], ['spitter', 0.10],
+        ['exploder', 0.09], ['cloaker', 0.09], ['digger', 0.07], ['screamer', 0.07],
+        ['stealthed', 0.07], ['shielded', 0.07]],
   };
+  // Nights 4+ inherit night 3 composition (endless mode keeps using it).
   const comp = compositions[nightIdx] || compositions[3];
   const r = Math.random();
   let acc = 0;
@@ -582,6 +685,7 @@ export function pickZombieType(nightIdx) {
 
 // Total spawns per night. Night 1 is now per-difficulty (was hard-coded 26 = brutal
 // on Normal). Difficulty key matches the localStorage value in Game/main.
+// Nights past 3 (endless mode) scale by +15 zombies per night per difficulty.
 export function waveLineup(nightIdx, difficulty = 'normal') {
   const perNight = {
     easy:   { 1: 7,  2: 22, 3: 32 },
@@ -589,5 +693,8 @@ export function waveLineup(nightIdx, difficulty = 'normal') {
     hard:   { 1: 18, 2: 44, 3: 56 },
   };
   const table = perNight[difficulty] || perNight.normal;
-  return table[nightIdx] || (50 + (nightIdx - 3) * 15);
+  if (table[nightIdx]) return table[nightIdx];
+  // Endless: linearly scale past night 3
+  const base = table[3] || 44;
+  return base + (nightIdx - 3) * 15;
 }

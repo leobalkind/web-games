@@ -30,10 +30,20 @@ export class World {
     this.fountains = [];
     this.tornado = null;
     this.lamps = [];
+    // Biome zones — 3 squarish regions of the arena get different ambient tints + props.
+    // { x, y, w, h, name, color, propsType }
+    this.biomes = [];
+    // Hazard pockets — { x, y, r, kind: 'poison' | 'wet' }
+    this.hazards = [];
+    // Mini-objective points (Radio Tower, Beef pedestal). Game owns activation logic.
+    this.objectives = [];
 
     this._drawBackground();
+    this._addBiomes();
     this._addDecor();
     this._generateMap();
+    this._addHazards();
+    this._addObjectives();
     this._buildTornado();
 
     this.zone = {
@@ -110,6 +120,240 @@ export class World {
     this.bg.addChild(stars);
   }
 
+  // 3 biome regions across the arena — KITCHEN (top-left), GARAGE (top-right),
+  // GARDEN (bottom-half). Each gets a subtle floor tint + signature ground props.
+  _addBiomes() {
+    const W = this.width, H = this.height;
+    const layer = new Graphics();
+    const KITCHEN = { x: 100, y: 100, w: W * 0.45 - 100, h: H * 0.45 - 100,
+      name: 'KITCHEN', color: 0xff8e3c, propsType: 'kitchen' };
+    const GARAGE  = { x: W * 0.55 + 100, y: 100, w: W * 0.45 - 200, h: H * 0.45 - 100,
+      name: 'GARAGE',  color: 0x4cc9f0, propsType: 'garage' };
+    const GARDEN  = { x: 100, y: H * 0.55 + 100, w: W - 200, h: H * 0.45 - 200,
+      name: 'GARDEN',  color: 0x5ef38c, propsType: 'garden' };
+    this.biomes.push(KITCHEN, GARAGE, GARDEN);
+    // Subtle tinted floor patches for each biome
+    for (const b of this.biomes) {
+      layer.rect(b.x, b.y, b.w, b.h).fill({ color: b.color, alpha: 0.04 });
+      // Border dashes — light decorative outline
+      const dash = 12;
+      for (let x = b.x; x < b.x + b.w; x += dash * 2) {
+        layer.rect(x, b.y, dash, 1).fill({ color: b.color, alpha: 0.35 });
+        layer.rect(x, b.y + b.h - 1, dash, 1).fill({ color: b.color, alpha: 0.35 });
+      }
+      for (let y = b.y; y < b.y + b.h; y += dash * 2) {
+        layer.rect(b.x, y, 1, dash).fill({ color: b.color, alpha: 0.35 });
+        layer.rect(b.x + b.w - 1, y, 1, dash).fill({ color: b.color, alpha: 0.35 });
+      }
+    }
+    this.bg.addChild(layer);
+    // Biome-specific scatter props (10-14 per biome)
+    this._addBiomeProps();
+  }
+
+  _addBiomeProps() {
+    const propsLayer = new Graphics();
+    for (const b of this.biomes) {
+      const count = 12;
+      for (let i = 0; i < count; i++) {
+        const px = b.x + 30 + this.rng() * (b.w - 60);
+        const py = b.y + 30 + this.rng() * (b.h - 60);
+        if (b.propsType === 'kitchen') {
+          // Fridge crates (silver boxes) + spilled food
+          propsLayer.rect(px, py, 18, 22).fill(0xc8c8d0);
+          propsLayer.rect(px, py, 18, 3).fill(0xeaeaf0);
+          propsLayer.rect(px, py + 18, 18, 2).fill(0x6a6a72);
+          propsLayer.rect(px + 12, py + 8, 3, 1).fill(0x444450); // handle
+          // food smear
+          if (this.rng() < 0.6) {
+            propsLayer.circle(px + 3, py + 28, 4).fill({ color: 0xff5a3a, alpha: 0.5 });
+            propsLayer.circle(px + 6, py + 30, 2).fill({ color: 0xff5a3a, alpha: 0.7 });
+          }
+        } else if (b.propsType === 'garage') {
+          // Oil drums + tire stacks
+          if (this.rng() < 0.6) {
+            // drum
+            propsLayer.ellipse(px, py + 16, 8, 3).fill(0x222228);
+            propsLayer.rect(px - 8, py, 16, 16).fill(0x4a4a52);
+            propsLayer.rect(px - 8, py, 16, 2).fill(0x6a6a72);
+            propsLayer.rect(px - 8, py + 7, 16, 1).fill(0xc8281f); // hazard stripe
+            propsLayer.rect(px - 8, py + 15, 16, 1).fill(0x222228);
+          } else {
+            // tire stack
+            propsLayer.ellipse(px, py + 12, 10, 4).fill(0x1a1a1a);
+            propsLayer.ellipse(px, py + 8, 10, 4).fill(0x2a2a2a);
+            propsLayer.ellipse(px, py + 4, 10, 4).fill(0x1a1a1a);
+            propsLayer.ellipse(px, py + 4, 5, 2).fill(0x444450);
+          }
+        } else if (b.propsType === 'garden') {
+          // Bushes + flower beds + small trees
+          if (this.rng() < 0.55) {
+            // bush
+            const c = [0x3a7a4a, 0x4a8a5a, 0x2a6a3a][Math.floor(this.rng() * 3)];
+            propsLayer.circle(px, py, 8).fill(c);
+            propsLayer.circle(px - 3, py - 3, 5).fill({ color: 0xffffff, alpha: 0.18 });
+            // tiny flowers
+            propsLayer.circle(px - 2, py + 1, 1).fill(0xff8aff);
+            propsLayer.circle(px + 3, py - 1, 1).fill(0xffd23f);
+          } else {
+            // potted plant
+            propsLayer.rect(px - 5, py + 4, 10, 6).fill(0x8a5a2c);
+            propsLayer.rect(px - 5, py + 4, 10, 1).fill(0xc8a878);
+            // leaves
+            propsLayer.rect(px - 3, py - 2, 6, 6).fill(0x4a8a4a);
+            propsLayer.rect(px - 1, py - 5, 2, 8).fill(0x4a8a4a);
+            propsLayer.rect(px - 4, py, 2, 4).fill(0x2a6a3a);
+            propsLayer.rect(px + 2, py, 2, 4).fill(0x2a6a3a);
+          }
+        }
+      }
+    }
+    this.decorLayer.addChild(propsLayer);
+  }
+
+  _addHazards() {
+    // POISON-GAS pocket: green misty circle in one corner. Slow HP drain.
+    const poisonX = 220 + this.rng() * 60;
+    const poisonY = 220 + this.rng() * 60;
+    this.hazards.push({ x: poisonX, y: poisonY, r: 110, kind: 'poison' });
+    // WET-FLOOR puddle: bluish slick. Causes acceleration loss while standing on it.
+    const wetX = this.width - 280 + this.rng() * 60;
+    const wetY = this.height - 280 + this.rng() * 60;
+    this.hazards.push({ x: wetX, y: wetY, r: 130, kind: 'wet' });
+
+    // Visuals — separate Graphics so we can animate per-frame.
+    this.hazardLayer = new Container();
+    this.itemsLayer.addChild(this.hazardLayer);
+    for (const h of this.hazards) {
+      const g = new Graphics();
+      g.x = h.x; g.y = h.y;
+      h.visual = g;
+      this.hazardLayer.addChild(g);
+      // Static base layer (drawn once, doesn't animate)
+      const base = new Graphics();
+      base.x = h.x; base.y = h.y;
+      if (h.kind === 'poison') {
+        // Toxic green pool with bubbling rim
+        base.circle(0, 0, h.r).fill({ color: 0x4a8a4a, alpha: 0.18 });
+        base.circle(0, 0, h.r).stroke({ color: 0x9af09a, width: 2, alpha: 0.6 });
+        for (let i = 0; i < 18; i++) {
+          const a = (i / 18) * Math.PI * 2;
+          base.circle(Math.cos(a) * (h.r - 12), Math.sin(a) * (h.r - 12), 3)
+            .fill({ color: 0x6aaa3a, alpha: 0.6 });
+        }
+        // Skull-and-crossbones warning marker
+        base.rect(-6, -28, 12, 12).fill({ color: 0x000000, alpha: 0.6 });
+        base.rect(-5, -27, 10, 8).fill(0x6aaa3a);
+        base.rect(-3, -25, 2, 2).fill(0x000000);
+        base.rect(1, -25, 2, 2).fill(0x000000);
+        base.rect(-2, -21, 4, 2).fill(0x000000);
+        base.rect(-4, -18, 8, 1).fill(0x000000); // crossbones
+      } else if (h.kind === 'wet') {
+        // Cyan slippery puddle with white highlight
+        base.circle(0, 0, h.r).fill({ color: 0x4cc9f0, alpha: 0.22 });
+        base.circle(0, 0, h.r).stroke({ color: 0xb0e8ff, width: 2, alpha: 0.5 });
+        base.ellipse(-h.r * 0.3, -h.r * 0.3, h.r * 0.5, h.r * 0.25)
+          .fill({ color: 0xffffff, alpha: 0.4 });
+        // "SLIPPERY" tile pattern
+        for (let i = 0; i < 8; i++) {
+          const a = (i / 8) * Math.PI * 2;
+          base.rect(Math.cos(a) * (h.r - 16) - 2, Math.sin(a) * (h.r - 16) - 2, 4, 4)
+            .fill({ color: 0xb0e8ff, alpha: 0.5 });
+        }
+      }
+      this.hazardLayer.addChild(base);
+      h.baseG = base;
+    }
+  }
+
+  _addObjectives() {
+    // BEEF pedestal in arena dead-center area (close to tornado but offset)
+    // and RADIO TOWER in another spot. Each spawns "active" once per cycle.
+    this.objectivesLayer = new Container();
+    this.itemsLayer.addChild(this.objectivesLayer);
+
+    const beefX = this.width * 0.35;
+    const beefY = this.height * 0.65;
+    const beef = {
+      x: beefX, y: beefY, r: 28, kind: 'beef',
+      state: 'inactive', // 'inactive' | 'available' | 'taken'
+      cooldown: 25, // seconds before first spawn
+    };
+    this.objectives.push(beef);
+    // Pedestal visual
+    const pedB = new Container();
+    pedB.x = beefX; pedB.y = beefY;
+    const pgb = new Graphics();
+    pgb.rect(-14, -2, 28, 8).fill(0x4a3a2a);
+    pgb.rect(-14, -2, 28, 2).fill(0x6a5a3a);
+    pgb.rect(-14, 4, 28, 2).fill(0x2a1a14);
+    pgb.rect(-6, -10, 12, 8).fill(0x6a5a3a);
+    pgb.rect(-6, -10, 12, 1).fill(0x8a7a4a);
+    pedB.addChild(pgb);
+    // Beef glow + visual (only shown when state === 'available')
+    const beefG = new Graphics();
+    beefG.alpha = 0;
+    pedB.addChild(beefG);
+    beef.visual = beefG;
+    beef.container = pedB;
+    // Label text
+    const beefLbl = new Text({
+      text: 'BEEF',
+      style: { fill: COLORS.yellow, fontFamily: 'monospace', fontSize: 9,
+        fontWeight: 'bold', stroke: { color: 0x000000, width: 2 } },
+    });
+    beefLbl.anchor.set(0.5, 1);
+    beefLbl.y = -16;
+    beefLbl.alpha = 0;
+    pedB.addChild(beefLbl);
+    beef.label = beefLbl;
+    this.objectivesLayer.addChild(pedB);
+
+    const radioX = this.width * 0.7;
+    const radioY = this.height * 0.4;
+    const radio = {
+      x: radioX, y: radioY, r: 36, kind: 'radio',
+      state: 'inactive',
+      cooldown: 40,
+      captureProgress: 0,
+      captureRequired: 3, // seconds of standing
+    };
+    this.objectives.push(radio);
+    const pedR = new Container();
+    pedR.x = radioX; pedR.y = radioY;
+    const prg = new Graphics();
+    // Antenna tower base
+    prg.rect(-2, -34, 4, 36).fill(0x4a4a52);
+    prg.rect(-2, -34, 4, 2).fill(0x6a6a72);
+    // Cross bars
+    prg.rect(-8, -28, 16, 2).fill(0x4a4a52);
+    prg.rect(-6, -20, 12, 2).fill(0x4a4a52);
+    prg.rect(-4, -12, 8, 2).fill(0x4a4a52);
+    // Antenna tip
+    prg.rect(-1, -40, 2, 8).fill(0xc8281f);
+    // Base platform
+    prg.rect(-16, 0, 32, 6).fill(0x2a2a32);
+    prg.rect(-16, 0, 32, 1).fill(0x4a4a52);
+    pedR.addChild(prg);
+    // Glow ring when capturing
+    const radioG = new Graphics();
+    radioG.alpha = 0;
+    pedR.addChild(radioG);
+    radio.visual = radioG;
+    radio.container = pedR;
+    const radioLbl = new Text({
+      text: 'RADIO',
+      style: { fill: COLORS.cyan, fontFamily: 'monospace', fontSize: 9,
+        fontWeight: 'bold', stroke: { color: 0x000000, width: 2 } },
+    });
+    radioLbl.anchor.set(0.5, 1);
+    radioLbl.y = -48;
+    radioLbl.alpha = 0;
+    pedR.addChild(radioLbl);
+    radio.label = radioLbl;
+    this.objectivesLayer.addChild(pedR);
+  }
+
   _addDecor() {
     // BORK BATTLE billboard in background
     const billboard = new Container();
@@ -168,6 +412,79 @@ export class World {
       this.lamps.push({ x, y });
     }
 
+    // RAMPS — small angled wooden ramps that decorate the arena (no gameplay
+    // effect, purely visual variety so the field doesn't feel flat).
+    for (let i = 0; i < 6; i++) {
+      const x = 200 + this.rng() * (this.width - 400);
+      const y = 200 + this.rng() * (this.height - 400);
+      if (Math.hypot(x - this.width / 2, y - this.height / 2) < 280) { i--; continue; }
+      const r = new Graphics();
+      r.rect(-16, -8, 32, 16).fill(COLORS.ramp);
+      r.rect(-16, -8, 32, 2).fill(0xffb060);
+      r.rect(-16, 6, 32, 2).fill(0xa05a1c);
+      // angled wedge front
+      r.rect(-16, 8, 32, 4).fill(0x8a5a2c);
+      r.rect(-16, 8, 32, 1).fill(0xa07a4a);
+      r.x = x; r.y = y;
+      this.decorLayer.addChild(r);
+    }
+    // BOXES / CRATES — wooden ammo boxes scattered as cover-like decor.
+    for (let i = 0; i < 14; i++) {
+      const x = 200 + this.rng() * (this.width - 400);
+      const y = 200 + this.rng() * (this.height - 400);
+      if (Math.hypot(x - this.width / 2, y - this.height / 2) < 240) { i--; continue; }
+      const b = new Graphics();
+      const c = 0x8a5a2c;
+      b.rect(-9, -9, 18, 18).fill(c);
+      b.rect(-9, -9, 18, 2).fill(0xc8a878);
+      b.rect(-9, 7, 18, 2).fill(0x4a2a0c);
+      b.rect(-9, -9, 2, 18).fill(0xa07a4a);
+      b.rect(7, -9, 2, 18).fill(0x4a2a0c);
+      // X-brace
+      b.moveTo(-7, -7).lineTo(7, 7).stroke({ color: 0x4a2a0c, width: 1 });
+      b.moveTo(7, -7).lineTo(-7, 7).stroke({ color: 0x4a2a0c, width: 1 });
+      b.x = x; b.y = y;
+      this.decorLayer.addChild(b);
+    }
+    // ABANDONED VEHICLES — small parked-cars near the edges. Cosmetic.
+    const vehiclePositions = [
+      [320, 320], [this.width - 320, 380], [380, this.height - 320],
+      [this.width - 380, this.height - 360], [this.width / 2, 280],
+    ];
+    for (const [x, y] of vehiclePositions) {
+      const v = new Graphics();
+      const c = [0xc8281f, 0x4a4aaa, 0xeac018, 0x4a8a4a][Math.floor(this.rng() * 4)];
+      v.rect(-22, -10, 44, 20).fill(c);
+      v.rect(-22, -10, 44, 3).fill(0xffffff);
+      v.rect(-22, 7, 44, 3).fill(0x222228);
+      // windows
+      v.rect(-18, -7, 14, 5).fill({ color: 0x4cc9f0, alpha: 0.5 });
+      v.rect(4, -7, 14, 5).fill({ color: 0x4cc9f0, alpha: 0.5 });
+      // wheels
+      v.circle(-14, 10, 3).fill(0x101018);
+      v.circle(14, 10, 3).fill(0x101018);
+      // headlights
+      v.rect(-22, -5, 2, 4).fill(0xffd23f);
+      v.rect(20, -5, 2, 4).fill(0xffd23f);
+      v.x = x; v.y = y;
+      this.decorLayer.addChild(v);
+    }
+    // SMALL TREES — extra arena variety
+    for (let i = 0; i < 10; i++) {
+      const x = 200 + this.rng() * (this.width - 400);
+      const y = 200 + this.rng() * (this.height - 400);
+      if (Math.hypot(x - this.width / 2, y - this.height / 2) < 280) { i--; continue; }
+      const t = new Graphics();
+      // trunk
+      t.rect(-2, 0, 4, 10).fill(0x4a2a14);
+      t.rect(-2, 0, 1, 10).fill(0x6a3a1c);
+      // canopy
+      const c = [0x3a7a4a, 0x4a8a5a, 0x2a6a3a][Math.floor(this.rng() * 3)];
+      t.circle(0, -4, 9).fill(c);
+      t.circle(-3, -6, 5).fill({ color: 0xffffff, alpha: 0.2 });
+      t.x = x; t.y = y;
+      this.decorLayer.addChild(t);
+    }
     // Scattered tennis balls + chew toys + bowls
     for (let i = 0; i < 20; i++) {
       const x = 80 + this.rng() * (this.width - 160);
@@ -423,6 +740,8 @@ export class World {
 
   update(dt, matchTimeSec) {
     this._updateAmbient(dt);
+    this._updateHazards(dt, matchTimeSec);
+    this._updateObjectives(dt, matchTimeSec);
     // Fountains
     for (const f of this.fountains) {
       f.cycleT += dt;
@@ -474,6 +793,129 @@ export class World {
     this._updateZone(dt, matchTimeSec);
   }
 
+  // Per-frame hazard animation — pulse the overlay so they read as "dangerous".
+  _updateHazards(dt, matchTimeSec) {
+    for (const h of this.hazards) {
+      if (!h.visual) continue;
+      h.visual.clear();
+      const t = matchTimeSec * 4;
+      const pulse = 0.5 + 0.5 * Math.sin(t);
+      if (h.kind === 'poison') {
+        // Bubbling green wisps that rise + fade
+        for (let i = 0; i < 6; i++) {
+          const a = (i / 6) * Math.PI * 2 + matchTimeSec * 0.4;
+          const r = h.r * 0.45;
+          const x = Math.cos(a) * r;
+          const y = Math.sin(a) * r * 0.5 - (Math.sin(t + i) * 8);
+          h.visual.circle(x, y, 4 + pulse * 2)
+            .fill({ color: 0x9af09a, alpha: 0.3 + pulse * 0.3 });
+        }
+      } else if (h.kind === 'wet') {
+        // Shimmer dots on the puddle
+        for (let i = 0; i < 5; i++) {
+          const a = (i / 5) * Math.PI * 2 + matchTimeSec * 0.6;
+          const r = h.r * 0.4;
+          h.visual.circle(Math.cos(a) * r, Math.sin(a) * r * 0.6, 2)
+            .fill({ color: 0xffffff, alpha: 0.4 + pulse * 0.4 });
+        }
+      }
+    }
+  }
+
+  // Objectives spawn periodically. Logic for awarding effect lives in Game; here
+  // we only animate visuals + flip state machine.
+  _updateObjectives(dt, matchTimeSec) {
+    for (const ob of this.objectives) {
+      ob.cooldown -= dt;
+      // Spawn-available transition
+      if (ob.state === 'inactive' && ob.cooldown <= 0) {
+        ob.state = 'available';
+        ob.label.alpha = 1;
+        ob.visual.alpha = 1;
+        if (ob.kind === 'beef') {
+          // Draw the beef chunk
+          ob.visual.clear();
+          ob.visual.rect(-12, -16, 24, 14).fill(0xc8281f); // raw beef
+          ob.visual.rect(-12, -16, 24, 2).fill(0xff5a3a);
+          ob.visual.rect(-12, -4, 24, 2).fill(0x6a0a0a);
+          // marbling
+          ob.visual.rect(-8, -12, 4, 1).fill(0xffffff);
+          ob.visual.rect(2, -10, 4, 1).fill(0xffffff);
+          ob.visual.rect(-6, -8, 4, 1).fill(0xffffff);
+          // bone sticking out top
+          ob.visual.rect(-2, -22, 4, 8).fill(0xfde0b8);
+          ob.visual.rect(-4, -22, 8, 2).fill(0xfde0b8);
+        } else if (ob.kind === 'radio') {
+          ob.visual.clear();
+          ob.captureProgress = 0;
+        }
+      }
+      // Available — pulse the label
+      if (ob.state === 'available') {
+        const pulse = 0.6 + 0.4 * Math.sin(matchTimeSec * 6);
+        if (ob.label) ob.label.scale.set(pulse * 0.4 + 0.9);
+        if (ob.kind === 'beef' && ob.visual) {
+          // Halo glow
+          ob.visual.clear();
+          ob.visual.circle(0, -10, 28 + pulse * 4)
+            .fill({ color: 0xffd23f, alpha: 0.1 + pulse * 0.15 });
+          ob.visual.rect(-12, -16, 24, 14).fill(0xc8281f);
+          ob.visual.rect(-12, -16, 24, 2).fill(0xff5a3a);
+          ob.visual.rect(-12, -4, 24, 2).fill(0x6a0a0a);
+          ob.visual.rect(-8, -12, 4, 1).fill(0xffffff);
+          ob.visual.rect(2, -10, 4, 1).fill(0xffffff);
+          ob.visual.rect(-6, -8, 4, 1).fill(0xffffff);
+          ob.visual.rect(-2, -22, 4, 8).fill(0xfde0b8);
+          ob.visual.rect(-4, -22, 8, 2).fill(0xfde0b8);
+        } else if (ob.kind === 'radio' && ob.visual) {
+          // Capture ring (fills as captureProgress grows)
+          ob.visual.clear();
+          const ringAlpha = 0.4 + pulse * 0.3;
+          ob.visual.circle(0, -16, 40)
+            .stroke({ color: 0x4cc9f0, width: 3, alpha: ringAlpha });
+          // Progress arc
+          const prog = Math.min(1, ob.captureProgress / ob.captureRequired);
+          if (prog > 0) {
+            // Pixel-art arc emulated with N tick dots
+            const ticks = Math.floor(prog * 24);
+            for (let i = 0; i < ticks; i++) {
+              const a = -Math.PI / 2 + (i / 24) * Math.PI * 2;
+              ob.visual.rect(Math.cos(a) * 40 - 1, -16 + Math.sin(a) * 40 - 1, 3, 3)
+                .fill(0x5ef38c);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Returns the hazard the point lies in, or null. Game uses this for HP drain / friction.
+  pointInHazard(x, y) {
+    for (const h of this.hazards) {
+      const dx = x - h.x, dy = y - h.y;
+      if (dx * dx + dy * dy < h.r * h.r) return h;
+    }
+    return null;
+  }
+
+  // Returns any 'available' objective at this point, or null.
+  pointInObjective(x, y) {
+    for (const ob of this.objectives) {
+      if (ob.state !== 'available') continue;
+      const dx = x - ob.x, dy = y - ob.y;
+      if (dx * dx + dy * dy < ob.r * ob.r) return ob;
+    }
+    return null;
+  }
+
+  // Game calls this after a successful pickup to reset the cooldown timer.
+  consumeObjective(ob, cooldownSec = null) {
+    ob.state = 'inactive';
+    ob.cooldown = cooldownSec != null ? cooldownSec : (ob.kind === 'beef' ? 45 : 60);
+    if (ob.visual) ob.visual.clear();
+    if (ob.label) ob.label.alpha = 0;
+  }
+
   _updateZone(dt, matchTimeSec) {
     const z = this.zone;
     if (matchTimeSec < z.shrinkStart) {
@@ -491,26 +933,69 @@ export class World {
 
     const g = this.zoneGraphics;
     g.clear();
-    // Strong magenta tint outside safe zone
-    const dangerColor = { color: COLORS.zoneEdge, alpha: 0.22 };
+    // Sky-tint shifts as zone shrinks: SAFE = subtle pink → FINAL = deep crimson.
+    // shrinkFraction: 0 at start, 1 at fully-shrunk.
+    const total = z.shrinkEnd - z.shrinkStart;
+    const shrinkFraction = total > 0
+      ? Math.max(0, Math.min(1, (matchTimeSec - z.shrinkStart) / total))
+      : 0;
+    // Stronger outside-zone tint as we approach the final phase.
+    const dangerAlpha = 0.22 + shrinkFraction * 0.18;
+    const dangerColor = { color: COLORS.zoneEdge, alpha: dangerAlpha };
     if (z.y > 0) g.rect(0, 0, this.width, z.y).fill(dangerColor);
     if (z.y + z.h < this.height) g.rect(0, z.y + z.h, this.width, this.height - z.y - z.h).fill(dangerColor);
     if (z.x > 0) g.rect(0, z.y, z.x, z.h).fill(dangerColor);
     if (z.x + z.w < this.width) g.rect(z.x + z.w, z.y, this.width - z.x - z.w, z.h).fill(dangerColor);
-    // Edge wall — thick + animated pulse
+    // Edge wall — thick + animated pulse. Outer halo grows wider during shrink.
     const pulse = 0.5 + 0.5 * Math.sin(matchTimeSec * 6);
-    g.rect(z.x, z.y, z.w, z.h).stroke({ color: COLORS.zoneEdge, width: 4, alpha: 0.6 + pulse * 0.4 });
-    // inner glow line
+    const wallWidth = 4 + shrinkFraction * 4;
+    g.rect(z.x, z.y, z.w, z.h).stroke({ color: COLORS.zoneEdge, width: wallWidth, alpha: 0.7 + pulse * 0.3 });
+    // Outer glow halo — sits OUTSIDE the safe zone, fades from the edge
+    g.rect(z.x - 6, z.y - 6, z.w + 12, z.h + 12).stroke({ color: 0xff8aff, width: 2, alpha: 0.4 + pulse * 0.2 });
+    g.rect(z.x - 12, z.y - 12, z.w + 24, z.h + 24).stroke({ color: 0xff3aa1, width: 1, alpha: 0.2 + pulse * 0.15 });
+    // Inner glow line
     g.rect(z.x + 3, z.y + 3, z.w - 6, z.h - 6).stroke({ color: 0xff8aff, width: 2, alpha: 0.4 });
-    // vertical pixel hatching on the wall
+    // Vertical pixel hatching on the wall + animated drips during shrink
     if (z.y > 0) {
       for (let x = z.x; x < z.x + z.w; x += 6) {
         g.rect(x, z.y - 4, 2, 4).fill({ color: COLORS.zoneEdge, alpha: 0.7 });
+      }
+      // Pink particle "rain" cascading inside the wall during shrink
+      if (shrinkFraction > 0.2) {
+        const dripCount = Math.floor(z.w / 30);
+        for (let i = 0; i < dripCount; i++) {
+          const dx = z.x + (i / dripCount) * z.w + ((matchTimeSec * 60) % 30);
+          const dy = z.y - 8 + ((matchTimeSec * 80 + i * 17) % 16);
+          g.rect(dx, dy, 2, 6).fill({ color: 0xff3aa1, alpha: 0.6 * shrinkFraction });
+        }
       }
     }
     if (z.y + z.h < this.height) {
       for (let x = z.x; x < z.x + z.w; x += 6) {
         g.rect(x, z.y + z.h, 2, 4).fill({ color: COLORS.zoneEdge, alpha: 0.7 });
+      }
+      if (shrinkFraction > 0.2) {
+        const dripCount = Math.floor(z.w / 30);
+        for (let i = 0; i < dripCount; i++) {
+          const dx = z.x + (i / dripCount) * z.w + ((matchTimeSec * 60) % 30);
+          const dy = z.y + z.h + 4 + ((matchTimeSec * 80 + i * 17) % 16);
+          g.rect(dx, dy, 2, 6).fill({ color: 0xff3aa1, alpha: 0.6 * shrinkFraction });
+        }
+      }
+    }
+    // Side walls — pink particle rain for left/right
+    if (z.x > 0 || z.x + z.w < this.width) {
+      const lateralDrips = Math.floor(z.h / 30);
+      for (let i = 0; i < lateralDrips; i++) {
+        const dy = z.y + (i / lateralDrips) * z.h + ((matchTimeSec * 60) % 30);
+        if (z.x > 0 && shrinkFraction > 0.2) {
+          const dx = z.x - 8 + ((matchTimeSec * 80 + i * 17) % 16);
+          g.rect(dx, dy, 6, 2).fill({ color: 0xff3aa1, alpha: 0.6 * shrinkFraction });
+        }
+        if (z.x + z.w < this.width && shrinkFraction > 0.2) {
+          const dx = z.x + z.w + 4 + ((matchTimeSec * 80 + i * 17) % 16);
+          g.rect(dx, dy, 6, 2).fill({ color: 0xff3aa1, alpha: 0.6 * shrinkFraction });
+        }
       }
     }
   }

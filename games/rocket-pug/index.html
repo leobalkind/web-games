@@ -40,6 +40,14 @@
   .wg-tryagain { color: var(--neon-pink); font-size: 0.85rem; letter-spacing: 0.12em; margin: 6px 0 4px; text-align: center; animation: wgTitleGlowPulse 1.2s ease-in-out infinite; }
   .overlay__btn--small { font-size: 0.55rem; padding: 10px 14px; min-height: 44px; min-width: auto; box-shadow: none; background: rgba(0,0,0,0.4); color: var(--text-soft); border: 2px solid var(--border); animation: none; }
   .overlay__btn--small:hover { border-color: var(--neon-cyan); color: var(--neon-cyan); transform: translateY(-2px); }
+  /* Wave 1D: pickers (arena/mode/perk) on start screen */
+  .picker-row { display:flex; gap:6px; justify-content:center; flex-wrap:wrap; margin: 6px 0; }
+  .picker-row .pchip { background: rgba(0,0,0,0.4); color: var(--text-soft); border: 2px solid var(--border); font-family: var(--font-display); font-size: 0.5rem; padding: 6px 10px; border-radius: 5px; cursor: pointer; letter-spacing: 0.07em; min-height: 32px; }
+  .picker-row .pchip.is-on { border-color: var(--neon-yellow); color: var(--neon-yellow); box-shadow: 0 0 12px rgba(255,210,63,0.4); }
+  .picker-label { font-size: 0.45rem; color: var(--neon-cyan); letter-spacing: 0.1em; margin: 8px 0 2px; text-align: center; font-family: var(--font-display); }
+  .rank-badge { display:inline-block; padding: 4px 10px; border-radius: 4px; background: rgba(0,0,0,0.4); color: var(--neon-yellow); font-family: var(--font-display); font-size: 0.55rem; letter-spacing: 0.08em; border: 1px solid var(--border); margin: 4px 0; }
+  .end-extra { font-size: 0.45rem; color: var(--muted); letter-spacing: 0.06em; margin: 6px 0; }
+  .end-extra b { color: #fff; }
 </style>
 </head><body>
 <canvas id="game-canvas"></canvas>
@@ -54,6 +62,26 @@
     <li>Touch: drag-to-aim, tap to fire, button for jetpack</li>
   </ul>
   <p class="wg-last-best" id="start-best" hidden></p>
+  <div class="picker-label">ARENA</div>
+  <div class="picker-row" id="pick-arena">
+    <button type="button" class="pchip is-on" data-v="kitchen">KITCHEN</button>
+    <button type="button" class="pchip" data-v="gym">GYM</button>
+    <button type="button" class="pchip" data-v="rooftop">ROOFTOP</button>
+  </div>
+  <div class="picker-label">MODE</div>
+  <div class="picker-row" id="pick-mode">
+    <button type="button" class="pchip is-on" data-v="dm">DEATHMATCH</button>
+    <button type="button" class="pchip" data-v="ctf">CAPTURE THE BREAD</button>
+    <button type="button" class="pchip" data-v="koth">KING OF TOPPING</button>
+  </div>
+  <div class="picker-label">PERK</div>
+  <div class="picker-row" id="pick-perk">
+    <button type="button" class="pchip is-on" data-v="tough">TOUGH +30HP</button>
+    <button type="button" class="pchip" data-v="sprint">SPRINTER</button>
+    <button type="button" class="pchip" data-v="quick">QUICKFIRE</button>
+    <button type="button" class="pchip" data-v="medic">MEDIC</button>
+  </div>
+  <div id="rank-display" class="rank-badge" hidden></div>
   <button id="start-btn" class="overlay__btn">FIGHT</button>
   <a class="overlay__back" href="../../index.html">← BACK TO HUB</a>
   <div class="wg-fun-facts" id="wg-fun-facts"></div>
@@ -63,6 +91,7 @@
   <div class="hud-row"><b>KILLS</b> <span id="hud-kills">0</span></div>
   <div class="hud-row"><b>BOTS LEFT</b> <span id="hud-left">4</span></div>
   <div class="hud-row hud-row--small"><b>WEAPON</b> <span id="hud-weapon">TENNIS</span></div>
+  <div class="hud-row hud-row--small" style="font-size:0.4rem;color:var(--muted);"><i id="hud-weapon-desc">Fast & light.</i></div>
   <div class="hud-row hud-row--small"><b>JET CD</b> <span id="hud-jet">READY</span></div>
   <div class="hud-row hud-row--small"><b>BEST</b> <span id="hud-best">0</span></div>
 </div></div>
@@ -76,6 +105,7 @@
     <li>Kills: <b id="end-kills">0</b></li>
     <li id="end-best">Best: <b>—</b></li>
   </ul>
+  <div class="end-extra" id="end-stats-extra">Accuracy <b>—</b> · Streak <b>—</b> · Time <b>—</b></div>
   <div class="wg-end-buttons">
     <button id="end-restart" class="overlay__btn">REMATCH</button>
     <button id="wg-share" class="overlay__btn overlay__btn--small" type="button">📋 SHARE</button>

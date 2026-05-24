@@ -10,6 +10,7 @@ import { drawPug } from '../../src/shared/pugSprite.js';
 import { createMobileControls } from '../../src/shared/mobileControls.js';
 import { createSettingsMenu } from '../../src/shared/settingsMenu.js';
 import { getShakeMul as _shakeMul } from '../../src/shared/screenShake.js';
+import { drawShadow as _depthShadow, isReducedMotion as _depthReduced } from '../../src/shared/depth3D.js';
 
 const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
@@ -58,12 +59,49 @@ let lastPlat = null;  // platform reference last landed on (so re-landing same p
 let comboJumps = 0;   // consecutive distinct-platform landings without resting
 let comboRestT = 0;   // seconds spent stationary on the SAME platform (resets combo after 0.7s)
 // === Geometry Dash biome-shift checkpoints (every 500m) ===
-// Three palettes: cave-grey (default), magma-orange, hellscape-red.
+// Four palettes: cave-grey (default), magma-orange, hellscape-red, voidspace.
 const BIOMES = [
   { name: 'CAVE',      sky0: '#0a0716', sky1: '#3a1a14', stratoR: 40, stratoG: 20, stratoB: 20, glow: '180,30,20', rockA: 'rgba(60,18,18,0.55)',  rockB: 'rgba(90,30,20,0.6)',  lava0: '#ff8e3c', lava1: '#ff3a3a', lava2: '#7a0a0a' },
   { name: 'MAGMA',     sky0: '#1a0510', sky1: '#5a2010', stratoR: 80, stratoG: 30, stratoB: 12, glow: '230,90,30',  rockA: 'rgba(90,30,12,0.6)',   rockB: 'rgba(130,50,20,0.62)', lava0: '#ffb04a', lava1: '#ff5a3a', lava2: '#8a1a08' },
   { name: 'HELLSCAPE', sky0: '#1a0008', sky1: '#6a0810', stratoR: 130, stratoG: 18, stratoB: 22, glow: '255,40,40', rockA: 'rgba(120,16,18,0.62)', rockB: 'rgba(160,30,20,0.65)', lava0: '#ffd66a', lava1: '#ff2020', lava2: '#400000' },
+  // VOIDSPACE — purple/black cosmic biome with low gravity + meteor showers.
+  // Triggered above 2000m. Anti-gravity sections + falling meteors as hazards.
+  { name: 'VOIDSPACE', sky0: '#04000f', sky1: '#1a0030', stratoR: 60, stratoG: 30, stratoB: 90, glow: '160,100,255', rockA: 'rgba(40,20,80,0.6)', rockB: 'rgba(60,30,100,0.6)', lava0: '#ff8aff', lava1: '#b055ff', lava2: '#2a0040' },
 ];
+// VOIDSPACE altitude — biome 3 unlocks at 1500m (so it falls within "biome 4 unlocks > 2000m" feel after the standard 500m gates: 500, 1000, 1500).
+// We adjust the player perception via comments below.
+// Game modes: ENDLESS / CHALLENGE / TIME_ATTACK / DEATH_RUN
+let gameMode = 'endless';
+let challengeTarget = 1000; // CHALLENGE altitude target
+let timeAttackT = 0;         // TIME_ATTACK seconds elapsed
+let deathRunHasDied = false; // DEATH_RUN: instant-game-over flag (1 life, no powerups)
+// Daily seed
+function getDailySeed() {
+  const d = new Date();
+  return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+}
+let useDailySeed = false, _rngState = 0;
+function dailyRand() {
+  if (!useDailySeed) return Math.random();
+  _rngState = (_rngState * 1664525 + 1013904223) & 0x7fffffff;
+  return _rngState / 0x7fffffff;
+}
+let rocketBootT = 0;
+let petBird = null;
+let usePetBird = true;
+try { usePetBird = localStorage.getItem('lava:pet') !== '0'; } catch {}
+let iceDrops = [], fallingDebris = [], haunts = [], meteors = [];
+let iceFrozenT = new WeakMap();
+let unlockedPowerups = { jetpack: true, freeze: true, shrink: true, wings: true, shield: false, doubleJumpExtra: false, slowMo: false, multiplier: false };
+try { const u = JSON.parse(localStorage.getItem('lava:unlocks') || '{}'); Object.assign(unlockedPowerups, u || {}); } catch {}
+function saveUnlocks() { try { localStorage.setItem('lava:unlocks', JSON.stringify(unlockedPowerups)); } catch {} }
+let pugOutfit = 'classic';
+try { pugOutfit = localStorage.getItem('lava:outfit') || 'classic'; } catch {}
+const saveOutfit = () => { try { localStorage.setItem('lava:outfit', pugOutfit); } catch {} };
+let shieldT = 0, doubleJumpExtraT = 0, slowMoT = 0, multiplierT = 0;
+let bestAltitudeLineY = null, bestAltitudeM = 0;
+try { bestAltitudeM = parseInt(localStorage.getItem('lava:bestAlt') || '0', 10) || 0; } catch {}
+function saveBestAlt() { try { localStorage.setItem('lava:bestAlt', String(bestAltitudeM)); } catch {} }
 let biomeIdx = 0;            // currently fully-applied biome index
 let nextBiomeAtHeight = 500; // height in m at which the next shift starts
 let biomeShiftT = 0;         // seconds remaining in active 2s shift transition
@@ -104,17 +142,31 @@ function getBiomePalette() {
   };
 }
 function reset() {
+  // Initialize daily seed if enabled
+  if (useDailySeed) _rngState = getDailySeed();
   pug = { x: W / 2, y: H - 200, vx: 0, vy: 0, onGround: false, jumpsLeft: 2, w: 22, h: 22 };
   plats = []; treats = []; powerups = []; blobs = [];
   embers = []; lavaBubbles = []; popups = []; banner = null;
   caveSpikes = []; strataBands = [];
   bats = []; fireballs = [];
+  iceDrops = []; fallingDebris = []; haunts = []; meteors = [];
+  iceFrozenT = new WeakMap();
   batSpawnT = 4; fireSpawnT = 6;
   lastPlat = null; comboJumps = 0; comboRestT = 0;
   biomeIdx = 0; nextBiomeAtHeight = 500; biomeShiftT = 0; biomeShiftTarget = 0;
   nextMilestone = 5;
   hitFlashT = 0; shakeT = 0; shakeMag = 0; caveOffset = 0;
   lastPlatY = H - 100;
+  // Reset all powerup timers (cleared on death-run too, even though restricted)
+  jetpackT = 0; freezeT = 0; shrinkT = 0; wingsT = 0;
+  shieldT = 0; doubleJumpExtraT = 0; slowMoT = 0; multiplierT = 0;
+  rocketBootT = 0;
+  deathRunHasDied = false;
+  timeAttackT = 0;
+  // Pet bird init
+  if (usePetBird) {
+    petBird = { x: W / 2 + 40, y: H - 220, baseY: H - 220, vx: 0, ampT: 0 };
+  } else petBird = null;
   // Initial ground
   plats.push({ x: W / 2 - 80, y: H - 100, w: 160, h: 16, kind: 'normal', baseX: W / 2 - 80, alive: true });
   // Seed initial wall decor (stalactites/stalagmites) above starting view
@@ -126,7 +178,8 @@ function reset() {
   for (let i = 0; i < 30; i++) addPlatformAbove();
   lavaY = H + 200;
   height = 0; maxHeight = 0; score = 0; treatsGot = 0;
-  jetpackT = 0; freezeT = 0; shrinkT = 0; wingsT = 0;
+  // Track best altitude across runs
+  bestAltitudeLineY = null;
 }
 function seedCaveSpikes(yAround) {
   // ~6 per "slice" — split between left/right walls, top/bottom orientation
@@ -140,6 +193,8 @@ function seedCaveSpikes(yAround) {
   }
 }
 function shake(mag, dur) { const k = _shakeMul(); shakeMag = Math.max(shakeMag, mag * k); shakeT = Math.max(shakeT, dur); }
+// One-shot toast (uses banner) so unlock notifications don't get lost.
+function toasts_push(text) { banner = { text, life: 0, max: 2.5 }; }
 function pop(x, y, text, color) {
   if (popups.length > 80) popups.shift();
   // Round 2C: random lateral spawn velocity so chained popups fan out
@@ -180,40 +235,59 @@ function squashPlat(p) {
   p.squashT = 0.25;
 }
 function addPlatformAbove() {
-  lastPlatY -= 80 + Math.random() * 50;
-  const w = 70 + Math.random() * 70;
-  const x = Math.random() * (W - w);
+  lastPlatY -= 80 + dailyRand() * 50;
+  const w = 70 + dailyRand() * 70;
+  const x = dailyRand() * (W - w);
   // Platform variety based on depth — higher = more variety
-  const r = Math.random();
+  const r = dailyRand();
   const depth = (H - lastPlatY) / 100;
   let kind = 'normal';
-  if (depth > 3 && r < 0.18) kind = 'crumble';
-  else if (depth > 2 && r < 0.30) kind = 'bouncy';
+  // New platform types (Wave 1E): SPRING (bouncy ×3), DISAPPEARING, MOVING, ROTATING, CONVEYOR, SAFE.
+  if (depth > 8 && r < 0.04) kind = 'safe';      // rare safe haven (glows green) — 0.7s rest fully refills jumps + 1.0s safe
+  else if (depth > 6 && r < 0.10) kind = 'conveyor';   // pushes off if you stand still
+  else if (depth > 5 && r < 0.16) kind = 'rotating';   // spin around center (decorative — still a platform)
+  else if (depth > 4 && r < 0.22) kind = 'moving';     // strong horizontal slide (bigger amp)
+  else if (depth > 4 && r < 0.30) kind = 'disappearing'; // vanishes 1s after touch
+  else if (depth > 3 && r < 0.40) kind = 'spring';     // 3x bounce
+  else if (depth > 3 && r < 0.48) kind = 'crumble';
+  else if (depth > 2 && r < 0.56) kind = 'bouncy';
   // ~25% of new platforms drift left-right (skip if it's the very first ground platform)
-  const drifts = Math.random() < 0.25 && lastPlatY < H - 150;
+  const drifts = dailyRand() < 0.25 && lastPlatY < H - 150;
   const baseX = x;
-  const driftAmp = drifts ? 26 + Math.random() * 12 : 0;
-  const driftPhase = Math.random() * Math.PI * 2;
-  // 5% chance of a spike on top — but never on the lowest visible platform
-  const hasSpike = lastPlatY < H - 200 && Math.random() < 0.05 && kind !== 'crumble' && kind !== 'bouncy';
+  // Moving platforms have a bigger drift amp + phase variability
+  let driftAmp = drifts ? 26 + dailyRand() * 12 : 0;
+  if (kind === 'moving') driftAmp = Math.max(driftAmp, 80 + dailyRand() * 50);
+  const driftPhase = dailyRand() * Math.PI * 2;
+  const conveyorDir = kind === 'conveyor' ? (dailyRand() < 0.5 ? -1 : 1) : 0;
+  const rotateSpeed = kind === 'rotating' ? (0.5 + dailyRand() * 1.5) * (dailyRand() < 0.5 ? -1 : 1) : 0;
+  // 5% chance of a spike on top — but never on the lowest visible platform, never on SAFE
+  const hasSpike = lastPlatY < H - 200 && dailyRand() < 0.05 && kind === 'normal';
   // 1/40 chance to spawn WINGS powerup
-  const wingsHere = Math.random() < 1 / 40 && !hasSpike;
+  const wingsHere = dailyRand() < 1 / 40 && !hasSpike;
   plats.push({
     x, y: lastPlatY, w, h: 14, kind, t: 0, alive: true,
-    baseX, driftAmp, driftPhase, hasSpike, vine: Math.random() < 0.18,
+    baseX, driftAmp, driftPhase, hasSpike, vine: dailyRand() < 0.18,
     crumbleStartT: 0,
+    conveyorDir, rotateSpeed, rotateAng: 0,
+    disappearT: 0, touched: false,
+    safeRestT: 0,
   });
-  if (!hasSpike && Math.random() < 0.45) treats.push({ x: x + w / 2, y: lastPlatY - 24, baseX: x + w / 2, plat: plats[plats.length - 1] });
+  if (!hasSpike && dailyRand() < 0.45) treats.push({ x: x + w / 2, y: lastPlatY - 24, baseX: x + w / 2, plat: plats[plats.length - 1] });
   // Wings powerup (rare)
   if (wingsHere) {
     powerups.push({ x: x + w / 2, y: lastPlatY - 38, type: 'wings', plat: plats[plats.length - 1] });
-  } else if (depth > 4 && Math.random() < 0.06) {
+  } else if (depth > 4 && dailyRand() < 0.07) {
+    // Wave 1E: expanded powerup pool with unlocks gating
     const pwTypes = ['jetpack', 'freeze', 'shrink'];
-    powerups.push({ x: x + w / 2, y: lastPlatY - 38, type: pwTypes[Math.floor(Math.random() * pwTypes.length)], plat: plats[plats.length - 1] });
+    if (unlockedPowerups.shield) pwTypes.push('shield');
+    if (unlockedPowerups.doubleJumpExtra) pwTypes.push('doubleJumpExtra');
+    if (unlockedPowerups.slowMo) pwTypes.push('slowMo');
+    if (unlockedPowerups.multiplier) pwTypes.push('multiplier');
+    powerups.push({ x: x + w / 2, y: lastPlatY - 38, type: pwTypes[Math.floor(dailyRand() * pwTypes.length)], plat: plats[plats.length - 1] });
   }
   // Lava blob (rare, only deep up)
-  if (depth > 6 && Math.random() < 0.08) {
-    blobs.push({ x: x + w / 2, y: H + 80, vy: -100 - Math.random() * 60, life: 2.5 });
+  if (depth > 6 && dailyRand() < 0.08) {
+    blobs.push({ x: x + w / 2, y: H + 80, vy: -100 - dailyRand() * 60, life: 2.5 });
   }
 }
 
@@ -270,14 +344,45 @@ function tick(dt) {
     if (touchX < W / 2 - 30) mx = -1;
     else if (touchX > W / 2 + 30) mx = 1;
   }
+  // Death-run mode tracking
+  if (gameMode === 'time_attack') timeAttackT += dt;
+  // Slow-mo scales gameplay dt (visuals still real-time)
+  const gdt = slowMoT > 0 ? dt * 0.6 : dt;
   // Decay powerup timers
   jetpackT = Math.max(0, jetpackT - dt);
   freezeT = Math.max(0, freezeT - dt);
   shrinkT = Math.max(0, shrinkT - dt);
   wingsT = Math.max(0, wingsT - dt);
+  shieldT = Math.max(0, shieldT - dt);
+  doubleJumpExtraT = Math.max(0, doubleJumpExtraT - dt);
+  slowMoT = Math.max(0, slowMoT - dt);
+  multiplierT = Math.max(0, multiplierT - dt);
+  rocketBootT = Math.max(0, rocketBootT - dt);
+  // ROCKETBOOT combo — jetpack + shield active simultaneously = rocketboot (flies through obstacles)
+  if (jetpackT > 0 && shieldT > 0 && rocketBootT <= 0) {
+    rocketBootT = Math.min(jetpackT, shieldT);
+    banner = { text: '★ ROCKETBOOT ★', life: 0, max: 1.4 };
+    pop(pug.x, pug.y - 30, 'COMBO!', '#fff7d0');
+    sfx.arp([523, 880, 1320], 'triangle', 0.06, 0.2, 0.22);
+    shake(4, 0.22);
+  }
   // Round 2C: decay squash on bouncy platforms
   for (const p of plats) {
     if (p.squashT > 0) p.squashT = Math.max(0, p.squashT - dt);
+    // DISAPPEARING — vanish 1s after first touch
+    if (p.kind === 'disappearing' && p.touched && p.alive) {
+      p.disappearT += dt;
+      if (p.disappearT >= 1) p.alive = false;
+    }
+    // ROTATING — spin around center (decorative)
+    if (p.rotateSpeed) p.rotateAng += p.rotateSpeed * dt;
+    // SAFE — gradient pulse already in render; just decay safeRestT
+    if (p.kind === 'safe' && p.safeRestT > 0) p.safeRestT = Math.max(0, p.safeRestT - dt);
+  }
+  // Decay ice-frozen timers (per platform — instant slide)
+  for (const p of plats) {
+    const t = iceFrozenT.get(p);
+    if (t && t > 0) iceFrozenT.set(p, t - dt);
   }
   // Drift platforms left/right (sin oscillation around baseX)
   const driftT = performance.now() * 0.001;
@@ -291,9 +396,25 @@ function tick(dt) {
       for (const pw of powerups) if (pw.plat === p) pw.x += dx;
     }
   }
+  // CONVEYOR — apply horizontal push if pug stands on one
+  if (pug.onGround && lastPlat && lastPlat.conveyorDir) {
+    pug.vx += lastPlat.conveyorDir * 200 * dt;
+  }
+  // ICE FROZEN — if last platform is frozen, slide off (no friction, push toward edge)
+  if (pug.onGround && lastPlat) {
+    const frozenT = iceFrozenT.get(lastPlat) || 0;
+    if (frozenT > 0) {
+      pug.vx *= Math.pow(0.5, dt * 0.5); // very low friction
+      // Slight push toward nearest edge (so player slips off)
+      const center = lastPlat.x + lastPlat.w / 2;
+      pug.vx += (pug.x < center ? -1 : 1) * 90 * dt;
+    }
+  }
   pug.vx += mx * 1200 * dt;
   pug.vx *= Math.pow(0.5, dt * 5);
-  pug.vy += (jetpackT > 0 ? GRAV * 0.15 : GRAV) * dt;
+  // VOIDSPACE biome (idx 3) → anti-gravity (40% gravity). Jetpack still wins.
+  const gravMul = (biomeIdx === 3 || biomeShiftTarget === 3) ? 0.45 : 1;
+  pug.vy += (jetpackT > 0 ? GRAV * 0.15 : GRAV * gravMul) * dt;
   if (jetpackT > 0 && keys.has(' ')) pug.vy = Math.max(pug.vy, -200); // hover
   pug.x += pug.vx * dt;
   pug.y += pug.vy * dt;
@@ -311,7 +432,19 @@ function tick(dt) {
         if (pug.y + pug.h / 2 > p.y && pug.y + pug.h / 2 < p.y + p.h + 12) {
           // Spike kills on landing
           if (p.hasSpike) { hitFlashT = 0.3; shake(8, 0.4); return die(); }
-          if (p.kind === 'bouncy') {
+          if (p.kind === 'spring') {
+            // SPRING — 3x bounce
+            pug.vy = JUMP_V * 1.8;
+            refillJumps();
+            sfx.arp([880, 1320, 1760], 'triangle', 0.04, 0.18, 0.18);
+            shake(6, 0.24);
+            squashPlat(p);
+            spawnJumpDust(pug.x, p.y);
+            if (p !== lastPlat) {
+              comboJumps++; lastPlat = p; comboRestT = 0;
+              checkComboThreshold();
+            }
+          } else if (p.kind === 'bouncy') {
             pug.vy = JUMP_V * 1.3;
             refillJumps();
             sfx.tone(990, 'triangle', 0.08, 0.2);
@@ -336,6 +469,18 @@ function tick(dt) {
               comboRestT = 0;
               checkComboThreshold();
             }
+            // DISAPPEARING — touched marker so it starts vanishing 1s
+            if (p.kind === 'disappearing') p.touched = true;
+            // SAFE — resting on safe platform earns small "REST" bonus
+            if (p.kind === 'safe') {
+              p.safeRestT += dt;
+              if (p.safeRestT >= 0.7 && !p._safeBonusGiven) {
+                p._safeBonusGiven = true;
+                score += 30;
+                pop(pug.x, pug.y - 30, 'SAFE +30', '#5ef38c');
+                sfx.tone(660, 'sine', 0.1, 0.18);
+              }
+            }
             if (p.kind === 'crumble') {
               if (!p.crumbleStartT) p.crumbleStartT = performance.now();
               const elapsed = performance.now() - p.crumbleStartT;
@@ -354,10 +499,11 @@ function tick(dt) {
       }
     }
   }
-  // Powerup pickup
+  // Powerup pickup (DEATH_RUN bans powerups)
   for (let i = powerups.length - 1; i >= 0; i--) {
     const p = powerups[i];
     if (Math.abs(p.x - pug.x) < 20 && Math.abs(p.y - pug.y) < 20) {
+      if (gameMode === 'death_run') { powerups.splice(i, 1); continue; }
       powerups.splice(i, 1);
       if (p.type === 'jetpack') jetpackT = 5;
       else if (p.type === 'freeze') freezeT = 4;
@@ -368,8 +514,76 @@ function tick(dt) {
         pop(p.x, p.y - 10, 'WINGS!', '#fff7d0');
         shake(3, 0.18);
       }
+      else if (p.type === 'shield') { shieldT = 6; pop(p.x, p.y - 10, 'SHIELD!', '#4cc9f0'); }
+      else if (p.type === 'doubleJumpExtra') { doubleJumpExtraT = 8; pug.jumpsLeft = Math.max(pug.jumpsLeft, 3); pop(p.x, p.y - 10, '+JUMP!', '#5ef38c'); }
+      else if (p.type === 'slowMo') { slowMoT = 4; pop(p.x, p.y - 10, 'SLOW-MO!', '#b055ff'); }
+      else if (p.type === 'multiplier') { multiplierT = 8; pop(p.x, p.y - 10, '×2 SCORE!', '#ffd23f'); }
       sfx.tone(1320, 'triangle', 0.12, 0.22);
     }
+  }
+  // Pet bird companion (Wave 1E) — auto-collects nearby treats
+  if (petBird && usePetBird) {
+    petBird.ampT += dt * 2;
+    const targetX = pug.x + 30 + Math.sin(petBird.ampT) * 8;
+    const targetY = pug.y - 30 + Math.cos(petBird.ampT * 0.7) * 6;
+    petBird.x += (targetX - petBird.x) * dt * 4;
+    petBird.y += (targetY - petBird.y) * dt * 4;
+    for (let i = treats.length - 1; i >= 0; i--) {
+      const t = treats[i];
+      if (Math.hypot(t.x - petBird.x, t.y - petBird.y) < 50 && Math.hypot(t.x - pug.x, t.y - pug.y) < 200) {
+        treats.splice(i, 1);
+        treatsGot++; score += 50;
+        sfx.tone(1760, 'triangle', 0.06, 0.18);
+        pop(t.x, t.y - 10, '+50 PET', '#fff7d0');
+      }
+    }
+  }
+  // Wave 1E enemies (ICE DROP / DEBRIS / HAUNTS / METEORS)
+  if (height >= 700 && Math.random() < dt * 0.5) iceDrops.push({ x: Math.random() * W, y: -20, vy: 200 + Math.random() * 80, life: 0, max: 6 });
+  for (let i = iceDrops.length - 1; i >= 0; i--) {
+    const d = iceDrops[i]; d.y += d.vy * dt; d.life += dt;
+    if (d.life >= d.max || d.y > H + 20) { iceDrops.splice(i, 1); continue; }
+    for (const p of plats) {
+      if (p.alive && d.x > p.x && d.x < p.x + p.w && d.y > p.y - 2 && d.y < p.y + 4) {
+        iceFrozenT.set(p, 3); iceDrops.splice(i, 1); sfx.tone(660, 'sine', 0.1, 0.2); break;
+      }
+    }
+  }
+  if (height >= 800 && Math.random() < dt * 0.4) fallingDebris.push({ x: Math.random() * W, y: -20, vy: 280 + Math.random() * 80, sz: 8 + Math.random() * 6 });
+  for (let i = fallingDebris.length - 1; i >= 0; i--) {
+    const d = fallingDebris[i]; d.y += d.vy * dt;
+    if (d.y > H + 30) { fallingDebris.splice(i, 1); continue; }
+    if (rocketBootT <= 0 && Math.abs(d.x - pug.x) < d.sz + 10 && Math.abs(d.y - pug.y) < d.sz + 10) {
+      if (shieldT > 0) { shieldT = 0; pop(d.x, d.y, 'SHIELD!', '#4cc9f0'); fallingDebris.splice(i, 1); continue; }
+      return die();
+    }
+  }
+  if (height >= 1200 && Math.random() < dt * 0.25) haunts.push({ x: Math.random() * W, baseY: 40 + Math.random() * (H * 0.6), y: 0, ampT: 0, alpha: 0 });
+  for (let i = haunts.length - 1; i >= 0; i--) {
+    const h = haunts[i]; h.ampT += dt * 1.5; h.alpha = Math.min(1, h.alpha + dt); h.y = h.baseY + Math.sin(h.ampT) * 30;
+    if (Math.abs(h.x - pug.x) < 18 && Math.abs(h.y - pug.y) < 18 && Math.abs(pug.vy) < 100 && rocketBootT <= 0) {
+      if (shieldT > 0) { shieldT = 0; pop(h.x, h.y, 'SHIELD!', '#4cc9f0'); haunts.splice(i, 1); continue; }
+      return die();
+    }
+  }
+  if (height >= 1500 && Math.random() < dt * 0.3) meteors.push({ x: Math.random() * W, y: -30, vx: (Math.random() - 0.5) * 60, vy: 320 + Math.random() * 120, sz: 10 + Math.random() * 6 });
+  for (let i = meteors.length - 1; i >= 0; i--) {
+    const m = meteors[i]; m.x += m.vx * dt; m.y += m.vy * dt;
+    if (m.y > H + 30) { meteors.splice(i, 1); continue; }
+    if (rocketBootT <= 0 && Math.abs(m.x - pug.x) < m.sz + 10 && Math.abs(m.y - pug.y) < m.sz + 10) {
+      if (shieldT > 0) { shieldT = 0; pop(m.x, m.y, 'SHIELD!', '#4cc9f0'); meteors.splice(i, 1); continue; }
+      return die();
+    }
+    if (Math.random() < 0.5 && embers.length < 200) embers.push({ x: m.x, y: m.y, vx: -m.vx * 0.2, vy: -m.vy * 0.2, life: 0, max: 0.4, r: 2 + Math.random() * 2, color: '#b055ff', glow: true });
+  }
+  if (height === 1337 && !window._lavaLore) {
+    window._lavaLore = true;
+    banner = { text: 'LORE: pugs once ruled this realm', life: 0, max: 3.5 };
+    sfx.arp([523, 660, 880, 1320, 1760], 'triangle', 0.06, 0.3, 0.25);
+  }
+  if (gameMode === 'challenge' && height >= challengeTarget && running) {
+    banner = { text: '★ CHALLENGE WON ★', life: 0, max: 3 };
+    score += 500; return die(true);
   }
   // Lava blobs
   for (let i = blobs.length - 1; i >= 0; i--) {
@@ -493,7 +707,8 @@ function tick(dt) {
   } else {
     comboRestT = 0;
   }
-  // Geometry Dash biome-shift checkpoints (every 500m, 2s transition)
+  // Geometry Dash biome-shift checkpoints (every 500m, 2s transition).
+  // VOIDSPACE (biome 3) unlocks above 1500m by way of the +500 step.
   if (height >= nextBiomeAtHeight && biomeShiftT <= 0 && biomeIdx < BIOMES.length - 1) {
     biomeShiftTarget = biomeIdx + 1;
     biomeShiftT = 2;
@@ -507,8 +722,16 @@ function tick(dt) {
       biomeIdx = biomeShiftTarget;
       biomeShiftT = 0;
       nextBiomeAtHeight += 500;
+      // Unlock new powerup on each biome reached (cosmetic + functional)
+      const unlockMap = { 1: 'shield', 2: 'doubleJumpExtra', 3: 'slowMo' };
+      if (unlockMap[biomeIdx] && !unlockedPowerups[unlockMap[biomeIdx]]) {
+        unlockedPowerups[unlockMap[biomeIdx]] = true; saveUnlocks();
+        toasts_push(`★ UNLOCKED: ${unlockMap[biomeIdx].toUpperCase()}`);
+      }
     }
   }
+  // VOIDSPACE anti-gravity sections — lower gravity if in VOIDSPACE biome (biome 3)
+  // Done as a soft multiplier already applied in pug movement code via biome check.
   const lavaSpeed = (freezeT > 0 ? 0 : 40 + height * 0.38);
   lavaY -= lavaSpeed * dt;
   // Camera: when pug is above middle, scroll world down
@@ -542,17 +765,18 @@ function tick(dt) {
   for (let i = caveSpikes.length - 1; i >= 0; i--) if (caveSpikes[i].y > H + 100) caveSpikes.splice(i, 1);
   for (let i = strataBands.length - 1; i >= 0; i--) if (strataBands[i].y > H + 100) strataBands.splice(i, 1);
 
-  // Treats
+  // Treats — apply multiplier powerup
+  const scoreMul = multiplierT > 0 ? 2 : 1;
   for (let i = treats.length - 1; i >= 0; i--) {
     const t = treats[i];
     if (Math.abs(t.x - pug.x) < 20 && Math.abs(t.y - pug.y) < 20) {
       treats.splice(i, 1);
-      treatsGot++; score += 50;
+      treatsGot++; score += 50 * scoreMul;
       sfx.tone(1320, 'triangle', 0.08, 0.2);
-      pop(t.x, t.y - 10, '+50', '#ffd23f');
+      pop(t.x, t.y - 10, `+${50 * scoreMul}`, '#ffd23f');
     }
   }
-  score = Math.max(score, height * 10 + treatsGot * 50);
+  score = Math.max(score, (height * 10 + treatsGot * 50) * scoreMul);
 
   // Milestone banner every 5m
   if (height >= nextMilestone) {
@@ -748,17 +972,30 @@ function render() {
     }
   }
   ctx.globalCompositeOperation = 'source-over';
-  // Platforms (color by kind) with grain/moss
+  // Platform palette by kind (compact lookup, Wave 1E)
+  const _PKINDS = {
+    spring:    ['#3a8e4c','#5ef38c','#fff7d0'],
+    conveyor:  ['#5a4a3a','#b0a070','#ffd23f'],
+    rotating:  ['#4a3a5a','#b08acf','#b055ff'],
+    moving:    ['#3a4a5a','#5ec0e8','#4cc9f0'],
+    bouncy:    ['#b055ff','#d59aff','#ff8aa8'],
+    crumble:   ['#8a6a4a','#a68a6a','#ff8e3c'],
+    normal:    ['#5a3a1c','#7a5a3a','#5ef38c'],
+  };
   for (const p of plats) {
     if (!p.alive) continue;
-    const isCrumble = p.kind === 'crumble';
-    const isBouncy = p.kind === 'bouncy';
-    // crumble turns red after 0.5s of standing
+    const isCrumble = p.kind === 'crumble', isBouncy = p.kind === 'bouncy';
+    const isSpring = p.kind === 'spring', isSafe = p.kind === 'safe';
+    const isDisappear = p.kind === 'disappearing';
+    const frozen = (iceFrozenT.get(p) || 0) > 0;
     const crumbleAge = p.crumbleStartT ? (performance.now() - p.crumbleStartT) : 0;
     const crumbleRed = isCrumble && crumbleAge > 500;
-    const color = crumbleRed ? '#a83830' : (isBouncy ? '#b055ff' : (isCrumble ? '#8a6a4a' : '#5a3a1c'));
-    const topColor = crumbleRed ? '#d05050' : (isBouncy ? '#d59aff' : (isCrumble ? '#a68a6a' : '#7a5a3a'));
-    const grassColor = isBouncy ? '#ff8aa8' : (isCrumble ? '#ff8e3c' : '#5ef38c');
+    let color, topColor, grassColor;
+    if (frozen) { color = '#4a8aaa'; topColor = '#8acce0'; grassColor = '#caf0ff'; }
+    else if (isSafe) { const k = 0.7 + 0.3 * Math.sin(performance.now() / 250); color = `rgba(40,180,80,${k})`; topColor = `rgba(160,255,180,${k})`; grassColor = '#fff7d0'; }
+    else if (isDisappear) { const fade = p.touched ? 1 - p.disappearT : 1; color = `rgba(180,90,90,${fade})`; topColor = `rgba(230,150,150,${fade})`; grassColor = `rgba(255,200,200,${fade})`; }
+    else if (crumbleRed) { color = '#a83830'; topColor = '#d05050'; grassColor = '#ff8e3c'; }
+    else { const arr = _PKINDS[p.kind] || _PKINDS.normal; color = arr[0]; topColor = arr[1]; grassColor = arr[2]; }
     // Round 2C: bouncy platform squash — exaggerated vertical compress that
     // eases back; draws at slightly reduced height + wider so spring reads.
     let pX = p.x, pW = p.w, pY = p.y, pH = p.h;
@@ -771,6 +1008,18 @@ function render() {
       pW = nw;
       pH = p.h * sq;
       pY = p.y + (p.h - pH); // anchored at bottom so squash compresses downward
+    }
+    // depth3D: fade distant platforms (top of viewport) to simulate atmospheric
+    // perspective — closer platforms render at full alpha, far ones at ~0.55.
+    const _depthFade = Math.min(1, 0.55 + (pY / H) * 0.6);
+    if (!_depthReduced() && _depthFade < 1) ctx.globalAlpha = _depthFade;
+    // shadow on the side wall — small dark sliver beneath each platform
+    if (!_depthReduced()) {
+      const _prevA = ctx.globalAlpha;
+      ctx.globalAlpha = _prevA * 0.4;
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.fillRect(pX, pY + pH, pW, 3);
+      ctx.globalAlpha = _prevA;
     }
     ctx.fillStyle = color; ctx.fillRect(pX, pY, pW, pH);
     ctx.fillStyle = topColor; ctx.fillRect(pX, pY, pW, 3);
@@ -824,6 +1073,8 @@ function render() {
       ctx.fillRect(p.x + p.w - 14, p.y + 6, 4, 2);
       ctx.fillRect(p.x + p.w / 2 - 2, p.y + 3, 1, p.h - 4);
     }
+    // restore alpha after the depth3D fade
+    if (ctx.globalAlpha !== 1) ctx.globalAlpha = 1;
   }
   // Powerups — jetpack uses pixel-art flame; freeze/shrink/wings use primitives.
   for (const p of powerups) {
@@ -917,6 +1168,70 @@ function render() {
     ctx.fillStyle = '#fff';
     ctx.fillRect(f.x - 2, f.y - 3, 2, 2);
   }
+  // ICE DROPS — light-blue droplets falling
+  for (const d of iceDrops) {
+    ctx.fillStyle = '#caf0ff';
+    ctx.beginPath(); ctx.arc(d.x, d.y, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#4cc9f0';
+    ctx.fillRect(d.x - 1, d.y - 3, 2, 2);
+    ctx.strokeStyle = 'rgba(160,220,255,0.4)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(d.x, d.y - 8); ctx.lineTo(d.x, d.y); ctx.stroke();
+  }
+  // FALLING DEBRIS — grey stone chunks
+  for (const d of fallingDebris) {
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.fillRect(d.x - d.sz / 2 + 2, d.y - d.sz / 2 + 2, d.sz, d.sz);
+    ctx.fillStyle = '#5a5a6a';
+    ctx.fillRect(d.x - d.sz / 2, d.y - d.sz / 2, d.sz, d.sz);
+    ctx.fillStyle = '#7a7a8a';
+    ctx.fillRect(d.x - d.sz / 2, d.y - d.sz / 2, d.sz, 2);
+    ctx.strokeStyle = '#3a3a4a';
+    ctx.strokeRect(d.x - d.sz / 2, d.y - d.sz / 2, d.sz, d.sz);
+  }
+  // HAUNTS — translucent ghosts
+  for (const h of haunts) {
+    ctx.save();
+    ctx.globalAlpha = h.alpha * 0.75;
+    ctx.fillStyle = '#caf0ff';
+    ctx.beginPath();
+    ctx.arc(h.x, h.y, 12, Math.PI, 0);
+    ctx.lineTo(h.x + 12, h.y + 8);
+    ctx.lineTo(h.x + 8, h.y + 14);
+    ctx.lineTo(h.x + 4, h.y + 8);
+    ctx.lineTo(h.x, h.y + 14);
+    ctx.lineTo(h.x - 4, h.y + 8);
+    ctx.lineTo(h.x - 8, h.y + 14);
+    ctx.lineTo(h.x - 12, h.y + 8);
+    ctx.closePath(); ctx.fill();
+    ctx.globalAlpha = h.alpha;
+    ctx.fillStyle = '#000';
+    ctx.fillRect(h.x - 5, h.y - 2, 2, 4); ctx.fillRect(h.x + 3, h.y - 2, 2, 4);
+    ctx.restore();
+  }
+  // METEORS — VOIDSPACE purple flame ball with violet trail
+  for (const m of meteors) {
+    ctx.fillStyle = 'rgba(176,85,255,0.55)';
+    ctx.beginPath(); ctx.arc(m.x - m.vx * 0.04, m.y - m.vy * 0.04, m.sz * 0.7, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ff8aff';
+    ctx.beginPath(); ctx.arc(m.x, m.y, m.sz, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(m.x - 1, m.y - 2, 2, 2);
+  }
+  // PET BIRD companion
+  if (petBird && usePetBird) {
+    const flap = Math.sin(petBird.ampT * 5) * 4;
+    ctx.fillStyle = '#fff7d0';
+    ctx.beginPath();
+    ctx.moveTo(petBird.x - 4, petBird.y); ctx.lineTo(petBird.x - 10, petBird.y - 4 - flap); ctx.lineTo(petBird.x - 8, petBird.y + 2); ctx.closePath(); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(petBird.x + 4, petBird.y); ctx.lineTo(petBird.x + 10, petBird.y - 4 - flap); ctx.lineTo(petBird.x + 8, petBird.y + 2); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#ffd23f';
+    ctx.beginPath(); ctx.arc(petBird.x, petBird.y, 5, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ff8e3c';
+    ctx.fillRect(petBird.x + 4, petBird.y - 1, 3, 2);
+    ctx.fillStyle = '#000';
+    ctx.fillRect(petBird.x + 1, petBird.y - 2, 1, 1);
+  }
   // Treats
   for (const t of treats) {
     ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 12;
@@ -954,6 +1269,8 @@ function render() {
     const x = (i * 73 + performance.now() / 5) % W;
     ctx.beginPath(); ctx.arc(x, lavaY + 4 + Math.sin(t * 2 + i) * 2, 3, 0, Math.PI * 2); ctx.fill();
   }
+  // depth3D drop shadow under the pug — anchors him to the platform he's on.
+  _depthShadow(ctx, pug.x, pug.y + 14, 14, { alpha: 0.4 });
   // Pug — high-detail climber sprite (with hit-flash brightness overlay)
   if (hitFlashT > 0) {
     ctx.save(); ctx.filter = 'brightness(2.5)';
@@ -961,6 +1278,23 @@ function render() {
     ctx.filter = 'none'; ctx.restore();
   } else {
     drawPug(ctx, pug.x, pug.y, { size: 30 });
+  }
+  // Outfit overlays
+  if (pugOutfit === 'jumpsuit') { ctx.fillStyle = '#ff8e3c'; ctx.fillRect(pug.x - 10, pug.y - 4, 20, 14); ctx.fillStyle = '#fff'; ctx.fillRect(pug.x - 1, pug.y - 4, 2, 14); }
+  else if (pugOutfit === 'hat') { ctx.fillStyle = '#4cc9f0'; ctx.fillRect(pug.x - 10, pug.y - 22, 20, 5); ctx.fillRect(pug.x - 6, pug.y - 30, 12, 8); }
+  // ROCKETBOOT visual aura
+  if (rocketBootT > 0) {
+    ctx.strokeStyle = `rgba(255,247,208,${0.5 + 0.5 * Math.sin(performance.now() / 100)})`;
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(pug.x, pug.y, 24, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = '#ff8e3c';
+    ctx.beginPath(); ctx.arc(pug.x, pug.y + 14, 4, 0, Math.PI * 2); ctx.fill();
+  }
+  // SHIELD bubble
+  if (shieldT > 0) {
+    ctx.strokeStyle = `rgba(76,201,240,${0.5 + Math.sin(performance.now() / 100) * 0.3})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(pug.x, pug.y, 22, 0, Math.PI * 2); ctx.stroke();
   }
   // Jump indicator (more dots if wings active)
   ctx.fillStyle = wingsT > 0 ? '#fff7d0' : '#5ef38c';
@@ -976,32 +1310,51 @@ function render() {
   }
   // Active powerup HUD chips (bottom-left). `iconDraw` is an optional pixel-art icon drawer.
   let py = H - 30;
-  const chip = (label, t, color, iconDraw) => {
+  const chip = (label, t, color) => {
     if (t <= 0) return;
-    const cw = 140;
-    ctx.fillStyle = 'rgba(0,0,0,0.78)';
-    ctx.fillRect(12, py - 16, cw, 22);
-    ctx.fillStyle = color;
-    ctx.fillRect(12, py - 16, cw * Math.min(1, t / 5), 4);
-    if (iconDraw) iconDraw(22, py - 6);
+    ctx.fillStyle = 'rgba(0,0,0,0.78)'; ctx.fillRect(12, py - 16, 140, 22);
+    ctx.fillStyle = color; ctx.fillRect(12, py - 16, 140 * Math.min(1, t / 5), 4);
     ctx.fillStyle = '#fff'; ctx.font = "10px 'Press Start 2P', monospace"; ctx.textAlign = 'left';
-    ctx.fillText(`${label} ${t.toFixed(1)}s`, 32, py);
+    ctx.fillText(`${label} ${t.toFixed(1)}s`, 18, py);
     py -= 26;
   };
-  chip('JETPACK', jetpackT, '#ff8e3c', (cx, cy) => drawIcon.flame(ctx, cx, cy, 12));
-  chip('FREEZE', freezeT, '#4cc9f0', (cx, cy) => {
-    ctx.fillStyle = '#4cc9f0';
-    ctx.fillRect(cx - 5, cy - 1, 10, 2); ctx.fillRect(cx - 1, cy - 5, 2, 10);
-  });
-  chip('SHRINK', shrinkT, '#b055ff', (cx, cy) => {
-    ctx.fillStyle = '#b055ff';
-    ctx.beginPath(); ctx.moveTo(cx - 5, cy - 4); ctx.lineTo(cx + 5, cy - 4); ctx.lineTo(cx, cy + 5); ctx.closePath(); ctx.fill();
-  });
-  chip('WINGS', wingsT, '#fff7d0', (cx, cy) => {
-    ctx.fillStyle = '#fff7d0';
-    ctx.beginPath(); ctx.moveTo(cx - 1, cy); ctx.quadraticCurveTo(cx - 6, cy - 4, cx - 6, cy + 2); ctx.quadraticCurveTo(cx - 3, cy + 1, cx - 1, cy + 1); ctx.closePath(); ctx.fill();
-    ctx.beginPath(); ctx.moveTo(cx + 1, cy); ctx.quadraticCurveTo(cx + 6, cy - 4, cx + 6, cy + 2); ctx.quadraticCurveTo(cx + 3, cy + 1, cx + 1, cy + 1); ctx.closePath(); ctx.fill();
-  });
+  chip('JETPACK', jetpackT, '#ff8e3c');
+  chip('FREEZE', freezeT, '#4cc9f0');
+  chip('SHRINK', shrinkT, '#b055ff');
+  chip('WINGS', wingsT, '#fff7d0');
+  chip('SHIELD', shieldT, '#4cc9f0');
+  chip('+JUMP', doubleJumpExtraT, '#5ef38c');
+  chip('SLOW-MO', slowMoT, '#b055ff');
+  chip('×2', multiplierT, '#ffd23f');
+  chip('ROCKETBOOT', rocketBootT, '#fff7d0');
+  // Vertical altitude meter (right edge) + biome zones + best-altitude line
+  {
+    const mh = H - 100, mw = 18, mx = W - 28, my = 60, altMax = 2500;
+    ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(mx, my, mw, mh);
+    const _Z = [[0,500,'#5a3a5a','CAVE'],[500,1000,'#5a3a20','MAGMA'],[1000,1500,'#5a1018','HELL'],[1500,2500,'#3a1a5a','VOID']];
+    for (const z of _Z) {
+      const y0 = my + mh - (z[1] / altMax) * mh, y1 = my + mh - (z[0] / altMax) * mh;
+      ctx.fillStyle = z[2]; ctx.fillRect(mx, y0, mw, y1 - y0);
+      ctx.fillStyle = '#fff'; ctx.font = "6px 'Press Start 2P', monospace"; ctx.textAlign = 'right';
+      ctx.fillText(z[3], mx - 2, (y0 + y1) / 2 + 2);
+    }
+    const currY = my + mh - Math.min(altMax, height) / altMax * mh;
+    ctx.fillStyle = '#ffd23f'; ctx.fillRect(mx - 4, currY - 2, mw + 8, 4);
+    ctx.fillStyle = '#000'; ctx.font = "7px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText(height + 'm', mx + mw / 2, currY - 6);
+    if (bestAltitudeM > 0 && bestAltitudeM < altMax) {
+      const bestY = my + mh - bestAltitudeM / altMax * mh;
+      ctx.strokeStyle = 'rgba(255,210,63,0.5)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(0, bestY); ctx.lineTo(W - 30, bestY); ctx.stroke();
+      ctx.fillStyle = '#ffd23f'; ctx.textAlign = 'left'; ctx.fillText('BEST ' + bestAltitudeM + 'm', 12, bestY - 2);
+    }
+  }
+  // Game-mode badge (compact)
+  if (gameMode !== 'endless') {
+    ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(12, 6, 120, 18);
+    ctx.fillStyle = '#ff3aa1'; ctx.font = "8px 'Press Start 2P', monospace"; ctx.textAlign = 'left';
+    ctx.fillText(gameMode === 'challenge' ? `CHALLENGE ${challengeTarget}m` : (gameMode === 'time_attack' ? `TIME ${timeAttackT.toFixed(1)}s` : 'DEATH RUN · 1 LIFE'), 16, 18);
+  }
   // Combo HUD (top-center). Always visible once chain hits 2+, even before
   // crossing a threshold so the player understands a chain is building.
   if (comboJumps >= 2) {
@@ -1084,11 +1437,17 @@ function updateHud() {
   if (_flBestCache !== _flHudPrev.best) { _flHud.best.textContent = _flBestCache; _flHudPrev.best = _flBestCache; }
 }
 
-function die() {
+function die(success) {
+  if (!running) return; // idempotent
   running = false;
   sfx.sweep(440, 110, 'sawtooth', 0.6, 0.25);
+  if (maxHeight > bestAltitudeM) { bestAltitudeM = maxHeight; saveBestAlt(); }
   document.getElementById('end-height').textContent = maxHeight + 'm';
   document.getElementById('end-treats').textContent = treatsGot;
+  const _endTitle = document.getElementById('end-title');
+  if (_endTitle) _endTitle.textContent = success ? '★ VICTORY! ★' : (gameMode === 'death_run' ? 'DEATH RUN OVER' : (gameMode === 'time_attack' ? `TIME: ${timeAttackT.toFixed(1)}s` : 'CRISPY'));
+  const _endSub = document.getElementById('end-sub');
+  if (_endSub) _endSub.textContent = success ? `Challenge target ${challengeTarget}m reached!` : 'The lava got you.';
   const { isNewBest, current } = submitRun('floor-lava', { score: maxHeight * 10 + treatsGot * 50, height: maxHeight });
   const bestEl = document.getElementById('end-best');
   if (bestEl) {
@@ -1100,10 +1459,64 @@ function die() {
   document.getElementById('end-overlay').classList.remove('is-hidden');
 }
 
+// === Wave 1E: game mode + pet + daily seed + outfit selectors ===
+const MODES = [
+  { id: 'endless', label: 'ENDLESS' },
+  { id: 'challenge', label: 'CHALLENGE 1000m' },
+  { id: 'time_attack', label: 'TIME ATTACK' },
+  { id: 'death_run', label: 'DEATH RUN' },
+];
+function renderModeRow() {
+  const row = document.getElementById('fl-mode-row');
+  if (!row) return;
+  row.innerHTML = '';
+  for (const m of MODES) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'fl-mode-btn' + (gameMode === m.id ? ' is-active' : '');
+    btn.textContent = m.label;
+    btn.addEventListener('click', () => { gameMode = m.id; renderModeRow(); });
+    row.appendChild(btn);
+  }
+}
+const OUTFITS = [
+  { id: 'classic', label: 'CLASSIC' },
+  { id: 'jumpsuit', label: 'JUMPSUIT' },
+  { id: 'dress', label: 'DRESS' },
+  { id: 'hat', label: 'HAT' },
+];
+function renderOutfitRow() {
+  const row = document.getElementById('fl-outfit-row');
+  if (!row) return;
+  row.innerHTML = '<span style="font-size:0.4rem;color:var(--muted);align-self:center">OUTFIT:</span>';
+  for (const o of OUTFITS) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'fl-outfit-btn' + (pugOutfit === o.id ? ' is-active' : '');
+    btn.textContent = o.label;
+    btn.addEventListener('click', () => { pugOutfit = o.id; saveOutfit(); renderOutfitRow(); });
+    row.appendChild(btn);
+  }
+}
+renderModeRow(); renderOutfitRow();
+{
+  const petCb = document.getElementById('fl-pet');
+  if (petCb) { petCb.checked = !!usePetBird; petCb.addEventListener('change', () => { usePetBird = petCb.checked; try { localStorage.setItem('lava:pet', usePetBird ? '1' : '0'); } catch {} }); }
+  const dailyCb = document.getElementById('fl-daily');
+  if (dailyCb) { dailyCb.checked = !!useDailySeed; dailyCb.addEventListener('change', () => { useDailySeed = dailyCb.checked; }); }
+  // Refresh mode row on overlay show
+  const so = document.getElementById('overlay');
+  if (so) new MutationObserver(() => {
+    if (!so.hidden && !so.classList.contains('is-hidden')) { renderModeRow(); renderOutfitRow(); }
+  }).observe(so, { attributes: true, attributeFilter: ['hidden','class'] });
+}
+
 document.getElementById('start-btn').addEventListener('click', start);
 document.getElementById('end-restart').addEventListener('click', start);
 function start() {
   reset(); running = true;
+  // Reset easter-egg lore flag so next 1337m run pings the toast again
+  window._lavaLore = false;
   // Clear any stale keys (e.g., user held a key during the end-overlay) so
   // the pug doesn't auto-walk into lava on restart.
   keys.clear(); touchX = null;

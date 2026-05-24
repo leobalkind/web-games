@@ -10,6 +10,7 @@ import { showOrientationHint } from '../../src/shared/orientationHint.js';
 import { showGradeCard } from '../../src/shared/gradeCard.js';
 import { createSettingsMenu } from '../../src/shared/settingsMenu.js';
 import { getShakeMul as _shakeMul } from '../../src/shared/screenShake.js';
+import { drawShadow as _depthShadow, lightingOverlay as _depthLighting, fakeFog as _depthFog } from '../../src/shared/depth3D.js';
 
 // --- Custom plush toy icon (library has no plushie) ---------------------------
 function drawPlushToy(ctx, x, y, size) {
@@ -70,11 +71,37 @@ const TILE_TYPES = {
   dirt:   { color: '#6b3a1c', shade: '#4a2a0c', val: 0, stam: 1 },
   stone:  { color: '#5a5a72', shade: '#3a3a4a', val: 0, stam: 2 },
   cheese: { color: '#ffd23f', shade: '#c89c20', val: 0, stam: 2, biome: true },
-  bone:   { isLoot: true, drawIconFn: drawIcon.bone,    val: 15,  stam: 1 },
-  toy:    { isLoot: true, drawIconFn: drawPlushToy,     val: 25,  stam: 1 },
-  gold:   { isLoot: true, drawIconFn: drawIcon.gold,    val: 50,  stam: 2 },
-  biscuit:{ isLoot: true, drawIconFn: drawIcon.biscuit, val: 100, stam: 3, golden: true },
-  gem:    { isLoot: true, drawIconFn: drawIcon.gem,     val: 60,  stam: 2 },
+  // Wave 1D: biome-specific walls
+  ice:    { color: '#9ec8d8', shade: '#5a8090', val: 0, stam: 1, biome: true },
+  lava:   { color: '#ff5a3a', shade: '#a02810', val: 0, stam: 3, biome: true, hazard: true },
+  crystal:{ color: '#b055ff', shade: '#5a2080', val: 0, stam: 2, biome: true },
+  bone:   { isLoot: true, drawIconFn: drawIcon.bone,    val: 15,  stam: 1, rarity: 'common' },
+  toy:    { isLoot: true, drawIconFn: drawPlushToy,     val: 25,  stam: 1, rarity: 'common' },
+  gold:   { isLoot: true, drawIconFn: drawIcon.gold,    val: 50,  stam: 2, rarity: 'rare' },
+  biscuit:{ isLoot: true, drawIconFn: drawIcon.biscuit, val: 100, stam: 3, golden: true, rarity: 'epic' },
+  gem:    { isLoot: true, drawIconFn: drawIcon.gem,     val: 60,  stam: 2, rarity: 'rare' },
+  // Wave 1D: new tile types
+  spring: { color: '#5ef38c', shade: '#3aa860', val: 0, stam: 1, special: 'spring' },
+  crack:  { color: '#4a3a2a', shade: '#2a1a0c', val: 0, stam: 1, special: 'crack' },
+  sand:   { color: '#ffd9a8', shade: '#c8a878', val: 0, stam: 4, special: 'sand' }, // slow dig
+  geode:  { isLoot: true, drawIconFn: drawIcon.gem, val: 300, stam: 3, golden: true, rarity: 'legendary', special: 'geode' },
+};
+// Biome bands by depth (5 biomes — fall back to STONE)
+function biomeAt(row) {
+  if (row < 12) return 'stone';
+  if (row < 25) return 'cheese';
+  if (row < 40) return 'ice';
+  if (row < 55) return 'volcanic';
+  return 'crystal';
+}
+const BIOME_LABELS = { stone: 'STONE DEPTHS', cheese: 'CHEESE CAVERNS', ice: 'GLACIER HALLS', volcanic: 'VOLCANIC CORE', crystal: 'CRYSTAL ABYSS' };
+const BIOME_COLORS = { stone: '#cacad6', cheese: '#ffd23f', ice: '#9ec8d8', volcanic: '#ff5a3a', crystal: '#b055ff' };
+// Rarity tiers (visual flair on pickup)
+const RARITY = {
+  common:    { glow: '#cacacf', tag: 'COMMON' },
+  rare:      { glow: '#4cc9f0', tag: 'RARE' },
+  epic:      { glow: '#b055ff', tag: 'EPIC' },
+  legendary: { glow: '#ffd23f', tag: 'LEGENDARY' },
 };
 
 let cols, rows = 0;
@@ -191,39 +218,37 @@ const UPGRADES = [
   { id: 'helmet', name: 'Hard Hat', cost: 200, max: 2, apply: () => { /* reduces stone cost */ } },
 ];
 
-// Cheese Caverns biome boundary — below this row, world generation changes.
-const CHEESE_DEPTH_ROW = 50;
+// Cheese Caverns biome boundary — kept for legacy CHEESE_DEPTH_ROW references.
+const CHEESE_DEPTH_ROW = 25; // updated to align with new biome bands
+const BOSS_DEPTH_ROW = 100;  // Wave 1D: boss layer
 function reset() {
   cols = Math.max(8, Math.floor(W / TILE));
-  rows = 80; // extended to make room for cheese caverns + vault
+  rows = endlessMode ? 200 : 110;
   grid = Array.from({ length: rows }, () => Array(cols).fill('air'));
-  // Surface row = air. Row 1 = ground level. Below = dirt/stone with treasures.
   for (let r = 2; r < rows; r++) {
+    const biome = biomeAt(r);
+    const openness = biome === 'cheese' ? 0.55 : (biome === 'ice' ? 0.25 : (biome === 'volcanic' ? 0.15 : 0.1));
     for (let c = 0; c < cols; c++) {
       const rand = Math.random();
-      const depthFactor = r / rows;
-      if (r >= CHEESE_DEPTH_ROW) {
-        // Cheese Caverns: sparser walls (open caves), cheese-heavy, lots of gold + biscuit
-        if (rand < 0.55) { grid[r][c] = 'air'; continue; } // wide open caverns
-        if (rand < 0.62) grid[r][c] = 'gold';
-        else if (rand < 0.68) grid[r][c] = 'biscuit';
-        else if (rand < 0.74) grid[r][c] = 'gem';
-        else grid[r][c] = 'cheese';
-      } else if (rand < 0.02 + depthFactor * 0.03) {
-        grid[r][c] = depthFactor < 0.4 ? 'bone' : 'gold';
-      } else if (rand < 0.04 + depthFactor * 0.02) {
-        grid[r][c] = 'toy';
-      } else if (rand < 0.06 && r > 20) {
-        grid[r][c] = 'gem';
-      } else if (rand < 0.07 && r > 35) {
-        grid[r][c] = 'biscuit';
-      } else if (r > 40 && Math.random() < 0.3) {
-        grid[r][c] = 'cheese';
-      } else if (r > 8 && Math.random() < 0.4) {
-        grid[r][c] = 'stone';
-      } else {
-        grid[r][c] = 'dirt';
-      }
+      const wallTile = biome === 'stone' ? (rand < 0.5 ? 'dirt' : 'stone')
+                     : biome === 'cheese' ? 'cheese'
+                     : biome === 'ice' ? 'ice'
+                     : biome === 'volcanic' ? (rand < 0.4 ? 'lava' : 'stone')
+                     : 'crystal';
+      if (rand < openness) { grid[r][c] = 'air'; continue; }
+      const lr = Math.random();
+      if (biome === 'crystal' && lr < 0.10) grid[r][c] = 'gem';
+      else if (biome === 'volcanic' && lr < 0.06) grid[r][c] = 'gold';
+      else if (biome === 'cheese' && lr < 0.08) grid[r][c] = 'biscuit';
+      else if (lr < 0.04) grid[r][c] = r < 30 ? 'bone' : 'gold';
+      else if (lr < 0.06) grid[r][c] = 'toy';
+      else if (lr < 0.07 && r > 30) grid[r][c] = 'biscuit';
+      else if (lr < 0.085 && r > 25) grid[r][c] = 'gem';
+      else if (lr < 0.092 && r > 40) grid[r][c] = 'geode';
+      else if (lr < 0.105 && r > 8) grid[r][c] = 'spring';
+      else if (lr < 0.11 && r > 15) grid[r][c] = 'crack';
+      else if (lr < 0.125 && biome === 'volcanic') grid[r][c] = 'sand';
+      else grid[r][c] = wallTile;
     }
   }
   // CHEESE VAULT — enclosed chamber at the deepest 3 rows packed with biscuits + gold.
@@ -248,14 +273,19 @@ function reset() {
   }
   pug = { col: Math.floor(cols / 2), row: 1, x: 0, y: 0 };
   syncXY();
-  money = 0; depth = 0; bag = 0;
-  maxStam = 100; stam = maxStam; maxBag = 10;
-  drillSpeed = 1; drillCd = 0;
+  // Apply skill-tree starters (persistent meta)
+  money = 20 * (skillTree.startGold || 0); depth = 0; bag = 0;
+  maxStam = 100 + 15 * (skillTree.startStam || 0); stam = maxStam;
+  maxBag = 10 + 3 * (skillTree.startBag || 0);
+  drillSpeed = 1 + 0.1 * (skillTree.startSpeed || 0); drillCd = 0;
   upgrades = { bag: 0, stam: 0, drill: 0, helmet: 0 };
+  amuletCharges = (skillTree.hpRing || 0);
+  lanternBattery = 100 * (1 + 0.25 * (skillTree.batt || 0));
+  pendingMetaGems = 0;
   particles = []; popups = []; supports = [];
   shakeT = 0; shakeAmp = 0; surfaceCelebT = 0; lastPickup = 0;
   biomeBannerT = 0; biomeBannerText = ''; cheeseBiomeEntered = false;
-  beams = []; beamsLeft = MAX_BEAMS;
+  beams = []; beamsLeft = MAX_BEAMS + (skillTree.startBeams || 0);
   caveInT = 30; caveInBlocks = [];
   // Roll cracked walls: 5% of all dirt/stone tiles. Excludes loot tiles + air
   // so crack overlays only ever render on solid wall tiles.
@@ -331,6 +361,46 @@ function reset() {
       stock, sold: [],
     });
   }
+  // Wave 1D: stalactites, pots, mushrooms, water, treasure rooms, pet corpse
+  stalactites = []; ancientPots = []; mushrooms = []; waterPools = [];
+  for (let r = 30; r < rows; r += 6) for (let c = 1; c < cols - 1; c++)
+    if (Math.random() < 0.04 && grid[r] && grid[r][c] === 'air')
+      stalactites.push({ col: c, row: r, len: 6 + Math.floor(Math.random() * 8) });
+  for (let r = 8; r < rows; r += 12) for (let i = 0; i < 2; i++) {
+    const c = Math.floor(Math.random() * cols);
+    for (let dr = 0; dr < 4; dr++) if (grid[r + dr] && grid[r + dr][c] === 'air') {
+      ancientPots.push({ row: r + dr, col: c, t: 0, smashed: false }); break;
+    }
+  }
+  for (let r = 12; r < rows; r++) {
+    const b = biomeAt(r); if (b !== 'cheese' && b !== 'crystal') continue;
+    for (let c = 0; c < cols; c++) if (Math.random() < 0.03 && grid[r] && grid[r][c] === 'air')
+      mushrooms.push({ row: r, col: c, type: b === 'crystal' ? 'glow' : 'cap', t: Math.random() * Math.PI * 2 });
+  }
+  for (let r = 27; r < 38; r++) for (let c = 0; c < cols; c++)
+    if (Math.random() < 0.04 && grid[r] && grid[r][c] === 'air')
+      waterPools.push({ row: r, col: c, r: 8 + Math.random() * 6 });
+  treasureRooms.clear();
+  for (let baseR = 10; baseR < rows - 5; baseR += 5) {
+    const tc = 1 + Math.floor(Math.random() * (cols - 3));
+    treasureRooms.add(baseR + ',' + tc);
+    const lootPool = ['gem', 'biscuit', 'gold'];
+    for (let dr = 0; dr < 2; dr++) for (let dc = 0; dc < 3; dc++) {
+      const r = baseR + dr, c = tc + dc;
+      if (r >= rows || c >= cols) continue;
+      grid[r][c] = lootPool[Math.floor(Math.random() * 3)];
+    }
+  }
+  petCorpse = null; pet = null; boss = null;
+  if (Math.random() < (0.5 + 0.15 * (skillTree.pet || 0))) {
+    for (let tries = 0; tries < 60; tries++) {
+      const r = 20 + Math.floor(Math.random() * 6), c = Math.floor(Math.random() * cols);
+      if (grid[r] && grid[r][c] === 'air') {
+        petCorpse = { row: r, col: c, x: c * TILE + TILE / 2, y: r * TILE + TILE / 2, t: 0 };
+        break;
+      }
+    }
+  }
   renderUpgrades();
   updateBeamsHud();
   document.getElementById('upgrades').style.display = 'none';
@@ -347,6 +417,45 @@ const SHOP_ITEMS = [
 ];
 let lanternT = 0;        // when > 0, cracked-wall pulse is brighter + glows
 let amuletCharges = 0;   // each charge auto-dodges next cave-in hit
+// Wave 1D state
+let lanternBattery = 100, stalactites = [], ancientPots = [], mushrooms = [], waterPools = [];
+let boss = null, pet = null, petCorpse = null;
+let treasureRooms = new Set();
+let achievementsT = 0, achievementName = '';
+let endlessMode = false, showLegend = false;
+let metaGems = 0, pendingMetaGems = 0;
+let skillTree = { startBag: 0, startStam: 0, startBeams: 0, startSpeed: 0, startGold: 0, hpRing: 0, lootMag: 0, pet: 0, batt: 0, biomeSkip: 0 };
+const SKILL_DEFS = [
+  { id: 'startBag',   name: 'BIGGER BAG',     desc: '+3 slots/lvl',     max: 5, cost: 8 },
+  { id: 'startStam',  name: 'STAMINA',        desc: '+15 stam/lvl',     max: 5, cost: 10 },
+  { id: 'startBeams', name: 'BEAMS',          desc: '+1 beam/lvl',      max: 5, cost: 6 },
+  { id: 'startSpeed', name: 'DRILL SPEED',    desc: '+10%/lvl',         max: 5, cost: 12 },
+  { id: 'startGold',  name: 'GOLDEN SPOON',   desc: '$20/lvl start',    max: 5, cost: 5 },
+  { id: 'hpRing',     name: 'CAVE-IN RING',   desc: '+1 amulet/lvl',    max: 3, cost: 18 },
+  { id: 'lootMag',    name: 'LOOT MAGNET',    desc: 'loot +5%/lvl',     max: 5, cost: 14 },
+  { id: 'pet',        name: 'PUP COMPANION',  desc: 'pet chance up',    max: 3, cost: 20 },
+  { id: 'batt',       name: 'BIG BATTERY',    desc: '+25% lantern/lvl', max: 4, cost: 9 },
+  { id: 'biomeSkip',  name: 'BIOME SCANNER',  desc: 'shows next biome', max: 1, cost: 25 },
+];
+function _loadSkillTree() {
+  try {
+    const raw = JSON.parse(localStorage.getItem('diggers:skillTree')); if (raw) skillTree = Object.assign(skillTree, raw);
+    metaGems = +(localStorage.getItem('diggers:metaGems') || 0);
+  } catch {}
+}
+function _saveSkillTree() { try { localStorage.setItem('diggers:skillTree', JSON.stringify(skillTree)); localStorage.setItem('diggers:metaGems', metaGems); } catch {} }
+_loadSkillTree();
+function _loadRunHistory() { try { return JSON.parse(localStorage.getItem('diggers:runs')) || []; } catch { return []; } }
+function _pushRunHistory(r) { try { const a = _loadRunHistory(); a.unshift(r); while (a.length > 5) a.pop(); localStorage.setItem('diggers:runs', JSON.stringify(a)); } catch {} }
+function _achieve(name) {
+  try {
+    const got = JSON.parse(localStorage.getItem('diggers:achievements')) || {};
+    if (got[name]) return;
+    got[name] = Date.now(); localStorage.setItem('diggers:achievements', JSON.stringify(got));
+    achievementName = '🏆 ' + name; achievementsT = 3.0;
+    sfx.arp([523, 659, 784, 1047, 1319], 'triangle', 0.06, 0.18, 0.1);
+  } catch {}
+}
 
 function openShop(sk) {
   shopOpenWith = sk;
@@ -416,6 +525,8 @@ const keys = new Set();
 window.addEventListener('keydown', (e) => {
   keys.add(e.key.toLowerCase());
   if ((e.key === 'b' || e.key === 'B') && !e.repeat) placeBeam();
+  // Wave 1D: L toggles tile legend
+  if ((e.key === 'l' || e.key === 'L') && !e.repeat) showLegend = !showLegend;
 });
 window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 function placeBeam() {
@@ -485,14 +596,30 @@ function tryMove(dc, dr) {
       return;
     }
     if (info.isLoot) {
-      // Treasure
+      // Treasure — loot magnet skill boosts value
+      const lootMul = 1 + 0.05 * (skillTree.lootMag || 0);
       if (bag < maxBag) {
         bag++;
-        money += info.val;
-        lastPickup += info.val;
-        popup(tileX, tileY - 8, '+$' + info.val, info.golden ? '#ffd23f' : '#5ef38c');
-        sfx.tone(880, 'triangle', 0.1, 0.22);
-        spawnDust(tileX, tileY, info.golden ? '#ffd23f' : '#fffbe6', 10);
+        const finalVal = Math.round(info.val * lootMul);
+        money += finalVal;
+        lastPickup += finalVal;
+        // Rarity tier flair — pop with colored aura
+        const r = info.rarity || 'common';
+        const tier = RARITY[r];
+        popup(tileX, tileY - 8, '+$' + finalVal + (r !== 'common' ? ' [' + tier.tag + ']' : ''), tier.glow);
+        sfx.tone(r === 'legendary' ? 1320 : (r === 'epic' ? 1100 : 880), 'triangle', 0.1, 0.22);
+        if (r === 'legendary') sfx.arp([523, 784, 1047, 1319], 'triangle', 0.06, 0.18, 0.1);
+        spawnDust(tileX, tileY, tier.glow, r === 'legendary' ? 16 : (r === 'epic' ? 12 : 10));
+        // Geode bonus — drops 4 more gems immediately
+        if (info.special === 'geode') {
+          for (let k = 0; k < 4; k++) {
+            money += 60; lastPickup += 60;
+          }
+          popup(tileX, tileY - 24, 'GEODE +5 GEMS!', '#ffd23f');
+          pendingMetaGems += 3; // huge meta drop
+        }
+        // Meta-gem accrual — accumulate per gem-quality pickup
+        if (t === 'gem' || t === 'biscuit') pendingMetaGems += (r === 'epic' ? 2 : 1);
       } else {
         popup(tileX, tileY - 8, 'BAG FULL', '#ff3a3a');
         sfx.tone(220, 'sawtooth', 0.1, 0.2); // bag full
@@ -560,22 +687,70 @@ function tryMove(dc, dr) {
     // shake more for deep / stone / cheese
     const deep = nr / rows;
     if (t === 'stone' || t === 'cheese' || deep > 0.5) shake(2 + deep * 4, 0.18);
+    // Wave 1D: special tile effects post-dig
+    if (info.special === 'spring') {
+      // Bounce 3 tiles in current dig direction (up if no dir)
+      let bounceDr = dr || -1, bounceDc = dc || 0;
+      for (let k = 0; k < 3; k++) {
+        const tr = pug.row + bounceDr, tc = pug.col + bounceDc;
+        if (tr < 0 || tr >= rows || tc < 0 || tc >= cols) break;
+        if (grid[tr][tc] !== 'air') break;
+        pug.row = tr; pug.col = tc;
+      }
+      syncXY();
+      popup(pug.x, pug.y - 20, 'BOING!', '#5ef38c');
+      sfx.tone(880, 'sine', 0.12, 0.22);
+      spawnDust(pug.x, pug.y, '#5ef38c', 8);
+    } else if (info.special === 'crack') {
+      // Drop you 5 tiles down (if open)
+      let dropped = 0;
+      for (let k = 0; k < 5; k++) {
+        const tr = pug.row + 1;
+        if (tr >= rows) break;
+        if (grid[tr][pug.col] !== 'air') break;
+        pug.row = tr; dropped++;
+      }
+      if (dropped > 0) {
+        syncXY();
+        popup(pug.x, pug.y - 20, 'CRACK! ▼' + dropped, '#ff5a3a');
+        sfx.sweep(440, 220, 'sawtooth', 0.18, 0.22);
+        shake(5, 0.3);
+      }
+    } else if (info.special === 'sand') {
+      // Slow dig — costs extra cooldown
+      drillCd *= 2.2;
+      popup(pug.x, pug.y - 20, 'SLOG', '#c8a878');
+    }
+    // Lava hazard — dig through lava costs HP if not fire-resistant
+    if (info.hazard) {
+      const dmg = maxStam * 0.15;
+      stam = Math.max(0, stam - dmg);
+      popup(pug.x, pug.y - 20, 'BURN! -15%', '#ff5a3a');
+      shake(5, 0.25);
+      sfx.tone(220, 'sawtooth', 0.15, 0.2);
+    }
     // Downwell combo: any successful dig (loot picked OR wall broken) counts.
     // Walking through pre-existing air does NOT.
     bumpCombo(pug.x, pug.y);
   }
   if (pug.row > depth) depth = pug.row;
-  // First entry into Cheese Caverns — banner + celebration shake
-  if (!cheeseBiomeEntered && pug.row >= CHEESE_DEPTH_ROW) {
-    cheeseBiomeEntered = true;
-    biomeBannerText = '★ CHEESE CAVERNS ★';
-    biomeBannerColor = '#ffd23f';
+  // Wave 1D: biome-entry banner on every new band
+  const curBiome = biomeAt(pug.row);
+  if (curBiome !== _lastBiome) {
+    _lastBiome = curBiome;
+    biomeBannerText = '★ ' + BIOME_LABELS[curBiome] + ' ★';
+    biomeBannerColor = BIOME_COLORS[curBiome];
     biomeBannerT = 2.4;
     shake(6, 0.4);
     sfx.tone(440, 'triangle', 0.18, 0.22);
     sfx.tone(660, 'triangle', 0.18, 0.22);
     sfx.tone(880, 'triangle', 0.25, 0.18);
   }
+  // Wave 1D: Achievement triggers
+  if (depth === 50 && !_ach.has('DEPTH 50')) { _ach.add('DEPTH 50'); _achieve('DEPTH 50'); }
+  if (depth === 100 && !_ach.has('DEPTH 100')) { _ach.add('DEPTH 100'); _achieve('DEPTH 100'); }
+  if (combo >= 50 && !_ach.has('COMBO 50')) { _ach.add('COMBO 50'); _achieve('COMBO 50'); }
+  if (money >= 1000 && !_ach.has('GOLDEN PUG')) { _ach.add('GOLDEN PUG'); _achieve('GOLDEN PUG'); }
   // surface refill — cache prev display state to avoid touching DOM each move.
   const atSurface = pug.row <= 1;
   if (atSurface) {
@@ -597,6 +772,10 @@ function tryMove(dc, dr) {
   updateHud();
 }
 let _lastUpgradesVisible = null;
+// Wave 1D: tracks last biome so we only banner on transition
+let _lastBiome = 'stone';
+// Wave 1D: in-run achievement-flag set (reset on restart via let _ach = new Set())
+let _ach = new Set();
 
 function renderUpgrades() {
   const e = document.getElementById('upg-buttons');
@@ -680,6 +859,67 @@ function tick(dt) {
     if (comboTimer > COMBO_WINDOW) resetCombo();
   }
   if (comboBannerT > 0) comboBannerT = Math.max(0, comboBannerT - dt);
+  if (achievementsT > 0) achievementsT = Math.max(0, achievementsT - dt);
+  // Wave 1D: lantern drain, ancient pots, pet rescue, pet AI, boss
+  if (pug.row > 2 && lanternBattery > 0) lanternBattery = Math.max(0, lanternBattery - dt * 1.2);
+  for (const pot of ancientPots) {
+    if (pot.smashed) continue;
+    pot.t += dt;
+    if (Math.abs(pot.col - pug.col) <= 1 && Math.abs(pot.row - pug.row) <= 1) {
+      pot.smashed = true;
+      const lc = Math.random() < 0.5 ? 'gold' : (Math.random() < 0.5 ? 'gem' : 'biscuit');
+      const info = TILE_TYPES[lc];
+      money += info.val * 1.5; lastPickup += info.val * 1.5;
+      popup(pot.col * TILE + TILE / 2, pot.row * TILE, '+$' + Math.round(info.val * 1.5) + ' POT!', '#ffd23f');
+      sfx.tone(880, 'triangle', 0.1, 0.22);
+      spawnDust(pot.col * TILE + TILE / 2, pot.row * TILE + TILE / 2, '#c8a878', 14);
+      shake(3, 0.16);
+    }
+  }
+  if (petCorpse && !pet) {
+    petCorpse.t += dt;
+    if (Math.hypot((petCorpse.col - pug.col) * TILE, (petCorpse.row - pug.row) * TILE) < TILE * 1.4) {
+      pet = { x: petCorpse.x, y: petCorpse.y, vx: 0, vy: 0, attackCd: 0, t: 0 };
+      petCorpse = null;
+      popup(pug.x, pug.y - 30, '🐶 PET RESCUED!', '#5ef38c');
+      sfx.arp([523, 659, 784], 'triangle', 0.08, 0.22, 0.12);
+      _achieve('FRIEND FOUND');
+    }
+  }
+  if (pet) {
+    pet.t += dt; pet.attackCd = Math.max(0, pet.attackCd - dt);
+    pet.x += (pug.x - 28 - pet.x) * 6 * dt;
+    pet.y += (pug.y + 4 - pet.y) * 6 * dt;
+    if (ragedShopkeeper && pet.attackCd <= 0) {
+      if (Math.hypot(ragedShopkeeper.x - pet.x, ragedShopkeeper.y - pet.y) < TILE * 1.2) {
+        ragedShopkeeper.x -= ((pug.x - ragedShopkeeper.x) > 0 ? -1 : 1) * TILE * 2;
+        pet.attackCd = 1.8;
+        popup(pet.x, pet.y - 16, 'CHOMP!', '#5ef38c');
+        sfx.tone(440, 'square', 0.06, 0.2);
+      }
+    }
+  }
+  if (!boss && pug.row >= BOSS_DEPTH_ROW) {
+    boss = { x: pug.x + 200, y: pug.y, vx: 0, vy: 0, hp: 30, attackT: 2.0, mode: 'chase', t: 0, tell: 0 };
+    biomeBannerText = '⚠ GIANT GROUND PUG ⚠'; biomeBannerColor = '#ff3a3a'; biomeBannerT = 3.0;
+    shake(10, 0.6); sfx.sweep(220, 60, 'sawtooth', 0.5, 0.3); _achieve('BOSS ENCOUNTER');
+  }
+  if (boss) {
+    boss.t += dt; boss.attackT = Math.max(0, boss.attackT - dt);
+    const dx = pug.x - boss.x, dy = pug.y - boss.y, d = Math.hypot(dx, dy);
+    const SPEED = boss.mode === 'lunge' ? 280 : 140;
+    if (d > 0.001) { boss.x += (dx / d) * SPEED * dt; boss.y += (dy / d) * SPEED * dt; }
+    if (d < 200 && boss.mode === 'chase') { boss.tell += dt; if (boss.tell >= 0.7) { boss.mode = 'lunge'; boss.tell = 0; boss.attackT = 0.9; } }
+    if (boss.mode === 'lunge' && boss.attackT <= 0) { boss.mode = 'chase'; boss.tell = 0; }
+    if (d < TILE * 0.7 && boss.attackT > 0 && boss.mode === 'lunge') {
+      stam = Math.max(0, stam - maxStam * 0.3);
+      boss.mode = 'chase'; boss.tell = 0; boss.attackT = 2;
+      popup(pug.x, pug.y - 26, 'CHOMP! -30%', '#ff3a3a');
+      shake(10, 0.4); sfx.tone(180, 'sawtooth', 0.2, 0.25);
+      resetCombo();
+      if (stam <= 0 && running) { running = false; setTimeout(end, 50); return; }
+    }
+  }
   // particles
   for (let i = particles.length - 1; i >= 0; i--) {
     const p = particles[i];
@@ -1008,6 +1248,38 @@ function render() {
     ctx.fillRect(b.x + 14, b.y - 22, 4, 6);
   }
 
+  // Wave 1D: stalactites + pots + mushrooms + water pools
+  for (const st of stalactites) {
+    const y = st.row * TILE;
+    if (y + TILE < camY || y > camY + H) continue;
+    const x = st.col * TILE + TILE / 2, b = biomeAt(st.row);
+    ctx.fillStyle = b === 'crystal' ? '#b055ff' : (b === 'ice' ? '#9ec8d8' : (b === 'volcanic' ? '#5a5a72' : '#6a5a4a'));
+    ctx.beginPath(); ctx.moveTo(x - 4, y); ctx.lineTo(x + 4, y); ctx.lineTo(x, y + st.len); ctx.closePath(); ctx.fill();
+  }
+  for (const pot of ancientPots) {
+    if (pot.smashed) continue;
+    const y = pot.row * TILE + TILE / 2;
+    if (y < camY - 20 || y > camY + H + 20) continue;
+    const x = pot.col * TILE + TILE / 2;
+    ctx.fillStyle = '#a06a3a';
+    ctx.beginPath(); ctx.ellipse(x, y, 8, 10, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#8a4a1c'; ctx.fillRect(x - 6, y - 9, 12, 3);
+  }
+  for (const m of mushrooms) {
+    const x = m.col * TILE + TILE / 2, y = m.row * TILE + TILE - 4;
+    if (y < camY || y > camY + H) continue;
+    m.t += 0.02; const sway = Math.sin(m.t) * 1;
+    ctx.fillStyle = '#1a0d05'; ctx.fillRect(x - 1 + sway, y - 6, 2, 6);
+    ctx.fillStyle = m.type === 'glow' ? '#b055ff' : '#ff5a3a';
+    ctx.beginPath(); ctx.ellipse(x + sway, y - 6, 5, 3, 0, 0, Math.PI * 2); ctx.fill();
+  }
+  for (const w of waterPools) {
+    const y = w.row * TILE + TILE - 4;
+    if (y < camY || y > camY + H) continue;
+    const x = w.col * TILE + TILE / 2;
+    ctx.fillStyle = 'rgba(76,201,240,0.4)';
+    ctx.beginPath(); ctx.ellipse(x, y, w.r, w.r * 0.4, 0, 0, Math.PI * 2); ctx.fill();
+  }
   // Support beams on the side walls (decorative)
   for (const s of supports) {
     const y = s.row * TILE;
@@ -1035,6 +1307,8 @@ function render() {
   if (supervisor) {
     const sy = TILE - 6;
     const bob = Math.sin(supervisor.t * 6) * 1;
+    // depth3D: shadow under supervisor
+    _depthShadow(ctx, supervisor.x, sy + 2 + bob, 14, { alpha: 0.4 });
     drawPug(ctx, supervisor.x, sy - 12 + bob, { size: 24, hat: true, hatColor: '#ffd23f' });
     // clipboard
     ctx.fillStyle = '#fff'; ctx.fillRect(supervisor.x - 2, sy - 2 + bob, 5, 6);
@@ -1051,12 +1325,15 @@ function render() {
     ctx.globalAlpha = 1;
   }
 
-  // Tunnel-edge shadow vignette around player (only when underground)
+  // Tunnel-edge shadow vignette around player (battery-aware see-distance)
   if (pug.row > 2) {
-    const radius = TILE * 3.2;
-    const grad = ctx.createRadialGradient(pug.x, pug.y, radius * 0.4, pug.x, pug.y, radius * 2.2);
+    const batt = lanternBattery / (100 * (1 + 0.25 * (skillTree.batt || 0)));
+    const inner = TILE * (2.6 + batt * 0.6);
+    const outer = TILE * (4.6 - batt * 0.8);
+    const darkness = 0.55 + (1 - batt) * 0.35;
+    const grad = ctx.createRadialGradient(pug.x, pug.y, inner * 0.4, pug.x, pug.y, outer);
     grad.addColorStop(0, 'rgba(0,0,0,0)');
-    grad.addColorStop(1, 'rgba(0,0,0,0.55)');
+    grad.addColorStop(1, `rgba(0,0,0,${darkness})`);
     ctx.fillStyle = grad;
     ctx.fillRect(0, camY, W, H);
   }
@@ -1124,6 +1401,8 @@ function render() {
     ctx.fillRect(sx + 15, sy - 11, 3, 3);
     // shopkeeper pug
     const bob = Math.sin(sk.t * 2) * 1.5;
+    // depth3D shadow underneath
+    _depthShadow(ctx, sx, sy + 14 + bob, 16, { alpha: 0.45 });
     drawPug(ctx, sx, sy + bob, { size: 26, body: '#c8a06a', hat: true, hatColor: '#5ef38c' });
     // "$" sign hovering above
     ctx.fillStyle = '#ffd23f';
@@ -1152,6 +1431,8 @@ function render() {
     rg.addColorStop(1, 'rgba(255,58,58,0)');
     ctx.fillStyle = rg;
     ctx.beginPath(); ctx.arc(rh.x, rh.y, 50, 0, Math.PI * 2); ctx.fill();
+    // depth3D shadow underneath the raged hunter
+    _depthShadow(ctx, rh.x, rh.y + 14, 18, { alpha: 0.5 });
     // body
     drawPug(ctx, rh.x, rh.y, { size: 30, body: '#5a1a1a' });
     // glowing red eyes (override the pug face)
@@ -1168,17 +1449,57 @@ function render() {
     ctx.fillText('!', rh.x, rh.y - 22);
     ctx.shadowBlur = 0;
   }
+  // depth3D shadow under the pug — gives him weight on the tiles.
+  _depthShadow(ctx, pug.x, pug.y + 14, 18, { alpha: 0.5 });
+  // Pet corpse, pet, boss (compact)
+  if (petCorpse) {
+    drawPug(ctx, petCorpse.x, petCorpse.y, { size: 22, body: '#5a5a5a', mask: '#3a3a3a' });
+    ctx.fillStyle = '#5ef38c'; ctx.font = "bold 11px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText('?', petCorpse.x, petCorpse.y - 18);
+  }
+  if (pet) {
+    drawPug(ctx, pet.x, pet.y, { size: 20, body: '#fafaff', mask: '#a8a8c8' });
+    ctx.fillStyle = '#ff3aa1'; ctx.fillRect(pet.x - 5, pet.y - 14, 10, 4);
+  }
+  if (boss) {
+    const tp = 0.4 + 0.6 * Math.sin(boss.t * 12);
+    if (boss.tell > 0 || boss.mode === 'lunge') {
+      ctx.strokeStyle = `rgba(255,58,58,${0.4 + tp * 0.4})`; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.arc(boss.x, boss.y, 60 + boss.tell * 18, 0, Math.PI * 2); ctx.stroke();
+    }
+    drawPug(ctx, boss.x, boss.y, { size: 72, body: '#5a1a1a', mask: '#1a0d05' });
+    ctx.fillStyle = `rgba(255,58,58,${0.7 + tp * 0.3})`;
+    ctx.fillRect(boss.x - 14, boss.y - 8, 8, 8); ctx.fillRect(boss.x + 6, boss.y - 8, 8, 8);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(boss.x - 12, boss.y - 6, 4, 4); ctx.fillRect(boss.x + 8, boss.y - 6, 4, 4);
+  }
   // Pug — high-detail digger with yellow hard hat
   drawPug(ctx, pug.x, pug.y, { size: 30, hat: true, hatColor: '#ffd23f' });
-  // helmet headlamp glow when underground
+  // Helmet headlamp glow when underground (battery-aware — drains over time)
   if (pug.row > 2) {
-    const lg = ctx.createRadialGradient(pug.x, pug.y - 8, 4, pug.x, pug.y - 8, 60);
-    lg.addColorStop(0, 'rgba(255,240,180,0.45)');
-    lg.addColorStop(1, 'rgba(255,240,180,0)');
-    ctx.fillStyle = lg;
-    ctx.beginPath(); ctx.arc(pug.x, pug.y - 8, 60, 0, Math.PI * 2); ctx.fill();
+    const batt = lanternBattery / (100 * (1 + 0.25 * (skillTree.batt || 0)));
+    const radius = 30 + batt * 50; // shrinks as battery dies
+    if (radius > 30) {
+      const lg = ctx.createRadialGradient(pug.x, pug.y - 8, 4, pug.x, pug.y - 8, radius);
+      lg.addColorStop(0, `rgba(255,240,180,${0.2 + batt * 0.35})`);
+      lg.addColorStop(1, 'rgba(255,240,180,0)');
+      ctx.fillStyle = lg;
+      ctx.beginPath(); ctx.arc(pug.x, pug.y - 8, radius, 0, Math.PI * 2); ctx.fill();
+    }
   }
   ctx.restore();
+
+  // depth3D: lantern lighting overlay around the player when underground.
+  // Subtle ambient darkness + a warm radial light at the player's screen pos
+  // gives a "I have a lamp in the dark" depth feel. Tuned light so it never
+  // washes out the existing biome tints below.
+  if (pug.row > 2) {
+    const screenPx = pug.x;
+    const screenPy = pug.y - camY;
+    _depthLighting(ctx, [
+      { x: screenPx, y: screenPy - 6, radius: 180, color: '255,228,150', intensity: 0.7 },
+    ], 0.15);
+  }
 
   // CHEESE CAVERNS biome screen tint when player is deep
   if (pug.row >= CHEESE_DEPTH_ROW) {
@@ -1265,18 +1586,72 @@ function render() {
     ctx.shadowBlur = 0;
     ctx.restore();
   }
-  // Depth indicator (right side) — pulses on low stam
+  // Depth indicator (right side) — pulses on low stam, draws biome bands
   const lowStam = stam / maxStam < 0.25;
   const stamPulse = lowStam ? (0.6 + 0.4 * Math.sin(performance.now() * 0.014)) : 1;
-  ctx.fillStyle = 'rgba(0,0,0,0.6)';
-  ctx.fillRect(W - 30, 80, 18, H - 160);
-  ctx.fillStyle = lowStam ? '#ff3a3a' : '#5ef38c';
-  ctx.globalAlpha = stamPulse;
-  const k = depth / rows;
-  ctx.fillRect(W - 30, 80, 18, (H - 160) * k);
+  const baseX = W - 30, baseY = 80, baseH = H - 160;
+  ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(baseX, baseY, 18, baseH);
+  for (const [end, b] of [[12, 'stone'], [25, 'cheese'], [40, 'ice'], [55, 'volcanic'], [110, 'crystal']]) {
+    ctx.fillStyle = BIOME_COLORS[b] + '33';
+    ctx.fillRect(baseX, baseY + baseH * (end / 110) - 4, 18, 4);
+  }
+  ctx.fillStyle = lowStam ? '#ff3a3a' : '#5ef38c'; ctx.globalAlpha = stamPulse;
+  ctx.fillRect(baseX, baseY, 18, baseH * (depth / 110));
   ctx.globalAlpha = 1;
   ctx.fillStyle = '#fff'; ctx.font = "9px 'Press Start 2P', monospace"; ctx.textAlign = 'right';
   ctx.fillText('DEPTH', W - 14, 72);
+  const battPct = lanternBattery / (100 * (1 + 0.25 * (skillTree.batt || 0)));
+  ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(W - 52, baseY, 10, baseH);
+  ctx.fillStyle = battPct < 0.25 ? '#ff5a3a' : '#ffd23f'; ctx.fillRect(W - 52, baseY, 10, baseH * battPct);
+  ctx.fillStyle = '#fff'; ctx.font = "7px 'Press Start 2P', monospace"; ctx.fillText('BATT', W - 42, 72);
+  drawMinimap();
+  if (showLegend) drawTileLegend();
+  if (achievementsT > 0 && achievementName) {
+    const a = Math.min(1, achievementsT / 0.5);
+    ctx.fillStyle = `rgba(0,0,0,${0.7 * a})`; ctx.fillRect(W / 2 - 130, 8, 260, 28);
+    ctx.fillStyle = `rgba(255,210,63,${a})`;
+    ctx.font = "bold 11px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText(achievementName, W / 2, 26);
+  }
+  if (boss && boss.hp > 0) {
+    ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(W / 2 - 100, H - 64, 200, 18);
+    ctx.fillStyle = '#ff3a3a'; ctx.fillRect(W / 2 - 98, H - 62, 196 * (boss.hp / 30), 14);
+    ctx.fillStyle = '#fff'; ctx.font = "8px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText('GIANT GROUND PUG', W / 2, H - 72);
+  }
+}
+function drawMinimap() {
+  const w = 90, h = 60, x = W - w - 12, y = 12, biome = biomeAt(pug.row);
+  ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = BIOME_COLORS[biome]; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w, h);
+  ctx.fillStyle = BIOME_COLORS[biome]; ctx.font = "6px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+  ctx.fillText(BIOME_LABELS[biome], x + w / 2, y - 2);
+  const startR = Math.max(0, pug.row - 12), endR = Math.min(rows - 1, pug.row + 18);
+  const sx = w / cols, sy = h / (endR - startR + 1);
+  for (let r = startR; r <= endR; r++) for (let c = 0; c < cols; c++) {
+    const tt = grid[r][c]; if (tt === 'air') continue;
+    const info = TILE_TYPES[tt];
+    ctx.fillStyle = info.isLoot ? '#ffd23f' : (info.color || '#5a3a1c');
+    ctx.fillRect(x + c * sx, y + (r - startR) * sy, sx + 0.5, sy + 0.5);
+  }
+  ctx.fillStyle = '#5ef38c'; ctx.fillRect(x + pug.col * sx - 1, y + (pug.row - startR) * sy - 1, sx + 2, sy + 2);
+  if (boss) {
+    const br = (boss.y / TILE) | 0, bc = (boss.x / TILE) | 0;
+    if (br >= startR && br <= endR) { ctx.fillStyle = '#ff3a3a'; ctx.fillRect(x + bc * sx - 1, y + (br - startR) * sy - 1, sx + 2, sy + 2); }
+  }
+}
+const _LEGEND = [['#6b3a1c','DIRT 1'],['#5a5a72','STONE 2'],['#ffd23f','CHEESE/GOLD'],['#9ec8d8','ICE'],['#ff5a3a','LAVA -hp'],['#b055ff','CRYSTAL'],['#5ef38c','SPRING +3'],['#4a3a2a','CRACK ▼5'],['#ffd9a8','SAND slow'],['#ffd23f','GEODE +5']];
+function drawTileLegend() {
+  const w = 130, h = _LEGEND.length * 12 + 22, x = 12, y = H / 2 - h / 2;
+  ctx.fillStyle = 'rgba(0,0,0,0.8)'; ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = '#ffd23f'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w, h);
+  ctx.fillStyle = '#ffd23f'; ctx.font = "7px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+  ctx.fillText('TILE LEGEND', x + w / 2, y + 12);
+  ctx.font = "6px 'Press Start 2P', monospace"; ctx.textAlign = 'left';
+  for (let i = 0; i < _LEGEND.length; i++) {
+    ctx.fillStyle = _LEGEND[i][0]; ctx.fillRect(x + 6, y + 20 + i * 12, 6, 6);
+    ctx.fillStyle = '#fff'; ctx.fillText(_LEGEND[i][1], x + 18, y + 25 + i * 12);
+  }
 }
 
 // Perf: cache DOM refs + prev values; only touch DOM when something changed.
@@ -1342,9 +1717,17 @@ function end() {
   const _endOv = document.getElementById('end-overlay');
   if (_endOv && !_endOv.hidden) { running = false; return; }
   running = false;
+  // Wave 1D: bank meta gems
+  metaGems += pendingMetaGems;
+  try { localStorage.setItem('diggers:metaGems', metaGems); } catch {}
+  // Wave 1D: record run history (last 5)
+  const cause = ragedShopkeeper ? 'mauled by shopkeeper' : (boss ? 'crushed by giant pug' : 'collapsed exhausted');
+  _pushRunHistory({ depth, money, cause, time: Date.now() });
   sfx.sweep(330, 80, 'sawtooth', 0.5, 0.22);
   document.getElementById('end-money').textContent = '$' + money;
   document.getElementById('end-depth').textContent = depth;
+  const _gemEl = document.getElementById('end-meta-gems');
+  if (_gemEl) _gemEl.textContent = '+' + pendingMetaGems + ' gems banked (total: ' + metaGems + ')';
   const { isNewBest, current } = submitRun('dungeon-diggers', { score: money, money, depth });
   const bestEl = document.getElementById('end-best');
   if (bestEl) {
@@ -1517,4 +1900,58 @@ if (_startOv) {
     };
     new MutationObserver(endUpdate).observe(endOv, { attributes: true, attributeFilter: ['hidden','class'] });
   }
+})();
+
+// Wave 1D: skill tree + run history + endless toggle wiring
+(function _wave1DWiring() {
+  const refreshSkillTree = () => {
+    const list = document.getElementById('skilltree-list');
+    const gemsEl = document.getElementById('meta-gems');
+    if (gemsEl) gemsEl.textContent = metaGems;
+    if (!list) return;
+    list.innerHTML = '';
+    for (const sk of SKILL_DEFS) {
+      const lvl = skillTree[sk.id] || 0, isMax = lvl >= sk.max;
+      const cost = sk.cost * (lvl + 1), canBuy = !isMax && metaGems >= cost;
+      const btn = document.createElement('button');
+      btn.type = 'button'; btn.className = 'dd-skill-btn'; btn.disabled = !canBuy;
+      btn.innerHTML = `<b>${sk.name}</b><br><span class="lvl">Lv ${lvl}/${sk.max}</span><span class="cost">${isMax ? 'MAX' : cost + '💎'}</span><br><i style="opacity:0.7;">${sk.desc}</i>`;
+      btn.addEventListener('click', () => {
+        if (!canBuy) return;
+        metaGems -= cost; skillTree[sk.id] = lvl + 1; _saveSkillTree(); refreshSkillTree();
+      });
+      list.appendChild(btn);
+    }
+  };
+  const refreshHistory = () => {
+    const list = document.getElementById('hist-list');
+    if (!list) return;
+    const hist = _loadRunHistory();
+    list.innerHTML = hist.length ? '' : '<li><i>No runs yet — go dig!</i></li>';
+    for (const r of hist) {
+      const li = document.createElement('li');
+      li.textContent = `▼${r.depth}  $${r.money}  · ${r.cause}`;
+      list.appendChild(li);
+    }
+  };
+  for (const tab of document.querySelectorAll('.dd-tab')) {
+    tab.addEventListener('click', () => {
+      for (const t of document.querySelectorAll('.dd-tab')) t.classList.remove('is-on');
+      tab.classList.add('is-on');
+      for (const p of document.querySelectorAll('.dd-panel')) p.classList.remove('is-on');
+      document.getElementById('panel-' + tab.dataset.tab).classList.add('is-on');
+      if (tab.dataset.tab === 'tree') refreshSkillTree();
+      if (tab.dataset.tab === 'hist') refreshHistory();
+    });
+  }
+  const endBtn = document.getElementById('endless-toggle');
+  if (endBtn) endBtn.addEventListener('click', () => {
+    endlessMode = !endlessMode;
+    endBtn.textContent = 'ENDLESS: ' + (endlessMode ? 'ON' : 'OFF');
+  });
+  refreshSkillTree(); refreshHistory();
+  const startOv = document.getElementById('overlay');
+  if (startOv) new MutationObserver(() => {
+    if (!startOv.hidden && !startOv.classList.contains('is-hidden')) { refreshSkillTree(); refreshHistory(); }
+  }).observe(startOv, { attributes: true, attributeFilter: ['hidden','class'] });
 })();

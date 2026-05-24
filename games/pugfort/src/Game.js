@@ -86,11 +86,19 @@ export class Game {
     this.hud = new Hud();
   }
 
-  async start() {
+  async start(opts = {}) {
     this._teardown();
-
+    const mapId = opts.mapId || localStorage.getItem('pugfort:map') || 'courtyard';
+    const endless = !!opts.endless || localStorage.getItem('pugfort:endless') === '1';
+    this._endless = endless;
+    // Different maps scale differently — ROOFTOP is smaller (vertical), UNDERGROUND
+    // is wider/taller-ratio with smaller-feeling FOV; COURTYARD is the default.
+    let mapW = 3600, mapH = 2700;
+    if (mapId === 'rooftop') { mapW = 3200; mapH = 2400; }
+    else if (mapId === 'underground') { mapW = 3000; mapH = 2400; }
+    this.mapId = mapId;
     // Bigger map
-    this.world = new World({ width: 3600, height: 2700 });
+    this.world = new World({ width: mapW, height: mapH, mapId });
     this.app.stage.addChild(this.world.container);
     // Zoom-in for closer FOV — feels more intimate/cinematic
     this.app.stage.scale.set(1.5);
@@ -183,6 +191,9 @@ export class Game {
     this._updateBuild();
     this._updateBuildables(dt);
     this._updateWood(dt);
+    this._updateDepots(dt);
+    if (this.world.updateWorldFx) this.world.updateWorldFx(dt, this.matchTime);
+    if (this.world.updateLamps)   this.world.updateLamps(dt);
     if (this.generator) this.generator.update(dt);
     this._updateCamera();
     this._updateHud();
@@ -233,7 +244,8 @@ export class Game {
       this.phaseTotal = _dayDurationFor(this.nightsSurvived);
       this.phaseT = 0;
       this.wood.scatter(18, this.world.width, this.world.height);
-      this.hud.toastMessage(`☀️ DAY ${this.nightIdx + 1} — fortify!`, 'good');
+      if (this.world.refillResourceDepots) this.world.refillResourceDepots();
+      this.hud.toastMessage(`☀️ DAY ${this.nightIdx + 1} — fortify! Depots restocked.`, 'good');
       Sfx.phaseDay();
     }
     const k = this.phaseT / this.phaseTotal;
@@ -490,6 +502,9 @@ export class Game {
     else                 { x = this.world.width - M; y = Math.random() * this.world.height; }
     const type = pickZombieType(this.nightIdx);
     this._spawnZombieAt(x, y, type);
+    // Tell the World to pulse the nearest portal — visual feedback that
+    // "the zombies came from over there".
+    if (this.world.pingNearestPortal) this.world.pingNearestPortal(x, y);
   }
 
   _spawnZombieAt(x, y, type) {
@@ -614,9 +629,12 @@ export class Game {
     this.hud.toastMessage('+25 🔩 +12 💣 +10 🔌', 'good');
     this._spawnDeathPoof(boss.x, boss.y, 0xc8281f);
     boss.destroy();
-    // Boss death = instantly win the night (kills all remaining zombies)
+    // Boss death = instantly win the night (kills all remaining zombies).
+    // In endless mode we let the player keep going indefinitely; the boss
+    // becomes a milestone rather than a win condition.
     for (const z of this.zombies) z.alive = false;
-    this.nightsSurvived = TOTAL_NIGHTS; // triggers SUCH SURVIVAL on next check
+    if (!this._endless) this.nightsSurvived = TOTAL_NIGHTS; // triggers SUCH SURVIVAL on next check
+    else this.hud.toastMessage('★ BOSS DEFEATED — ENDLESS MODE CONTINUES ★', 'good');
   }
 
   _spawnRing(x, y, targetR, color = COLORS.neonCyan) {
@@ -949,7 +967,8 @@ export class Game {
           if (!z.alive) continue;
           const dx = z.x - b.x, dy = z.y - b.y;
           if (dx * dx + dy * dy < (z.radius + 8) * (z.radius + 8)) {
-            z.takeDamage(b.damage);
+            const pa = Math.atan2(b.vy, b.vx);
+            z.takeDamage(b.damage, pa);
             hit = true; break;
           }
         }
@@ -1020,7 +1039,9 @@ export class Game {
       : this.zombies;
     this.projectiles.update(dt, targets, this.build.placed,
       (p, z) => {
-        z.takeDamage(p.damage);
+        // Pass projectile travel angle so shielded zombies can block frontals.
+        const pa = Math.atan2(p.vy, p.vx);
+        z.takeDamage(p.damage, pa);
         if (z === this.boss) Sfx.zombieHit();
       },
       (p, w) => { /* could damage wall */ });
@@ -1043,7 +1064,12 @@ export class Game {
     if (this.input.takeEscPress())   { this.build.cancel(); this.hud.setBuildActive(false); }
     if (this.input.takeQPress()) this.build.rotate(-Math.PI / 8);
     if (this.input.takeEPress()) this.build.rotate(Math.PI / 8);
-    if (this.input.takeRPress()) this.build.rotate(Math.PI / 2);
+    // R-key is dual-purpose: when in build mode it snaps rotation 90°; outside
+    // build mode it triggers REPAIR ALL on damaged structures.
+    if (this.input.takeRPress()) {
+      if (this.build.selected) this.build.rotate(Math.PI / 2);
+      else this._repairAllWalls();
+    }
     if (!this.build.selected) return;
 
     const screen = this.input.mouse;
@@ -1193,6 +1219,99 @@ export class Game {
 
   _updateWood(dt) { this.wood.update(dt); }
 
+  // Resource depot foraging — only active during the DAY phase. Stand next to
+  // a depot for 1.5s to drain it (gives the player a goal between waves).
+  _updateDepots(dt) {
+    if (this.phase !== 'day') {
+      this._depotProgressT = 0;
+      this._depotCurrent = null;
+      return;
+    }
+    if (!this.player.alive || !this.world.depotAt) return;
+    const d = this.world.depotAt(this.player.x, this.player.y);
+    if (!d) {
+      this._depotProgressT = 0;
+      this._depotCurrent = null;
+      return;
+    }
+    if (this._depotCurrent !== d) {
+      this._depotCurrent = d;
+      this._depotProgressT = 0;
+      this.hud.toastMessage(`Foraging ${d.kind}...`, 'good');
+    }
+    this._depotProgressT = (this._depotProgressT || 0) + dt;
+    if (this._depotProgressT >= 1.5) {
+      const result = this.world.drainDepot(d);
+      if (result) {
+        const key = result.kind;
+        this.resources[key] = (this.resources[key] || 0) + result.amount;
+        this.hud.toastMessage(`+${result.amount} ${MATERIALS[key].icon} from depot!`, 'good');
+        this._spawnDepotPop(d.x, d.y, key, result.amount);
+        Sfx.woodCollect?.();
+      }
+      this._depotProgressT = 0;
+      this._depotCurrent = null;
+    }
+  }
+
+  _spawnDepotPop(x, y, key, amount) {
+    // Tiny burst of pickup particles + flying number
+    const colors = { wood: 0xc8a878, scrap: 0xc8c8d0, electronics: 0xffd23f, explosives: 0xff5a3a };
+    const c = colors[key] || 0xffffff;
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      const sp = 80 + Math.random() * 40;
+      const g = new Graphics();
+      g.rect(-2, -2, 4, 4).fill(c);
+      g.x = x; g.y = y;
+      this.world.effectsLayer.addChild(g);
+      let life = 0.6, t = 0;
+      const vx = Math.cos(a) * sp, vy = Math.sin(a) * sp - 30;
+      const tick = () => {
+        t += 1 / 60;
+        if (t >= life) { g.destroy(); return; }
+        g.x += vx / 60; g.y += vy / 60;
+        g.alpha = Math.max(0, 1 - t / life);
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }
+  }
+
+  // Repair-all-walls (R key) — spends materials proportional to total damage
+  // across all placed buildables. Skips if nothing damaged.
+  _repairAllWalls() {
+    let totalDamage = 0;
+    const repairable = [];
+    for (const p of this.build.placed) {
+      if (p.hp == null || p.maxHp == null) continue;
+      const missing = Math.max(0, p.maxHp - p.hp);
+      if (missing > 0.5) {
+        totalDamage += missing;
+        repairable.push({ p, missing });
+      }
+    }
+    if (totalDamage <= 0) {
+      this.hud.toastMessage('All buildings already at full HP.', 'good');
+      return;
+    }
+    // Cost: 1 wood per 10 HP repaired (rounded up); +1 scrap per 50 HP
+    const woodCost = Math.ceil(totalDamage / 10);
+    const scrapCost = Math.ceil(totalDamage / 50);
+    if ((this.resources.wood || 0) < woodCost || (this.resources.scrap || 0) < scrapCost) {
+      this.hud.toastMessage(`Need ${woodCost}🪵 ${scrapCost}🔩 to repair all`, 'warn');
+      return;
+    }
+    this.resources.wood -= woodCost;
+    this.resources.scrap -= scrapCost;
+    for (const { p } of repairable) {
+      p.hp = p.maxHp;
+      this.build.refreshDamage(p);
+    }
+    this.hud.toastMessage(`✚ REPAIRED ${repairable.length} structures (-${woodCost}🪵 -${scrapCost}🔩)`, 'good');
+    Sfx.buildPlace?.();
+  }
+
   _updateCamera() {
     const cam = this.app.stage;
     const screen = this.app.screen;
@@ -1277,7 +1396,7 @@ export class Game {
       }
       return;
     }
-    if (this.nightsSurvived >= TOTAL_NIGHTS) { this._endMatch(true); }
+    if (!this._endless && this.nightsSurvived >= TOTAL_NIGHTS) { this._endMatch(true); }
   }
 
   _endMatch(won, loseReason = null) {

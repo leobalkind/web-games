@@ -13,6 +13,7 @@ import { createKillFeed } from '../../src/shared/killFeed.js';
 import { createSettingsMenu } from '../../src/shared/settingsMenu.js';
 import { showOrientationHint } from '../../src/shared/orientationHint.js';
 import { getShakeMul as _shakeMul } from '../../src/shared/screenShake.js';
+import { drawShadow as _depthShadow, depthSort as _depthSort, isReducedMotion as _depthReduced } from '../../src/shared/depth3D.js';
 
 // Scrolling kill feed (top-right) — pushed when buildings are destroyed.
 const __pugzillaFeed = createKillFeed({ maxLines: 5, lifespan: 4500 });
@@ -47,6 +48,19 @@ const SKINS = [
   { id: 'void',    name: 'VOID',     color: '#0a0716', ear: '#3a2a5a',
     unlock: { type: 'buildings', value: 100 }, perk: 'rage2x',
     desc: 'Gains rage 2× faster' },
+  // === NEW v1.6 SKINS — huge thresholds ===
+  { id: 'neon',    name: 'NEON',     color: '#ff3aa1', ear: '#b0207a',
+    unlock: { type: 'score',  value: 75000 }, perk: 'comboBoost',
+    desc: 'Combo tiers kick in 1 sooner' },
+  { id: 'chrome',  name: 'CHROME',   color: '#dde6f0', ear: '#8d99a8',
+    unlock: { type: 'score',  value: 100000 }, perk: 'missileReflect',
+    desc: '20% chance to reflect missiles' },
+  { id: 'rainbow', name: 'RAINBOW',  color: '#ff5050', ear: '#4cc9f0',
+    unlock: { type: 'score',  value: 150000 }, perk: 'allPerks',
+    desc: 'ALL passive perks at half strength' },
+  { id: 'demon',   name: 'DEMON',    color: '#8a0a14', ear: '#5a0410',
+    unlock: { type: 'buildings', value: 300 }, perk: 'fireTrail',
+    desc: 'Leaves fire trail damaging vehicles' },
 ];
 const SKINS_BY_ID = Object.fromEntries(SKINS.map((s) => [s.id, s]));
 
@@ -130,14 +144,40 @@ window.addEventListener('resize', resize); resize();
 
 const WORLD_W = 2200, WORLD_H = 1600;
 const FORMS = [
-  { name: 'Tiny Pugzilla',   r: 28, smash: 1, color: '#c8854a' },
-  { name: 'Chonk Pugzilla',  r: 40, smash: 2, color: '#eac888' },
-  { name: 'Mega Pugzilla',   r: 56, smash: 3, color: '#ff8e3c' },
-  { name: 'GIGA-BORK GOD',   r: 78, smash: 5, color: '#b055ff' },
+  { name: 'Tiny Pugzilla',   r: 28, smash: 1, color: '#c8854a', passive: null },
+  { name: 'Chonk Pugzilla',  r: 40, smash: 2, color: '#eac888', passive: 'extraReach' },     // +30% smash reach
+  { name: 'Mega Pugzilla',   r: 56, smash: 3, color: '#ff8e3c', passive: 'titanBork' },      // bork radius +20%
+  { name: 'GIGA-BORK GOD',   r: 78, smash: 5, color: '#b055ff', passive: 'kaijuBreath' },    // fire breath aura damages
 ];
 
+// === ENVIRONMENTS — 3 selectable cities ===
+const ENVIRONMENTS = {
+  downtown: { name: 'DOWNTOWN', desc: 'classic city · all types', skyTop: '#3a1a4a', skyMid: '#52223a', skyBot: '#22103f', ground: '#3a2a5a', road: '#221836', roadEdge: '#4a3a6a' },
+  suburbs:  { name: 'SUBURBS',  desc: 'tiny houses · weaker air', skyTop: '#5a3a2a', skyMid: '#7a4a3a', skyBot: '#3a2010', ground: '#3a4a2a', road: '#2a3a1a', roadEdge: '#4a5a3a' },
+  docks:    { name: 'DOCKS',    desc: 'cranes · ships · less HP', skyTop: '#1a3a5a', skyMid: '#2a5a7a', skyBot: '#0a2030', ground: '#2a4a5a', road: '#1a2a3a', roadEdge: '#3a5a7a' },
+};
+let chosenEnvId = 'downtown';
+function getEnv() { return ENVIRONMENTS[chosenEnvId] || ENVIRONMENTS.downtown; }
+
+// Threat level: 1..10. Escalates from waves of military.
+let threatLevel = 1;
+let threatT = 0;
+// SUPER MECH mini-boss state (spawns at threat level 10)
+let mech = null; // { x, y, hp, shieldT, missileCd, dieT }
+let mechBannerT = 0;
+
 let pug, buildings, vehicles, helicopters, missiles, particles, powerups, score, smashed, eaten, hp, formIdx, borkCd, cam, running;
+let jets = [], tanks = [], buses = [];
+let fireTrail = []; // {x,y,t,life}
+let evoCelebrateT = 0, evoCelebrateName = '';
 let combo = 0, comboT = 0, dmgBoostT = 0;
+// Endless / lifetime tracking
+let comboMaxThisRun = 0;
+// Combo "powers" — short-lived buffs unlocked at chain milestones.
+// 5× = double-bork radius 3s, 10× = invincibility 2s, 20× = NUKE option.
+let comboDoubleBorkT = 0;
+let comboInvincibleT = 0;
+let nukeAvailable = false;
 // Combo-flash overlay (center-screen) — { tier, t, life }
 let comboFlash = null;
 function comboFlashPopup(tier) {
@@ -203,8 +243,17 @@ function reset() {
   buildings = [];
   for (let i = 0; i < 80; i++) buildings.push(makeBuilding());
   vehicles = []; helicopters = []; missiles = []; particles = []; powerups = [];
+  jets = []; tanks = []; buses = [];
   for (let i = 0; i < 18; i++) spawnVehicle();
-  for (let i = 0; i < 3; i++) spawnHelicopter();
+  // Suburbs starts with no helicopter; downtown with 3; docks with 1
+  const heliN = chosenEnvId === 'suburbs' ? 0 : (chosenEnvId === 'docks' ? 1 : 3);
+  for (let i = 0; i < heliN; i++) spawnHelicopter();
+  // Threat reset
+  threatLevel = 1; threatT = 0; mech = null; mechBannerT = 0;
+  comboMaxThisRun = 0;
+  comboDoubleBorkT = 0; comboInvincibleT = 0; nukeAvailable = false;
+  evoCelebrateT = 0; evoCelebrateName = '';
+  fireTrail = [];
   score = 0; smashed = 0; eaten = 0; hp = 100; borkCd = 0;
   combo = 0; comboT = 0; dmgBoostT = 0; _comboTier = 0; comboFlash = null;
   cam = { x: pug.x, y: pug.y };
@@ -245,14 +294,31 @@ function reset() {
   renderShopChips();
 }
 function makeBuilding() {
-  // 8% bank, 10% gas, 8% hospital, 25% small house, rest offices
+  // Environment-aware mix:
+  //   SUBURBS: tons of houses, fewer offices.
+  //   DOCKS:   fewer buildings, mostly warehouses (rendered as offices).
+  //   DOWNTOWN: original mix.
   const r = Math.random();
   let typeId;
-  if (r < 0.08) typeId = 'bank';
-  else if (r < 0.18) typeId = 'gas';
-  else if (r < 0.26) typeId = 'hospital';
-  else if (r < 0.50) typeId = 'house';
-  else typeId = Math.random() < 0.5 ? 'office' : 'office2';
+  if (chosenEnvId === 'suburbs') {
+    if (r < 0.05) typeId = 'bank';
+    else if (r < 0.10) typeId = 'gas';
+    else if (r < 0.15) typeId = 'hospital';
+    else if (r < 0.75) typeId = 'house';
+    else typeId = 'office';
+  } else if (chosenEnvId === 'docks') {
+    if (r < 0.05) typeId = 'bank';
+    else if (r < 0.12) typeId = 'gas';
+    else if (r < 0.20) typeId = 'hospital';
+    else if (r < 0.30) typeId = 'house';
+    else typeId = Math.random() < 0.5 ? 'office' : 'office2';
+  } else {
+    if (r < 0.08) typeId = 'bank';
+    else if (r < 0.18) typeId = 'gas';
+    else if (r < 0.26) typeId = 'hospital';
+    else if (r < 0.50) typeId = 'house';
+    else typeId = Math.random() < 0.5 ? 'office' : 'office2';
+  }
   const t = BUILDING_TYPES[typeId];
   let w, h;
   if (typeId === 'house') { w = rand(46, 60); h = rand(46, 60); }
@@ -309,14 +375,185 @@ function spawnHelicopter() {
     hp: 2,
   });
 }
+// JET — fast horizontal streaker, hard to hit, fires single big missile.
+function spawnJet() {
+  const side = Math.random() < 0.5 ? -1 : 1;
+  jets.push({
+    x: side < 0 ? -60 : WORLD_W + 60,
+    y: rand(120, WORLD_H - 220),
+    vx: -side * 220,
+    fireCd: 1.5,
+    hp: 1,
+  });
+}
+// TANK — ground unit, slow, returns fire (shoots a slow missile).
+function spawnTank() {
+  // Edge-spawn so it rolls in
+  const x = Math.random() < 0.5 ? -30 : WORLD_W + 30;
+  tanks.push({
+    x, y: rand(60, WORLD_H - 60),
+    vx: x < 0 ? 40 : -40, vy: 0,
+    fireCd: 2.5,
+    hp: 4,
+  });
+}
+// BUS — chunky civilian vehicle, 2 hits to eat, gives +60 score.
+function spawnBus() {
+  buses.push({
+    x: rand(40, WORLD_W - 40), y: rand(40, WORLD_H - 40),
+    vx: 0, vy: 0, fleeT: 0,
+    hp: 2,
+    color: ['#ffd23f', '#ff8e3c', '#4cc9f0'][Math.floor(Math.random() * 3)],
+  });
+}
 function form() { return FORMS[formIdx]; }
+
+// === EVOLUTION BIG CELEBRATION ===
+// Triggers a big center-screen banner + particle storm. Called whenever
+// the form index increments. Used by both vehicle-eat path and bus-smash path.
+function triggerEvolve() {
+  hp = Math.min(100 + formIdx * 50, hp + 80);
+  sfx.arp([523, 659, 784, 1047, 1319], 'triangle', 0.1, 0.25, 0.3);
+  addShake(20, 0.7);
+  _zillaHitstopT = 0.18;
+  _evoFlashT = 0.5;
+  evoCelebrateT = 1.6;
+  evoCelebrateName = form().name.toUpperCase();
+  addPopup(pug.x, pug.y - form().r - 12, 'EVOLVE! ' + evoCelebrateName, '#b055ff');
+  // Particle storm (rainbow rings + sparkle field)
+  particles.push({ ring: true, x: pug.x, y: pug.y, t: 0, maxR: 320 });
+  particles.push({ ring: true, x: pug.x, y: pug.y, t: -0.1, maxR: 220 });
+  particles.push({ ring: true, x: pug.x, y: pug.y, t: -0.2, maxR: 420 });
+  const rainbow = ['#ff3aa1', '#4cc9f0', '#ffd23f', '#5ef38c', '#b055ff', '#ffffff'];
+  for (let k = 0; k < 60; k++) {
+    const a = (k / 60) * Math.PI * 2;
+    const s = 200 + Math.random() * 260;
+    particles.push({
+      x: pug.x, y: pug.y,
+      vx: Math.cos(a) * s, vy: Math.sin(a) * s - 80,
+      color: rainbow[k % rainbow.length], life: 1.2, t: 0, size: 6, gravity: 200,
+    });
+  }
+  sfx.tone(55, 'sine', 0.5, 0.65);
+}
+
+// === SUPER MECH mini-boss ===
+function spawnMech() {
+  mech = {
+    x: WORLD_W / 2, y: 200,
+    vx: 0, vy: 0,
+    hp: 60, maxHp: 60,
+    shieldT: 4,        // shielded for first few seconds
+    barrageCd: 3.5,
+    moveT: 0,
+    dieT: 0,
+    target: { x: pug.x, y: pug.y },
+  };
+  mechBannerT = 2.5;
+  addShake(18, 0.6);
+  sfx.sweep(60, 30, 'sawtooth', 0.6, 0.4);
+  sfx.tone(110, 'square', 0.6, 0.5);
+}
+function updateMech(dt) {
+  if (!mech) return;
+  if (mech.dieT > 0) {
+    mech.dieT -= dt;
+    if (mech.dieT <= 0) mech = null;
+    return;
+  }
+  if (mech.shieldT > 0) mech.shieldT -= dt;
+  // Hover-track pug
+  mech.moveT += dt;
+  const tx = pug.x + Math.cos(mech.moveT * 0.4) * 220;
+  const ty = pug.y - 240 + Math.sin(mech.moveT * 0.5) * 60;
+  mech.x += (tx - mech.x) * 1.2 * dt;
+  mech.y += (ty - mech.y) * 1.2 * dt;
+  // Missile barrage
+  mech.barrageCd -= dt;
+  if (mech.barrageCd <= 0) {
+    mech.barrageCd = 3.0;
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 4) * 1.2 - 0.6 + Math.atan2(pug.y - mech.y, pug.x - mech.x);
+      missiles.push({
+        x: mech.x, y: mech.y,
+        vx: Math.cos(a) * 220, vy: Math.sin(a) * 220,
+        life: 4, big: true,
+      });
+    }
+    sfx.tone(160, 'sawtooth', 0.18, 0.32);
+  }
+  // Pug stomps mech (only when shield down)
+  if (mech.shieldT <= 0 && Math.hypot(mech.x - pug.x, mech.y - pug.y) < form().r + 36) {
+    mech.hp -= form().smash * 2;
+    addPopup(mech.x, mech.y - 20, '-' + (form().smash * 2) + ' MECH', '#ff5050');
+    spawnDust(mech.x, mech.y, '#3a3a4a');
+    if (mech.hp <= 0) {
+      mech.dieT = 0.6;
+      score += 2000;
+      smashed += 5;
+      addPopup(mech.x, mech.y, '★ MECH DOWN +$2000 ★', '#ffd23f');
+      addShake(24, 0.8);
+      _zillaHitstopT = 0.18;
+      sfx.arp([220, 330, 440, 660], 'sawtooth', 0.15, 0.35, 0.35);
+      for (let k = 0; k < 60; k++) {
+        const a = Math.random() * Math.PI * 2;
+        const s = 150 + Math.random() * 260;
+        particles.push({ x: mech.x, y: mech.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 80, color: ['#ff3a3a', '#ffd23f', '#fff'][k % 3], life: 1.1, t: 0, size: 6, gravity: 240 });
+      }
+      particles.push({ ring: true, x: mech.x, y: mech.y, t: 0, maxR: 320 });
+      try { __pugzillaFeed.push('SUPER MECH ★ DESTROYED +$2000', '#ffd23f'); } catch {}
+      bumpCombo();
+    }
+  }
+}
 
 const keys = new Set();
 window.addEventListener('keydown', (e) => {
   keys.add(e.key.toLowerCase());
   if ((e.key === ' ' || e.code === 'Space') && !e.repeat) doBork();
+  if ((e.key === 'n' || e.key === 'N') && !e.repeat && nukeAvailable) detonateNuke();
 });
 window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
+
+// === NUKE (combo 20× reward) ===
+function detonateNuke() {
+  if (!running || !nukeAvailable) return;
+  nukeAvailable = false;
+  addShake(40, 1.2);
+  _evoFlashT = 0.7;
+  _zillaHitstopT = 0.25;
+  sfx.sweep(220, 30, 'sawtooth', 1.0, 0.5);
+  sfx.tone(40, 'sine', 0.8, 0.7);
+  // Wipe all air
+  for (const h of helicopters) { score += 200; spawnDust(h.x, h.y, '#ff8e3c'); }
+  helicopters.length = 0;
+  for (const j of jets) { score += 250; spawnDust(j.x, j.y, '#4cc9f0'); }
+  jets.length = 0;
+  for (const t of tanks) { score += 350; spawnDust(t.x, t.y, '#3a3a3a'); }
+  tanks.length = 0;
+  missiles.length = 0;
+  // Damage half of buildings
+  const radius = 800;
+  for (let i = buildings.length - 1; i >= 0; i--) {
+    const b = buildings[i];
+    const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+    if (Math.hypot(cx - pug.x, cy - pug.y) < radius) {
+      b.hp -= 2;
+      if (b.hp <= 0) smashBuilding(b, i);
+    }
+  }
+  // Mushroom-cloud rings
+  for (let r = 0; r < 4; r++) {
+    particles.push({ ring: true, x: pug.x, y: pug.y, t: -r * 0.08, maxR: 800 });
+  }
+  for (let k = 0; k < 80; k++) {
+    const a = (k / 80) * Math.PI * 2;
+    const s = 220 + Math.random() * 400;
+    particles.push({ x: pug.x, y: pug.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, color: ['#ff3a3a','#ffd23f','#fff','#ff8e3c'][k % 4], life: 1.4, t: 0, size: 8, gravity: 180 });
+  }
+  addPopup(pug.x, pug.y - form().r - 40, '★ NUKE! ★', '#ff3a3a');
+  try { __pugzillaFeed.push('★ NUKE DETONATED — area cleared', '#ff3a3a'); } catch {}
+}
 // Mobile controls — joystick + bork/shop buttons. The fire-tap is handled by
 // the existing canvas touchstart->smashAt logic, so we don't need aim-fire.
 createMobileControls({
@@ -418,29 +655,7 @@ function smashAt(wx, wy) {
       addRage(6);
       if (eaten >= 5 && formIdx < FORMS.length - 1) {
         formIdx++; eaten = 0;
-        hp = Math.min(100 + formIdx * 50, hp + 80);
-        sfx.arp([523, 659, 784, 1047], 'triangle', 0.1, 0.25, 0.3);
-        // Bigger shake + brief hit-pause + white-screen flash.
-        addShake(16, 0.55);
-        _zillaHitstopT = 0.12;
-        _evoFlashT = 0.35;
-        addPopup(pug.x, pug.y - form().r - 12, 'EVOLVE! ' + form().name.toUpperCase(), '#b055ff');
-        // Triple expanding ring (rainbow) + chunky sparkle field.
-        particles.push({ ring: true, x: pug.x, y: pug.y, t: 0, maxR: 220 });
-        particles.push({ ring: true, x: pug.x, y: pug.y, t: -0.1, maxR: 160 });
-        particles.push({ ring: true, x: pug.x, y: pug.y, t: -0.2, maxR: 280 });
-        const rainbow = ['#ff3aa1', '#4cc9f0', '#ffd23f', '#5ef38c', '#b055ff', '#ffffff'];
-        for (let k = 0; k < 28; k++) {
-          const a = (k / 28) * Math.PI * 2;
-          const s = 150 + Math.random() * 180;
-          particles.push({
-            x: pug.x, y: pug.y,
-            vx: Math.cos(a) * s, vy: Math.sin(a) * s - 60,
-            color: rainbow[k % rainbow.length], life: 0.9, t: 0, size: 5, gravity: 180,
-          });
-        }
-        // Sub-bass boom layer.
-        sfx.tone(55, 'sine', 0.35, 0.55);
+        triggerEvolve();
       }
       spawnVehicle();
       return;
@@ -463,7 +678,11 @@ function doBork() {
   // SKIN perks: Night +10% bork radius, Molten +20% bork radius
   const sk = activeSkin();
   const skinRadiusBoost = sk.perk === 'borkRadius+10' ? 1.1 : (sk.perk === 'borkRadius+20' ? 1.2 : 1);
-  const reach = (form().r + 250) * rageRadiusBoost * shopRadiusBoost * skinRadiusBoost;
+  // Form-passive bonuses
+  const formBoost = form().passive === 'titanBork' ? 1.2 : (form().passive === 'kaijuBreath' ? 1.3 : 1);
+  // Combo power: double bork radius when 5+ chain milestone is active
+  const comboBoost = comboDoubleBorkT > 0 ? 2.0 : 1;
+  const reach = (form().r + 250) * rageRadiusBoost * shopRadiusBoost * skinRadiusBoost * formBoost * comboBoost;
   for (const v of vehicles) {
     const dx = v.x - pug.x, dy = v.y - pug.y;
     const d = Math.hypot(dx, dy);
@@ -517,6 +736,7 @@ function bumpCombo() {
   if (comboT > 0) combo++;
   else { combo = 1; _comboTier = 0; }
   comboT = COMBO_WINDOW;
+  comboMaxThisRun = Math.max(comboMaxThisRun, combo);
   // Tier check — combo=3 → x2 popup (tier=2), combo=4 → x3 (tier=3), etc.
   const tier = comboMult();
   if (combo >= 3 && tier > _comboTier) {
@@ -533,18 +753,29 @@ function bumpCombo() {
     // Push a kill-feed line so the side ticker also shows the combo
     try { __pugzillaFeed.push(`WAHOO! COMBO ×${tier}`, '#ff3aa1'); } catch (e) { /* */ }
   }
+  // === COMBO POWER MILESTONES ===
+  // 5× = double bork radius for 3s; 10× = invincibility 2s; 20× = nuke option.
+  if (combo === 5)  { comboDoubleBorkT = 3.0; addPopup(pug.x, pug.y - form().r - 24, '★ DOUBLE BORK 3s ★', '#ff3a3a'); try { __pugzillaFeed.push('★ DOUBLE BORK 3s', '#ff3a3a'); } catch {} }
+  if (combo === 10) { comboInvincibleT = 2.0; addPopup(pug.x, pug.y - form().r - 24, '★ INVINCIBLE 2s ★', '#ffd23f'); try { __pugzillaFeed.push('★ INVINCIBLE 2s', '#ffd23f'); } catch {} }
+  if (combo === 20 && !nukeAvailable) { nukeAvailable = true; addPopup(pug.x, pug.y - form().r - 24, '★ NUKE READY — N ★', '#b055ff'); try { __pugzillaFeed.push('★ NUKE READY — press N', '#b055ff'); } catch {} }
 }
 // Multiplier ramp: combo=1 → 1.0, combo=2 → 1.0, combo=3 → 2.0,
 // combo=4 → 3.0, combo=5+ → 4.0 (cap at 5x just like the brief's x2/x3/x4).
 function comboMult() {
-  if (combo < 3) return 1;
-  return Math.min(5, combo - 1);
+  // NEON skin: combo tiers kick in 1 sooner
+  const _sk = activeSkin();
+  const adj = (_sk.perk === 'comboBoost' || (_sk.perk === 'allPerks')) ? 1 : 0;
+  if (combo < 3 - adj) return 1;
+  return Math.min(5, combo - 1 + adj);
 }
 
 function smashBuilding(b, idx) {
   bumpCombo();
   const mult = comboMult();
-  const gain = Math.floor(b.val * mult);
+  // GOLD skin perk: civilian/eat values already boosted; also +25% on smashes.
+  const _sk2 = activeSkin();
+  const skinScoreMul = _sk2.perk === 'civBonus+30' ? 1.25 : (_sk2.perk === 'allPerks' ? 1.12 : 1);
+  const gain = Math.floor(b.val * mult * skinScoreMul);
   score += gain;
   smashed++;
   // Lifetime smashed count (for VOID skin unlock).
@@ -891,6 +1122,10 @@ function tick(dt) {
   borkCd = Math.max(0, borkCd - dt);
   comboT = Math.max(0, comboT - dt);
   if (comboT <= 0) { combo = 0; _comboTier = 0; }
+  if (comboDoubleBorkT > 0) comboDoubleBorkT = Math.max(0, comboDoubleBorkT - dt);
+  if (comboInvincibleT > 0) comboInvincibleT = Math.max(0, comboInvincibleT - dt);
+  if (mechBannerT > 0) mechBannerT = Math.max(0, mechBannerT - dt);
+  if (evoCelebrateT > 0) evoCelebrateT = Math.max(0, evoCelebrateT - dt);
   // Tick the center-screen combo-flash overlay
   if (comboFlash) {
     comboFlash.t += dt;
@@ -995,9 +1230,132 @@ function tick(dt) {
     }
     if (h.x < -60 || h.x > WORLD_W + 60) h.vx = -h.vx;
   }
-  // Spawn new helicopters periodically
-  if (Math.random() < dt * 0.08 && helicopters.length < 6) spawnHelicopter();
+  // JETS — fast horizontal, fires bigger missile less often
+  for (let i = jets.length - 1; i >= 0; i--) {
+    const j = jets[i];
+    j.x += j.vx * dt;
+    j.fireCd -= dt;
+    if (j.fireCd <= 0 && Math.abs(j.x - pug.x) < 280) {
+      j.fireCd = 1.4 + Math.random();
+      const dx = pug.x - j.x, dy = pug.y - j.y;
+      const d = Math.hypot(dx, dy);
+      missiles.push({ x: j.x, y: j.y, vx: (dx / d) * 260, vy: (dy / d) * 260, life: 4, big: true });
+      sfx.tone(550, 'square', 0.05, 0.15);
+    }
+    if (j.x < -120 || j.x > WORLD_W + 120) { jets.splice(i, 1); continue; }
+    // collision: pug hits jet
+    if (Math.hypot(j.x - pug.x, j.y - pug.y) < form().r + 14) {
+      j.hp -= 1;
+      addPopup(j.x, j.y - 6, '+250 ✈', '#4cc9f0');
+      score += 250;
+      spawnDust(j.x, j.y, '#4cc9f0');
+      jets.splice(i, 1);
+      bumpCombo();
+      addRage(8);
+    }
+  }
+  // TANKS — slow ground unit, fires slow missile
+  for (let i = tanks.length - 1; i >= 0; i--) {
+    const t = tanks[i];
+    t.x += t.vx * dt; t.y += t.vy * dt;
+    t.fireCd -= dt;
+    if (t.fireCd <= 0 && Math.hypot(t.x - pug.x, t.y - pug.y) < 400) {
+      t.fireCd = 2.5 + Math.random();
+      const dx = pug.x - t.x, dy = pug.y - t.y;
+      const d = Math.hypot(dx, dy);
+      missiles.push({ x: t.x, y: t.y, vx: (dx / d) * 140, vy: (dy / d) * 140, life: 6 });
+      sfx.tone(220, 'sawtooth', 0.08, 0.22);
+    }
+    // pug stomps tank?
+    if (Math.hypot(t.x - pug.x, t.y - pug.y) < form().r + 16) {
+      t.hp -= form().smash;
+      if (t.hp <= 0) {
+        score += 350;
+        addPopup(t.x, t.y - 6, '+350 ⚔', '#ff8e3c');
+        spawnDust(t.x, t.y, '#3a3a3a');
+        addShake(6, 0.25);
+        tanks.splice(i, 1);
+        bumpCombo();
+        addRage(15);
+      }
+    }
+  }
+  // BUSES — chunky civilian transport, 2 hits
+  for (let i = buses.length - 1; i >= 0; i--) {
+    const b = buses[i];
+    if (b.fleeT > 0) b.fleeT -= dt;
+    const dx = pug.x - b.x, dy = pug.y - b.y;
+    const d = Math.hypot(dx, dy);
+    if (d < 220) {
+      b.vx -= (dx / d) * 80 * dt;
+      b.vy -= (dy / d) * 80 * dt;
+    }
+    b.vx *= Math.pow(0.5, dt * 2); b.vy *= Math.pow(0.5, dt * 2);
+    b.x += b.vx * dt; b.y += b.vy * dt;
+    b.x = Math.max(20, Math.min(WORLD_W - 20, b.x));
+    b.y = Math.max(20, Math.min(WORLD_H - 20, b.y));
+    if (Math.hypot(b.x - pug.x, b.y - pug.y) < form().r + 18) {
+      b.hp -= 1;
+      if (b.hp <= 0) {
+        score += 60;
+        addPopup(b.x, b.y - 6, '+60 🚌', '#ffd23f');
+        spawnDust(b.x, b.y, b.color);
+        addShake(3, 0.15);
+        buses.splice(i, 1);
+        addRage(10);
+        eaten++;
+        if (eaten >= 5 && formIdx < FORMS.length - 1) {
+          formIdx++; eaten = 0;
+          triggerEvolve();
+        }
+      }
+    }
+  }
+  // === THREAT LEVEL ESCALATION ===
+  threatT += dt;
+  if (threatT >= 25 && threatLevel < 10) {
+    threatT = 0;
+    threatLevel++;
+    addPopup(pug.x, pug.y - form().r - 30, `★ THREAT LEVEL ${threatLevel} ★`, '#ff5050');
+    sfx.arp([220, 330, 440], 'sawtooth', 0.1, 0.3, 0.25);
+    // Threat 10 → spawn super mech
+    if (threatLevel === 10 && !mech) {
+      spawnMech();
+    }
+  }
+  // Threat-based spawn cap (scales with threatLevel)
+  const wantHelis = Math.min(6, 1 + Math.floor(threatLevel / 2));
+  if (helicopters.length < wantHelis && Math.random() < dt * 0.12) spawnHelicopter();
+  // Tanks appear at threat 3+
+  if (threatLevel >= 3 && tanks.length < Math.min(3, Math.floor(threatLevel / 2)) && Math.random() < dt * 0.08) spawnTank();
+  // Jets appear at threat 5+
+  if (threatLevel >= 5 && jets.length < 2 && Math.random() < dt * 0.05) spawnJet();
+  // Buses appear sometimes
+  if (buses.length < 4 && Math.random() < dt * 0.03) spawnBus();
+  // === SUPER MECH tick ===
+  if (mech) updateMech(dt);
   if (vehicles.length < 12) spawnVehicle();
+  // FIRE TRAIL — molten/demon skins + KAIJU form passive
+  const _sk = activeSkin();
+  const wantsTrail = _sk.perk === 'fireTrail' || (_sk.perk === 'allPerks' && Math.random() < 0.4) || (form().passive === 'kaijuBreath');
+  if (wantsTrail && Math.hypot(pug.vx, pug.vy) > 30) {
+    fireTrail.push({ x: pug.x, y: pug.y, t: 0, life: 1.6 });
+    if (fireTrail.length > 40) fireTrail.shift();
+  }
+  // Tick fire trail — damage nearby ground enemies (vehicles, tanks)
+  for (let i = fireTrail.length - 1; i >= 0; i--) {
+    const f = fireTrail[i]; f.t += dt;
+    if (f.t >= f.life) { fireTrail.splice(i, 1); continue; }
+    // Damage nearby vehicles
+    for (let j = vehicles.length - 1; j >= 0; j--) {
+      const v = vehicles[j];
+      if (Math.hypot(v.x - f.x, v.y - f.y) < 28) {
+        vehicles.splice(j, 1);
+        score += 15;
+        addPopup(v.x, v.y - 4, '+15 🔥', '#ff5a3a');
+      }
+    }
+  }
 
   // Missiles
   for (let i = missiles.length - 1; i >= 0; i--) {
@@ -1005,6 +1363,12 @@ function tick(dt) {
     m.x += m.vx * dt; m.y += m.vy * dt; m.life -= dt;
     if (m.life <= 0) { missiles.splice(i, 1); continue; }
     if (Math.hypot(m.x - pug.x, m.y - pug.y) < form().r) {
+      // COMBO invincibility — totally ignore the missile.
+      if (comboInvincibleT > 0) {
+        missiles.splice(i, 1);
+        sfx.tone(1320, 'sine', 0.05, 0.15);
+        continue;
+      }
       // GHOST skin: phase through the first missile of the match (no damage).
       const _activeSk = activeSkin();
       if (_activeSk.perk === 'phaseFirstMissile' && !phaseUsed) {
@@ -1014,11 +1378,22 @@ function tick(dt) {
         addPopup(pug.x, pug.y - form().r - 4, 'PHASED!', '#cacad6');
         continue;
       }
+      // CHROME skin: 20% chance to reflect the missile back
+      const reflectChance = (_activeSk.perk === 'missileReflect') ? 0.2 : ((_activeSk.perk === 'allPerks') ? 0.1 : 0);
+      if (reflectChance > 0 && Math.random() < reflectChance) {
+        // flip velocity + life and let it fly back
+        m.vx *= -1; m.vy *= -1; m.life = 2;
+        sfx.tone(990, 'square', 0.08, 0.16);
+        addPopup(pug.x, pug.y - form().r - 4, 'REFLECT!', '#dde6f0');
+        continue;
+      }
       const rageDmgCut = (rage >= 80 || rampageT > 0) ? 0.5 : 1;
       const hideCut = shopBuys.thickHide ? 0.7 : 1;
       // CYBER skin: missiles deal 20% less damage
       const skinCut = _activeSk.perk === 'missileResist-20' ? 0.8 : 1;
-      const dmg = Math.round(12 * rageDmgCut * hideCut * skinCut);
+      const allCut = _activeSk.perk === 'allPerks' ? 0.9 : 1;
+      const baseDmg = m.big ? 22 : 12;
+      const dmg = Math.round(baseDmg * rageDmgCut * hideCut * skinCut * allCut);
       hp -= dmg;
       missiles.splice(i, 1);
       sfx.tone(180, 'square', 0.1, 0.22);
@@ -1072,11 +1447,12 @@ function tick(dt) {
 }
 
 function render() {
-  // Sky gradient (screen space, painted first)
+  // Sky gradient (screen space, painted first) — environment palette
+  const _env = getEnv();
   const skyGrd = ctx.createLinearGradient(0, 0, 0, H);
-  skyGrd.addColorStop(0, '#3a1a4a');
-  skyGrd.addColorStop(0.5, '#52223a');
-  skyGrd.addColorStop(1, '#22103f');
+  skyGrd.addColorStop(0, _env.skyTop);
+  skyGrd.addColorStop(0.5, _env.skyMid);
+  skyGrd.addColorStop(1, _env.skyBot);
   ctx.fillStyle = skyGrd; ctx.fillRect(0, 0, W, H);
   // Distant low-parallax skyline band (screen space, before world)
   const horizonY = H * 0.22;
@@ -1106,6 +1482,20 @@ function render() {
     const bx = Math.cos(d.blade) * 10;
     ctx.fillRect(sx - bx, sy - 4, bx * 2 || 1, 1);
   }
+  // depth3D: parallax cloud band — slower than the skyline + choppers, sits
+  // above horizonY. Adds depth to the night sky.
+  if (!_depthReduced()) {
+    const cpx = (cam.x * 0.06) % 220;
+    const cpy = horizonY - 36;
+    ctx.fillStyle = 'rgba(255,255,255,0.05)';
+    for (let i = -2; i < Math.floor(W / 100) + 2; i++) {
+      const cw = 60 + ((i * 13) % 40);
+      const cx = i * 100 - cpx;
+      ctx.beginPath();
+      ctx.ellipse(cx, cpy + (i % 2) * 14, cw, 12, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
   // Now world-space render with shake offset
   let _sx = 0, _sy = 0;
   if (shakeT > 0 && shakeMag > 0) {
@@ -1115,14 +1505,14 @@ function render() {
   }
   ctx.save();
   ctx.translate(W / 2 - cam.x + _sx, H / 2 - cam.y + _sy);
-  // Ground / streets
-  ctx.fillStyle = '#3a2a5a'; ctx.fillRect(0, 0, WORLD_W, WORLD_H);
+  // Ground / streets — environment palette
+  ctx.fillStyle = _env.ground; ctx.fillRect(0, 0, WORLD_W, WORLD_H);
   // Wide road bands
-  ctx.fillStyle = '#221836';
+  ctx.fillStyle = _env.road;
   for (let x = 80; x < WORLD_W; x += 220) ctx.fillRect(x - 22, 0, 44, WORLD_H);
   for (let y = 80; y < WORLD_H; y += 220) ctx.fillRect(0, y - 22, WORLD_W, 44);
   // Sidewalk edge highlights
-  ctx.fillStyle = '#4a3a6a';
+  ctx.fillStyle = _env.roadEdge;
   for (let x = 80; x < WORLD_W; x += 220) {
     ctx.fillRect(x - 24, 0, 2, WORLD_H);
     ctx.fillRect(x + 22, 0, 2, WORLD_H);
@@ -1192,8 +1582,92 @@ function render() {
     ctx.fillStyle = 'rgba(0,0,0,0.4)';
     ctx.fillRect(v.x - 6, v.y - 4, 12, 5);
   }
-  // Helicopters
+  // Buses
+  for (const b of buses) {
+    ctx.fillStyle = b.color;
+    ctx.fillRect(b.x - 18, b.y - 8, 36, 16);
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(b.x - 14, b.y - 6, 28, 8);
+    ctx.fillStyle = '#222';
+    ctx.fillRect(b.x - 16, b.y + 6, 6, 4);
+    ctx.fillRect(b.x + 10, b.y + 6, 6, 4);
+    if (b.hp < 2) {
+      ctx.strokeStyle = '#000'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(b.x - 18, b.y); ctx.lineTo(b.x + 14, b.y); ctx.stroke();
+    }
+  }
+  // Tanks
+  for (const t of tanks) {
+    // body
+    ctx.fillStyle = '#3a4a2a'; ctx.fillRect(t.x - 16, t.y - 10, 32, 20);
+    // treads
+    ctx.fillStyle = '#1a1a1a';
+    ctx.fillRect(t.x - 18, t.y - 12, 4, 24); ctx.fillRect(t.x + 14, t.y - 12, 4, 24);
+    // turret
+    ctx.fillStyle = '#5a6a4a';
+    ctx.beginPath(); ctx.arc(t.x, t.y, 8, 0, Math.PI * 2); ctx.fill();
+    // barrel pointing at pug
+    const a = Math.atan2(pug.y - t.y, pug.x - t.x);
+    ctx.fillStyle = '#1a2a1a';
+    ctx.save(); ctx.translate(t.x, t.y); ctx.rotate(a);
+    ctx.fillRect(0, -2, 18, 4);
+    ctx.restore();
+  }
+  // Jets — fast triangle silhouette + trail
+  for (const j of jets) {
+    ctx.fillStyle = '#dde6f0';
+    ctx.save(); ctx.translate(j.x, j.y); ctx.rotate(j.vx > 0 ? 0 : Math.PI);
+    ctx.beginPath();
+    ctx.moveTo(14, 0); ctx.lineTo(-12, 6); ctx.lineTo(-8, 0); ctx.lineTo(-12, -6); ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#ff8e3c';
+    ctx.fillRect(-14, -1, 3, 2); // exhaust
+    ctx.restore();
+    // streak
+    ctx.fillStyle = 'rgba(220,230,240,0.45)';
+    ctx.fillRect(j.x - (j.vx > 0 ? 50 : -8), j.y - 1, j.vx > 0 ? 36 : 36, 2);
+  }
+  // Fire trail (drawn under pug)
+  for (const f of fireTrail) {
+    const k = 1 - f.t / f.life;
+    ctx.globalAlpha = k * 0.7;
+    ctx.fillStyle = '#ff5a3a';
+    ctx.beginPath(); ctx.arc(f.x, f.y, 14 * k + 4, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ffd23f';
+    ctx.beginPath(); ctx.arc(f.x, f.y, 6 * k, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+  // SUPER MECH
+  if (mech) {
+    // shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    ctx.beginPath(); ctx.ellipse(mech.x, mech.y + 30, 42, 8, 0, 0, Math.PI * 2); ctx.fill();
+    // body
+    ctx.fillStyle = '#3a3a4a'; ctx.fillRect(mech.x - 28, mech.y - 24, 56, 48);
+    ctx.fillStyle = '#5a5a72'; ctx.fillRect(mech.x - 24, mech.y - 22, 48, 8);
+    // eye
+    ctx.fillStyle = '#ff3a3a'; ctx.fillRect(mech.x - 6, mech.y - 12, 12, 6);
+    // arms
+    ctx.fillStyle = '#3a3a4a'; ctx.fillRect(mech.x - 38, mech.y - 14, 12, 30); ctx.fillRect(mech.x + 26, mech.y - 14, 12, 30);
+    // shield ring
+    if (mech.shieldT > 0) {
+      ctx.strokeStyle = `rgba(176,85,255,${0.5 + Math.sin(performance.now()/120) * 0.3})`;
+      ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.arc(mech.x, mech.y, 50, 0, Math.PI * 2); ctx.stroke();
+    }
+    // HP bar
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(mech.x - 40, mech.y - 38, 80, 6);
+    ctx.fillStyle = mech.hp > mech.maxHp * 0.5 ? '#5ef38c' : (mech.hp > mech.maxHp * 0.25 ? '#ffd23f' : '#ff3a3a');
+    ctx.fillRect(mech.x - 40, mech.y - 38, 80 * Math.max(0, mech.hp) / mech.maxHp, 6);
+    ctx.fillStyle = '#fff'; ctx.font = "7px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText('SUPER MECH', mech.x, mech.y - 42);
+  }
+  // Helicopters — depth-sort + drop shadow on the ground beneath each.
+  _depthSort(helicopters);
   for (const h of helicopters) {
+    // shadow on the street below (offset downward like sun-cast)
+    _depthShadow(ctx, h.x, h.y + 26, 22, { alpha: 0.32, ratio: 0.35 });
     ctx.fillStyle = '#3a3a4a';
     ctx.fillRect(h.x - 14, h.y - 8, 28, 16);
     ctx.fillStyle = '#1a0d05';
@@ -1239,6 +1713,8 @@ function render() {
   // Body / ear come from the chosen SKIN; GHOST skin renders translucent.
   const _sk = activeSkin();
   const _ghostAlpha = (_sk.id === 'ghost') ? 0.7 : 1;
+  // depth3D: massive drop shadow under the kaiju so it feels grounded.
+  _depthShadow(ctx, pug.x, pug.y + r * 1.7, r * 2.2, { alpha: 0.55, ratio: 0.38 });
   if (_ghostAlpha < 1) ctx.globalAlpha = _ghostAlpha;
   drawPug(ctx, pug.x, pug.y, {
     size: r * 3.6,
@@ -1413,6 +1889,65 @@ function render() {
   ctx.strokeStyle = 'rgba(255,210,63,0.2)';
   ctx.lineWidth = 2;
   ctx.beginPath(); ctx.arc(W / 2 + (pug.x - cam.x), H / 2 + (pug.y - cam.y), r + 100, 0, Math.PI * 2); ctx.stroke();
+  // THREAT LEVEL meter (top-left)
+  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.fillRect(10, 30, 130, 18);
+  ctx.fillStyle = '#ff5050';
+  ctx.font = "8px 'Press Start 2P', monospace"; ctx.textAlign = 'left';
+  ctx.fillText('THREAT', 14, 42);
+  for (let i = 0; i < 10; i++) {
+    ctx.fillStyle = i < threatLevel ? (i >= 7 ? '#ff3a3a' : (i >= 4 ? '#ffd23f' : '#5ef38c')) : 'rgba(255,255,255,0.18)';
+    ctx.fillRect(64 + i * 7, 35, 5, 8);
+  }
+  // SUPER MECH banner
+  if (mechBannerT > 0) {
+    const k = mechBannerT / 2.5;
+    ctx.globalAlpha = Math.min(1, k * 2);
+    ctx.fillStyle = '#ff3a3a';
+    ctx.font = "bold 32px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.shadowColor = '#ff3a3a'; ctx.shadowBlur = 20;
+    ctx.fillText('★ SUPER MECH INCOMING ★', W / 2, H / 2 - 80);
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
+  }
+  // EVOLVE big celebration banner
+  if (evoCelebrateT > 0) {
+    const k = evoCelebrateT / 1.6;
+    const ease = Math.min(1, (1.6 - evoCelebrateT) / 0.2);
+    const alpha = k > 0.85 ? (1.6 - evoCelebrateT) / 0.3 : Math.min(1, ease);
+    ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+    // shadow text
+    ctx.fillStyle = 'rgba(0,0,0,0.85)';
+    ctx.font = "bold 48px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText('EVOLVING', W / 2 + 3, H / 2 - 60 + 3);
+    // gradient text
+    const grad = ctx.createLinearGradient(0, H / 2 - 100, 0, H / 2 - 20);
+    grad.addColorStop(0, '#ff3aa1');
+    grad.addColorStop(0.5, '#ffd23f');
+    grad.addColorStop(1, '#4cc9f0');
+    ctx.fillStyle = grad;
+    ctx.fillText('EVOLVING', W / 2, H / 2 - 60);
+    ctx.fillStyle = '#fff';
+    ctx.font = "bold 22px 'Press Start 2P', monospace";
+    ctx.fillText('→  ' + evoCelebrateName, W / 2, H / 2 - 20);
+    ctx.globalAlpha = 1;
+  }
+  // NUKE READY indicator
+  if (nukeAvailable) {
+    const pulse = 0.6 + Math.sin(performance.now() / 100) * 0.4;
+    ctx.fillStyle = `rgba(176,85,255,${pulse})`;
+    ctx.font = "bold 14px 'Press Start 2P', monospace"; ctx.textAlign = 'right';
+    ctx.fillText('☢ NUKE READY (N)', W - 16, 64);
+  }
+  // Combo-power buff ticker
+  if (comboInvincibleT > 0) {
+    ctx.fillStyle = '#ffd23f'; ctx.font = "11px 'Press Start 2P', monospace"; ctx.textAlign = 'right';
+    ctx.fillText(`★ INVINCIBLE ${comboInvincibleT.toFixed(1)}s`, W - 16, 88);
+  }
+  if (comboDoubleBorkT > 0) {
+    ctx.fillStyle = '#ff3a3a'; ctx.font = "11px 'Press Start 2P', monospace"; ctx.textAlign = 'right';
+    ctx.fillText(`★ DOUBLE BORK ${comboDoubleBorkT.toFixed(1)}s`, W - 16, 104);
+  }
 }
 
 function drawNewsTicker() {
@@ -1557,6 +2092,33 @@ function renderSkinPicker() {
   }
 }
 renderSkinPicker();
+
+// === ENV PICKER ===
+function renderEnvPicker() {
+  const el = document.getElementById('pz-env-picker');
+  if (!el) return;
+  el.innerHTML = '';
+  for (const [id, env] of Object.entries(ENVIRONMENTS)) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.style.cssText = `background:rgba(0,0,0,0.4);color:var(--text);border:2px solid ${chosenEnvId === id ? 'var(--neon-pink)' : 'var(--border)'};border-radius:4px;padding:8px 14px;font-family:var(--font-display);font-size:0.5rem;letter-spacing:0.06em;cursor:pointer;${chosenEnvId === id ? 'background:rgba(255,58,161,0.18);color:var(--neon-pink);box-shadow:0 0 12px rgba(255,58,161,0.45);' : ''}`;
+    btn.innerHTML = `${env.name}<br><span style="color:var(--text-soft);font-size:0.42rem;">${env.desc}</span>`;
+    btn.addEventListener('click', () => { chosenEnvId = id; renderEnvPicker(); });
+    el.appendChild(btn);
+  }
+}
+renderEnvPicker();
+
+// === DAILY RAMPAGE SEED display ===
+function updateDailySeed() {
+  const el = document.getElementById('pz-daily');
+  if (!el) return;
+  // Stable date-based seed (yyyymmdd as int)
+  const d = new Date();
+  const seed = d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+  el.textContent = `★ DAILY RAMPAGE SEED: ${seed} — share & compete!`;
+}
+updateDailySeed();
 
 document.getElementById('start-btn').addEventListener('click', start);
 document.getElementById('end-restart').addEventListener('click', start);
@@ -1835,7 +2397,8 @@ if (_startOv) {
     shareBtn.addEventListener('click', async () => {
       const sc = document.getElementById('end-score')?.textContent || '0';
       const sm = document.getElementById('end-smashed')?.textContent || '0';
-      const text = `🐶 PUGZILLA RAMPAGE — Score ${sc} · ${sm} buildings smashed! Beat me at https://leobalkind.github.io/web-games/`;
+      const cmbo = comboMaxThisRun > 1 ? ` · max combo ×${comboMaxThisRun}` : '';
+      const text = `🐶 PUGZILLA RAMPAGE — Score ${sc} · ${sm} buildings smashed${cmbo}! Beat me at https://leobalkind.github.io/web-games/`;
       try {
         if (navigator.share) await navigator.share({ title: 'PUGZILLA RAMPAGE', text, url: 'https://leobalkind.github.io/web-games/' });
         else { await navigator.clipboard.writeText(text); shareBtn.textContent = '✓ COPIED!'; setTimeout(() => { shareBtn.textContent = '📋 SHARE'; }, 1800); }

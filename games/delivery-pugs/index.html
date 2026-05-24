@@ -42,20 +42,52 @@
   .wg-tryagain { color: var(--neon-pink); font-size: 0.85rem; letter-spacing: 0.12em; margin: 6px 0 4px; text-align: center; animation: wgTitleGlowPulse 1.2s ease-in-out infinite; }
   .overlay__btn--small { font-size: 0.55rem; padding: 10px 14px; min-height: 44px; min-width: auto; box-shadow: none; background: rgba(0,0,0,0.4); color: var(--text-soft); border: 2px solid var(--border); animation: none; }
   .overlay__btn--small:hover { border-color: var(--neon-cyan); color: var(--neon-cyan); transform: translateY(-2px); }
+  /* Wave 1E vehicle selector + garage UI */
+  .dp-veh-row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin: 12px 0 8px; }
+  .dp-veh-btn { background: rgba(0,0,0,0.5); color: var(--text-soft); border: 2px solid var(--border); border-radius: 6px; padding: 10px 14px; cursor: pointer; font-family: var(--font-display); font-size: 0.5rem; letter-spacing: 0.08em; min-width: 110px; transition: all .15s ease; }
+  .dp-veh-btn.is-active { border-color: var(--neon-yellow); background: rgba(255,210,63,0.18); color: var(--neon-yellow); transform: translateY(-2px); }
+  .dp-veh-btn:hover { border-color: var(--neon-cyan); transform: translateY(-1px); }
+  .dp-veh-stats { font-size: 0.4rem; color: var(--muted); margin-top: 4px; display: block; letter-spacing: 0.04em; }
+  .dp-garage { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 8px 0; padding: 8px; background: rgba(0,0,0,0.4); border-radius: 6px; border: 1px solid var(--border); }
+  .dp-up-row { font-size: 0.45rem; color: var(--text-soft); text-align: center; }
+  .dp-up-row b { color: var(--neon-cyan); display: block; margin-bottom: 2px; font-size: 0.5rem; }
+  .dp-up-btn { font-size: 0.45rem; padding: 6px 8px; border: 1px solid var(--neon-yellow); background: rgba(255,210,63,0.15); color: var(--neon-yellow); border-radius: 4px; cursor: pointer; margin-top: 4px; font-family: var(--font-display); display: block; width: 100%; }
+  .dp-up-btn:hover { background: rgba(255,210,63,0.3); }
+  .dp-up-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .dp-earn { color: var(--neon-yellow); font-size: 0.6rem; letter-spacing: 0.1em; margin: 4px 0; text-align: center; }
+  /* Pause menu */
+  #dp-pause { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: none; align-items: center; justify-content: center; z-index: 200; }
+  #dp-pause.is-open { display: flex; }
+  #dp-pause .dp-pause-panel { background: var(--panel); border: 3px solid var(--neon-cyan); padding: 24px 32px; border-radius: 10px; text-align: center; max-width: 400px; }
+  #dp-pause h2 { font-family: var(--font-display); color: var(--neon-yellow); margin: 0 0 16px; font-size: 1.2rem; }
+  #dp-pause button { display: block; width: 100%; margin: 8px 0; padding: 12px; background: rgba(0,0,0,0.5); border: 2px solid var(--border); color: var(--text-soft); font-family: var(--font-display); font-size: 0.65rem; cursor: pointer; border-radius: 4px; }
+  #dp-pause button:hover { border-color: var(--neon-cyan); color: var(--neon-cyan); }
+  #pause-btn { position: fixed; top: 12px; right: 60px; width: 40px; height: 40px; background: rgba(0,0,0,0.6); color: #fff; border: 2px solid var(--border); border-radius: 6px; cursor: pointer; font-size: 1rem; z-index: 110; display: none; }
+  #pause-btn.is-shown { display: block; }
 </style>
 </head><body>
 <canvas id="game-canvas"></canvas>
 <button id="mute-btn" class="mute-btn">🔊</button>
+<button id="pause-btn" type="button" title="Pause (P/Esc)">⏸</button>
+<div id="dp-pause"><div class="dp-pause-panel">
+  <h2>PAUSED</h2>
+  <button id="pause-resume">RESUME</button>
+  <button id="pause-restart">RESTART RUN</button>
+  <button id="pause-hub" type="button" onclick="location.href='../../index.html'">RETURN TO HUB</button>
+</div></div>
 <div id="overlay" class="overlay"><div class="overlay__panel">
   <div class="overlay__tag">POST-APOC · DELIVERY</div>
   <h1 class="overlay__title">APOCALYPSE DELIVERY PUGS</h1>
   <p class="overlay__sub">The world ended but pizza didn't. Race a delivery pug across the ruined city. Dodge zombies, mutant cats, and exploding mailboxes. Get to the marker before time runs out.</p>
   <ul class="overlay__controls">
     <li><b>WASD</b> / <b>ARROWS</b> move (top-down, same as other games)</li>
-    <li><b>SHIFT</b> boost (uses fuel) · grab 🔥 powerup for nitro</li>
+    <li><b>SHIFT</b> boost (uses fuel) · <b>P / ESC</b> pause</li>
     <li>Touch: drag in the direction you want to go</li>
-    <li>Each delivery: +time + chain combos + every 5th = new vehicle</li>
+    <li>Each delivery: +time + chain combos. 5 types: standard / fragile / urgent / multi / vip</li>
   </ul>
+  <div class="dp-earn" id="dp-earn">$0 saved earnings</div>
+  <div class="dp-veh-row" id="dp-veh-row"></div>
+  <div class="dp-garage" id="dp-garage"></div>
   <p class="wg-last-best" id="start-best" hidden></p>
   <button id="start-btn" class="overlay__btn">DELIVER</button>
   <a class="overlay__back" href="../../index.html">← BACK TO HUB</a>

@@ -12,6 +12,7 @@ import { playIntroCutscene } from './src/Cutscene.js';
 import { createSpeedToggle } from '../../src/shared/speedToggle.js';
 import { showWavePreview } from '../../src/shared/wavePreview.js';
 import { createSettingsMenu } from '../../src/shared/settingsMenu.js';
+import { htmlParallax as _depthHtmlParallax } from '../../src/shared/depth3D.js';
 const _isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 createSettingsMenu({ gameId: 'pugfort', getControlsHelp: () => _isTouch
   ? 'LEFT JOYSTICK move · RIGHT JOYSTICK aim · BUILD button · SHOP button · ⚡ SPEED TOGGLE top-right. Saved to your profile.'
@@ -170,6 +171,30 @@ document.querySelectorAll('.diff-btn').forEach((btn) => {
   });
 });
 
+// Map picker — COURTYARD / ROOFTOP / UNDERGROUND
+const savedMap = localStorage.getItem('pugfort:map') || 'courtyard';
+document.querySelectorAll('.map-btn').forEach((btn) => {
+  if (btn.dataset.map === savedMap) btn.classList.add('map-btn--active');
+  else btn.classList.remove('map-btn--active');
+  btn.addEventListener('click', () => {
+    const m = btn.dataset.map;
+    localStorage.setItem('pugfort:map', m);
+    document.querySelectorAll('.map-btn').forEach((b) => b.classList.toggle('map-btn--active', b === btn));
+  });
+});
+
+// Mode picker — 3 NIGHTS / ENDLESS
+const savedMode = localStorage.getItem('pugfort:endless') === '1' ? 'endless' : '3nights';
+document.querySelectorAll('.mode-btn').forEach((btn) => {
+  if (btn.dataset.mode === savedMode) btn.classList.add('mode-btn--active');
+  else btn.classList.remove('mode-btn--active');
+  btn.addEventListener('click', () => {
+    const m = btn.dataset.mode;
+    localStorage.setItem('pugfort:endless', m === 'endless' ? '1' : '0');
+    document.querySelectorAll('.mode-btn').forEach((b) => b.classList.toggle('mode-btn--active', b === btn));
+  });
+});
+
 // Paint shared pixel-art icons over the emoji placeholders in the hotbar.
 // Cost lines still use emoji (the wood/scrap counts) since they live in
 // regular text content — keeping the source-of-truth in MATERIALS.icon.
@@ -309,23 +334,40 @@ const _speedTog = createSpeedToggle({ onChange: (m) => { if (game) game._speedMu
 _speedTog.setDisabled(true);
 // Wave-preview banner before each night + manage speed-toggle enabled state.
 game.onWaveStart = (nightIdx, spawnTarget) => {
-  // Enemy mix per night — matches the game's _announceWave() table.
+  // Enemy mix per night — Night 2+ now includes STEALTHED + SHIELDED. Endless
+  // nights (4+) keep using night 3's composition with a TOTAL count label.
   const lineups = {
     1: [{ icon: '🐶', count: spawnTarget, label: 'WALKERS' }],
     2: [
-      { icon: '🐶', count: Math.floor(spawnTarget * 0.5), label: 'WALKERS' },
-      { icon: '🛡️', count: Math.floor(spawnTarget * 0.2), label: 'TANKS' },
-      { icon: '🦠', count: Math.floor(spawnTarget * 0.2), label: 'SPITTERS' },
+      { icon: '🐶', count: Math.floor(spawnTarget * 0.45), label: 'WALKERS' },
+      { icon: '🛡️', count: Math.floor(spawnTarget * 0.10), label: 'TANKS' },
+      { icon: '🦠', count: Math.floor(spawnTarget * 0.10), label: 'SPITTERS' },
+      { icon: '👻', count: Math.floor(spawnTarget * 0.07), label: 'STEALTHED' },
+      { icon: '🛡', count: Math.floor(spawnTarget * 0.06), label: 'SHIELDED' },
     ],
     3: [
-      { icon: '🐶', count: Math.floor(spawnTarget * 0.4), label: 'WALKERS' },
-      { icon: '🛡️', count: Math.floor(spawnTarget * 0.25), label: 'TANKS' },
-      { icon: '🦠', count: Math.floor(spawnTarget * 0.2), label: 'SPITTERS' },
-      { icon: '💣', count: Math.floor(spawnTarget * 0.1), label: 'EXPLODERS' },
+      { icon: '🐶', count: Math.floor(spawnTarget * 0.30), label: 'WALKERS' },
+      { icon: '🛡️', count: Math.floor(spawnTarget * 0.14), label: 'TANKS' },
+      { icon: '🦠', count: Math.floor(spawnTarget * 0.12), label: 'SPITTERS' },
+      { icon: '💣', count: Math.floor(spawnTarget * 0.09), label: 'EXPLODERS' },
+      { icon: '👻', count: Math.floor(spawnTarget * 0.08), label: 'STEALTHED' },
+      { icon: '🛡', count: Math.floor(spawnTarget * 0.08), label: 'SHIELDED' },
     ],
   };
+  let title = `NIGHT ${nightIdx}`;
+  let subtitle = 'HORDE INCOMING';
+  if (nightIdx >= 4) {
+    title = `★ ENDLESS · NIGHT ${nightIdx} ★`;
+    subtitle = `${spawnTarget} ENEMIES`;
+  }
   const list = lineups[nightIdx] || lineups[3];
-  try { showWavePreview({ wave: nightIdx, title: `NIGHT ${nightIdx}`, subtitle: 'HORDE INCOMING', enemies: list, duration: 2800, color: nightIdx >= 3 ? '#b055ff' : '#ff3aa1' }); } catch (e) { /* */ }
+  try {
+    showWavePreview({
+      wave: nightIdx, title, subtitle,
+      enemies: list, duration: 2800,
+      color: nightIdx >= 3 ? '#b055ff' : '#ff3aa1',
+    });
+  } catch (e) { /* */ }
   _speedTog.setDisabled(false);
 };
 // Poll once per second to keep the toggle disabled outside the night phase.
@@ -339,11 +381,56 @@ const _startOv = document.getElementById('overlay');
 if (_startOv) {
   const _showOnHide = () => {
     if (_startOv.classList.contains('is-hidden') || _startOv.hidden) {
-      showTip('WASD move · CLICK shoot · B for build menu · survive 3 nights', 6000);
+      showTip('WASD move · CLICK shoot · B build · R repair-all · TAB stats', 6000);
     }
   };
   new MutationObserver(_showOnHide).observe(_startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });
 }
+
+// ============ Stats overlay (TAB to toggle) ============
+const pfStatsOv = document.getElementById('hud-stats-overlay');
+const pfRefs = pfStatsOv ? {
+  nights:      document.getElementById('pf-stat-nights'),
+  time:        document.getElementById('pf-stat-time'),
+  kills:       document.getElementById('pf-stat-kills'),
+  walls:       document.getElementById('pf-stat-walls'),
+  turrets:     document.getElementById('pf-stat-turrets'),
+  gen:         document.getElementById('pf-stat-gen'),
+  wood:        document.getElementById('pf-stat-wood'),
+  scrap:       document.getElementById('pf-stat-scrap'),
+  explosives:  document.getElementById('pf-stat-explosives'),
+  electronics: document.getElementById('pf-stat-electronics'),
+} : null;
+let pfStatsOpen = false, pfStatsTimer = null;
+function refreshPfStats() {
+  if (!pfStatsOpen || !game?.running || !pfRefs) return;
+  const t = game.matchTime || 0;
+  const m = Math.floor(t / 60), s = Math.floor(t % 60);
+  pfRefs.time.textContent = `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  pfRefs.nights.textContent      = game.nightsSurvived || 0;
+  pfRefs.kills.textContent       = game.playerKills || 0;
+  pfRefs.walls.textContent       = game.wallsBuilt || 0;
+  pfRefs.turrets.textContent     = game.turretsBuilt || 0;
+  pfRefs.gen.textContent         = game.generator
+    ? `${Math.ceil(game.generator.hp)}/${game.generator.maxHp}` : '—';
+  pfRefs.wood.textContent        = Math.floor(game.resources.wood || 0);
+  pfRefs.scrap.textContent       = Math.floor(game.resources.scrap || 0);
+  pfRefs.explosives.textContent  = Math.floor(game.resources.explosives || 0);
+  pfRefs.electronics.textContent = Math.floor(game.resources.electronics || 0);
+}
+function setPfStatsOpen(open) {
+  if (!pfStatsOv) return;
+  pfStatsOpen = !!open;
+  pfStatsOv.hidden = !pfStatsOpen;
+  clearInterval(pfStatsTimer);
+  if (pfStatsOpen) { refreshPfStats(); pfStatsTimer = setInterval(refreshPfStats, 250); }
+}
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Tab' && !e.repeat && game?.running) {
+    e.preventDefault();
+    setPfStatsOpen(!pfStatsOpen);
+  }
+});
 
 // === Round 3B: start/end screen polish (fun-facts, new-best confetti, replay-prompt) ===
 (function _r3bPolish(){
@@ -427,3 +514,16 @@ if (_startOv) {
     new MutationObserver(endUpdate).observe(endOv, { attributes: true, attributeFilter: ['hidden','class'] });
   }
 })();
+
+// depth3D: HTML parallax horizon — city silhouette + low cloud band sit above
+// the Pixi stage but below all HUD. Mouse-driven movement for fake 3D camera.
+try {
+  _depthHtmlParallax({
+    layers: [
+      // Distant city silhouette (slow drift)
+      { speed: 0.15, html: '<div style="position:absolute;left:-5%;right:-5%;bottom:0;height:24%;background:linear-gradient(to top,#0a0716 0%,rgba(20,12,34,0.5) 70%,transparent 100%);"></div><div style="position:absolute;left:-5%;right:-5%;bottom:14%;height:8%;background-image:repeating-linear-gradient(to right,#1a0d2a 0,#1a0d2a 28px,transparent 28px,transparent 38px,#2a1640 38px,#2a1640 64px,transparent 64px,transparent 80px);opacity:0.7;"></div>' },
+      // Cloud band over horizon
+      { speed: 0.4, html: '<div style="position:absolute;left:-10%;right:-10%;top:10%;height:14%;background:radial-gradient(ellipse at 20% 50%, rgba(180,150,220,0.08) 0%, transparent 60%), radial-gradient(ellipse at 70% 50%, rgba(255,255,255,0.05) 0%, transparent 55%);"></div>' },
+    ],
+  });
+} catch (e) { /* */ }

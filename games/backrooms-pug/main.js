@@ -14,6 +14,7 @@ import { createMobileControls } from '../../src/shared/mobileControls.js';
 import { profileKey } from '../../src/shared/profile.js';
 import { createSettingsMenu, caption, getMasterGain } from '../../src/shared/settingsMenu.js';
 import { getShakeMul as _shakeMul } from '../../src/shared/screenShake.js';
+import { drawShadow as _depthShadow, depthSort as _depthSort } from '../../src/shared/depth3D.js';
 import {
   showIntro as _cutIntro,
   showLevelCard as _cutLevelCard,
@@ -3440,14 +3441,18 @@ function render() {
     ctx.stroke();
     ctx.restore();
   }
-  // Entities (Hounds + Smilers + Crawlers + Whisperers)
+  // Entities (Hounds + Smilers + Crawlers + Whisperers) — depth-sorted so
+  // sprites further "back" render first; depth3D drop shadow under each.
+  _depthSort(entities);
   for (const e of entities) {
+    _depthShadow(ctx, e.x, e.y + 12, 18, { alpha: 0.32 });
     if (e.kind === 'hound') drawHound(e);
     if (e.kind === 'smiler') drawSmiler(e);
     if (e.kind === 'crawler') drawCrawler(e);
     if (e.kind === 'whisperer') drawWhisperer(e);
   }
-  // Monster — main pug-monster
+  // Monster — main pug-monster (depth-shadow under it adds weight)
+  if (monster && monster.visible !== false) _depthShadow(ctx, monster.x, monster.y + 22, 38, { alpha: 0.42 });
   drawMonster();
   // Ambient silhouette (fake jumpscare) — a doorway-shaped shadow that vanishes
   if (ambientEvent) {
@@ -3462,6 +3467,8 @@ function render() {
   }
   // Flashlight cone (player) — narrow yellow wedge
   if (flashlightOn && battery > 0) drawFlashlightCone();
+  // depth3D drop shadow under the pug — gives the sprite weight on the floor.
+  _depthShadow(ctx, pug.x, pug.y + 14, 22, { alpha: 0.45 });
   // Pug player — high-detail sprite (with hit-flash overlay)
   if (hitFlashT > 0) {
     ctx.save(); ctx.filter = 'brightness(2.5)';

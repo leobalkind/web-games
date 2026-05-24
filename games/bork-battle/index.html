@@ -61,6 +61,10 @@
             <div id="difficulty-choices" class="loadout__choices"></div>
           </div>
           <div class="loadout__row">
+            <span class="loadout__label">PERK</span>
+            <div id="perk-choices" class="loadout__choices"></div>
+          </div>
+          <div class="loadout__row">
             <span class="loadout__label">WEAPON</span>
             <div id="weapon-choices" class="loadout__choices"></div>
           </div>
@@ -69,6 +73,7 @@
             <div id="skin-choices" class="loadout__choices"></div>
           </div>
         </div>
+        <div id="daily-challenge-line" class="daily-challenge" hidden></div>
 
         <div id="starter-choices" class="evolve-choices starter-choices"></div>
 
@@ -180,6 +185,26 @@
       </div>
 
       <div id="hud-toast" class="hud-toast"></div>
+
+      <!-- Stats overlay (TAB to toggle) -->
+      <div id="hud-stats-overlay" class="hud-stats-overlay" hidden>
+        <div class="hud-stats-panel">
+          <h3>★ RUN STATS ★</h3>
+          <div class="hud-stats-grid">
+            <div><b>KILLS</b> <span id="stat-kills">0</span></div>
+            <div><b>TIME ALIVE</b> <span id="stat-time">0:00</span></div>
+            <div><b>SHOTS FIRED</b> <span id="stat-shots">0</span></div>
+            <div><b>HITS</b> <span id="stat-hits">0</span></div>
+            <div><b>ACCURACY</b> <span id="stat-acc">—</span></div>
+            <div><b>DMG DEALT</b> <span id="stat-dd">0</span></div>
+            <div><b>DMG TAKEN</b> <span id="stat-dt">0</span></div>
+            <div><b>HAZARD DMG</b> <span id="stat-hz">0</span></div>
+            <div><b>OBJECTIVES</b> <span id="stat-obj">0</span></div>
+            <div><b>BOTS LEFT</b> <span id="stat-bots">0</span></div>
+          </div>
+          <div class="hud-stats-hint">TAB to toggle</div>
+        </div>
+      </div>
     </div>
 
     <div id="evolve-overlay" class="overlay overlay--evolve is-hidden" hidden>

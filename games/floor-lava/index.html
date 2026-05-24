@@ -35,6 +35,16 @@
 .wg-tryagain { color: var(--neon-pink); font-size: 0.85rem; letter-spacing: 0.12em; margin: 6px 0 4px; text-align: center; animation: wgTitleGlowPulse 1.2s ease-in-out infinite; }
 .overlay__btn--small { font-size: 0.55rem; padding: 10px 14px; min-height: 44px; min-width: auto; box-shadow: none; background: rgba(0,0,0,0.4); color: var(--text-soft); border: 2px solid var(--border); animation: none; }
 .overlay__btn--small:hover { border-color: var(--neon-cyan); color: var(--neon-cyan); transform: translateY(-2px); }
+/* Wave 1E mode + pet toggle */
+.fl-mode-row { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; margin: 8px 0; }
+.fl-mode-btn { background: rgba(0,0,0,0.5); color: var(--text-soft); border: 2px solid var(--border); border-radius: 6px; padding: 8px 12px; cursor: pointer; font-family: var(--font-display); font-size: 0.45rem; letter-spacing: 0.08em; }
+.fl-mode-btn.is-active { border-color: var(--neon-yellow); background: rgba(255,210,63,0.18); color: var(--neon-yellow); }
+.fl-mode-btn:hover { border-color: var(--neon-cyan); }
+.fl-toggles { display: flex; gap: 12px; justify-content: center; margin: 8px 0; font-size: 0.45rem; color: var(--text-soft); }
+.fl-toggles label { cursor: pointer; }
+.fl-outfit-row { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; margin: 8px 0; }
+.fl-outfit-btn { background: rgba(0,0,0,0.5); color: var(--text-soft); border: 2px solid var(--border); border-radius: 6px; padding: 6px 10px; cursor: pointer; font-family: var(--font-display); font-size: 0.4rem; }
+.fl-outfit-btn.is-active { border-color: var(--neon-pink); background: rgba(255,58,161,0.18); color: var(--neon-pink); }
 </style>
 </head><body>
 <canvas id="game-canvas"></canvas>
@@ -47,7 +57,14 @@
   <ul class="overlay__controls">
     <li><b>A/D</b> or arrows: move · <b>SPACE/W</b>: jump · jump again midair = double jump</li>
     <li>Touch: drag to move, tap JUMP</li>
+    <li>4 BIOMES: Cave → Magma → Hell → Voidspace · jump-through HAUNTS at altitude</li>
   </ul>
+  <div class="fl-mode-row" id="fl-mode-row"></div>
+  <div class="fl-toggles">
+    <label><input type="checkbox" id="fl-pet" checked> Pet bird companion (grabs treats)</label>
+    <label><input type="checkbox" id="fl-daily"> Use daily seed (same world for everyone)</label>
+  </div>
+  <div class="fl-outfit-row" id="fl-outfit-row"></div>
   <p class="wg-last-best" id="start-best" hidden></p>
   <button id="start-btn" class="overlay__btn">CLIMB</button>
   <a class="overlay__back" href="../../index.html">← BACK TO HUB</a>

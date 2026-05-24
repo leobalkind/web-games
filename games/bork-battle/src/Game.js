@@ -10,7 +10,7 @@ import { Input } from './input.js';
 import { Hud } from './Hud.js';
 import { FORMS, XP_TO_EVOLVE, TIER_POOLS, makePugVisual } from './pugForms.js';
 import { WEAPONS, SKINS, defaultWeapon, defaultSkin } from './weapons.js';
-import { DIFFICULTIES, defaultDifficulty } from './difficulty.js';
+import { DIFFICULTIES, defaultDifficulty, PERKS, defaultPerk } from './difficulty.js';
 import { PowerupManager, buffMult, hasShield } from './Powerups.js';
 import { WeaponDrops } from './WeaponDrops.js';
 import {
@@ -21,7 +21,16 @@ import { Sfx } from './Sfx.js';
 import { submitRun, loadBest } from '../../../src/persistence/highScores.js';
 import { getShakeMul as _bb_shakeMul } from '../../../src/shared/screenShake.js';
 
+// Bot count varies per difficulty — MAYHEM bumps it to 10 elites.
 const MAX_BOTS = 11;
+const MAX_BOTS_MAYHEM = 10;
+// Bot skill profiles — applied at spawn. Higher skill = better aim + reaction.
+// ROOKIE has noisier aim + slower fire cadence; ELITE leads targets sharply.
+const BOT_SKILL_PROFILES = {
+  rookie:  { aimNoise: 0.18, fireRateMult: 0.75, leadMult: 0.5,  dodgeChance: 0.0 },
+  regular: { aimNoise: 0.07, fireRateMult: 1.0,  leadMult: 1.0,  dodgeChance: 0.1 },
+  elite:   { aimNoise: 0.025, fireRateMult: 1.25, leadMult: 1.5, dodgeChance: 0.4 },
+};
 const BORK_MAX_DAMAGE = 60;
 const BORK_PUSH = 480;
 const BORK_RADIUS = 220;
@@ -82,7 +91,7 @@ export class Game {
     this.hud = new Hud();
   }
 
-  async start(starterFormId = 'bork_pup', weaponId = 'pistol', skinId = 'default', difficultyId = 'normal') {
+  async start(starterFormId = 'bork_pup', weaponId = 'pistol', skinId = 'default', difficultyId = 'normal', perkId = 'none') {
     // Defensive: force-hide all overlays before starting (class + attribute)
     for (const id of ['overlay', 'end-overlay', 'evolve-overlay']) {
       const el = document.getElementById(id);
@@ -104,8 +113,18 @@ export class Game {
     this.playerWeaponId = weaponId;
     this.playerSkinId = skinId;
     this.difficulty = DIFFICULTIES[difficultyId] || defaultDifficulty();
-    console.log(`[BORK BATTLE] difficulty: ${this.difficulty.name}`);
+    this.perk = PERKS[perkId] || defaultPerk();
+    console.log(`[BORK BATTLE] difficulty: ${this.difficulty.name} · perk: ${this.perk.name}`);
     this._botsEverSpawned = 0;
+    // Stats counters — drives the TAB stats overlay (shotsFired/shotsHit etc).
+    this._statShotsFired = 0;
+    this._statShotsHit = 0;
+    this._statDmgDealt = 0;
+    this._statDmgTaken = 0;
+    this._statHazardDmg = 0;
+    this._statObjectivesGrabbed = 0;
+    this._beefBuffT = 0; // seconds of active "BEEF" damage buff
+    this._radioRevealT = 0; // seconds of "RADIO" reveal-bots buff
     this._hitstopT = 0;
     this._slowmoT = 0;
     // Center tornado loot — first drop ~12s in so the player has time to gear up
@@ -146,17 +165,28 @@ export class Game {
     const spawn = this._safeSpawnPos();
     this.player = new Pug({ name: 'YOU', formId: this.starterFormId || 'bork_pup', x: spawn.x, y: spawn.y, isPlayer: true });
     this.player.setWeapon(WEAPONS[this.playerWeaponId] || defaultWeapon(), SKINS[this.playerSkinId] || defaultSkin());
-    // Apply difficulty HP scaling to the PLAYER
-    this.player.maxHp = Math.round(this.player.form.hp * this.difficulty.playerHpMult);
+    // Apply the perk to the player's bonus stats (BEFORE HP calc so it factors in).
+    try { this.perk.apply(this.player); } catch (e) { /* */ }
+    // Apply difficulty HP scaling to the PLAYER + glass-cannon HP penalty.
+    const hpPctMult = this.player.bonus.hpPctMult || 1;
+    this.player.maxHp = Math.round(this.player.form.hp * this.difficulty.playerHpMult * hpPctMult)
+      + (this.player.bonus.hp || 0);
     this.player.hp = this.player.maxHp;
     this.pugs.push(this.player);
     this.pugsLayer.addChild(this.player.container);
     // Spawn invulnerability — gives time to find bearings before bots swarm
     this.player.invuln = 3.5;
 
-    // Spawn bots — keep them far from the player at start
-    for (let i = 0; i < MAX_BOTS; i++) {
+    // Spawn bots — count depends on difficulty (MAYHEM = 10 elites).
+    const botCount = (difficultyId === 'mayhem') ? MAX_BOTS_MAYHEM : MAX_BOTS;
+    for (let i = 0; i < botCount; i++) {
       this._spawnBot();
+    }
+    // MAYHEM: shrink zone faster.
+    if (difficultyId === 'mayhem' && this.world && this.world.zone) {
+      const m = this.difficulty.zoneSpeedMult || 1.6;
+      this.world.zone.shrinkStart = Math.round(this.world.zone.shrinkStart / m);
+      this.world.zone.shrinkEnd   = Math.round(this.world.zone.shrinkEnd / m);
     }
     console.log(`[BORK BATTLE] match started — starter: ${this.starterFormId}, bots spawned: ${this._botsEverSpawned}`);
     // Debug hook for diagnostics
@@ -224,16 +254,36 @@ export class Game {
       }
       const name = generateBotName(Math.random);
       const bot = new Bot({ name, formId, x: spawn.x, y: spawn.y });
+      // Assign skill tier — 30% rookie, 50% regular, 20% elite (default).
+      // MAYHEM mode skews heavily to elite via difficulty.eliteRatio.
+      const eliteRatio = this.difficulty?.eliteRatio || 0;
+      const r = Math.random();
+      let skill;
+      if (eliteRatio > 0) {
+        skill = r < eliteRatio ? 'elite' : (r < eliteRatio + 0.15 ? 'regular' : 'rookie');
+      } else {
+        skill = r < 0.30 ? 'rookie' : (r < 0.80 ? 'regular' : 'elite');
+      }
+      bot.skill = skill;
+      bot.skillProfile = BOT_SKILL_PROFILES[skill];
       // Random weapon + skin for each bot to give the arena variety
       const wIds = Object.keys(WEAPONS);
       const sIds = Object.keys(SKINS);
       const wid = wIds[Math.floor(Math.random() * wIds.length)];
       const sid = sIds[Math.floor(Math.random() * sIds.length)];
       bot.setWeapon(WEAPONS[wid], SKINS[sid]);
-      // Apply difficulty HP scaling to bots
+      // Apply difficulty HP scaling to bots + elite-bot HP buff
       if (this.difficulty) {
-        bot.maxHp = Math.round(bot.form.hp * this.difficulty.botHpMult);
+        const eliteBuff = skill === 'elite' ? 1.25 : (skill === 'rookie' ? 0.8 : 1.0);
+        bot.maxHp = Math.round(bot.form.hp * this.difficulty.botHpMult * eliteBuff);
         bot.hp = bot.maxHp;
+      }
+      // Tag elites visually — small crown/halo overlay on bot.
+      if (skill === 'elite' && bot.nameTag) {
+        bot.nameTag.style.fill = 0xffd23f;
+        bot.nameTag.text = '★ ' + bot.name;
+      } else if (skill === 'rookie' && bot.nameTag) {
+        bot.nameTag.style.fill = 0x9aa0c1;
       }
       this.pugs.push(bot);
       this.pugsLayer.addChild(bot.container);
@@ -281,12 +331,16 @@ export class Game {
     this.powerups.update(dt);
     this.weaponDrops.update(dt);
     this._updateDecoys(dt);
-    // Try weapon pickup
+    // Try weapon pickup — bigger feedback: text burst + ring + ammo count.
     if (this.player.alive) {
       const pick = this.weaponDrops.tryPickup(this.player);
       if (pick) {
         this.player.setWeapon(pick.weapon, pick.skin);
-        this.hud.toastMessage(`Picked up ${pick.weapon.name}!`, 'kill');
+        this.hud.toastMessage(`+1 ${pick.weapon.name.toUpperCase()} (mag ${pick.weapon.magSize})`, 'kill');
+        this._spawnTextBurst(this.player.x, this.player.y - 30,
+          `+${pick.weapon.name.toUpperCase()}`, 0xffd23f, 14);
+        this._spawnBorkRing(this.player.x, this.player.y, 50, 0xffd23f);
+        Sfx.pickup?.();
         this.hud.updatePlayer(this.player);
       }
     }
@@ -369,6 +423,13 @@ export class Game {
         }
         hit.takeDamage(p.damage * dmgScale, owner || { id: p.ownerId, isPlayer: false });
         this._spawnHitParticles(hit.x, hit.y, p.color);
+        // Track player stats
+        if (owner === this.player) {
+          this._statShotsHit = (this._statShotsHit || 0) + 1;
+          this._statDmgDealt = (this._statDmgDealt || 0) + p.damage * dmgScale;
+        } else if (hit === this.player) {
+          this._statDmgTaken = (this._statDmgTaken || 0) + p.damage * dmgScale;
+        }
         // Audio — quiet hit click when player is the shooter OR target
         if (owner === this.player) Sfx.hit();
         else if (hit === this.player) Sfx.hurt();
@@ -400,8 +461,11 @@ export class Game {
       if (!p.alive) continue;
       const gained = this.energy.collectFor(p);
       if (gained > 0 && p === this.player) {
-        p.money = (p.money || 0) + gained * moneyMult;
+        const amount = gained * moneyMult;
+        p.money = (p.money || 0) + amount;
         Sfx.pickup();
+        // Exact-amount pop ("+5 $") above player so the pickup reads in motion.
+        this._spawnTextBurst(p.x, p.y - 24, `+${Math.round(amount)}$`, 0xffd23f, 12);
       }
     }
     // Center-capture money: standing within the tornado-area earns $/sec
@@ -424,6 +488,16 @@ export class Game {
 
     // Zone damage
     this._applyZone(dt);
+
+    // Hazard pockets — poison drains HP; wet floor reduces accel.
+    this._applyHazards(dt);
+
+    // Objective collection / capture
+    this._tickObjectives(dt);
+
+    // Mini-objective buff timers
+    if (this._beefBuffT > 0) this._beefBuffT -= dt;
+    if (this._radioRevealT > 0) this._radioRevealT -= dt;
 
     // Hydrant interaction (pugs near a "ready" hydrant blast it)
     this._updateHydrants(dt);
@@ -455,7 +529,7 @@ export class Game {
     this.hud.updateMoney(this.player.money || 0);
     this.hud.updateZone(this.world.pointInSafeZone(this.player.x, this.player.y));
     this.hud.updateLeaderboard(this.pugs, this.player.id);
-    this.hud.updateMinimap(this.world, this.pugs, this.player);
+    this.hud.updateMinimap(this.world, this.pugs, this.player, { reveal: this._radioRevealT > 0 });
 
     // End of match. If player died, the killcam (started in _handleKill) is
     // already running and will call _endMatch when it finishes; skip the
@@ -782,6 +856,8 @@ export class Game {
     }
     // Muzzle flash effect
     this._spawnMuzzleFlash(pug.x + offX, pug.y + offY, baseColor, aim);
+    // Track shots fired for the stats overlay (player only).
+    if (pug === this.player) this._statShotsFired = (this._statShotsFired || 0) + w.pellets;
     // Audio — only audible from player (avoid bot-fire spam)
     if (pug === this.player) Sfx.shoot(f.projectileShape || 'ball');
     // Recoil (visual) — scaled by weapon (shotgun = big shove, AR = tiny)
@@ -1822,6 +1898,72 @@ export class Game {
     }
   }
 
+  // Hazard handling — poison drains HP, wet floor cuts movement velocity.
+  // Only affects the PLAYER (bots are immune so behavior stays predictable);
+  // also damages bots in poison so they actually avoid camping there.
+  _applyHazards(dt) {
+    if (!this.world.pointInHazard) return;
+    for (const p of this.pugs) {
+      if (!p.alive) continue;
+      const h = this.world.pointInHazard(p.x, p.y);
+      if (!h) continue;
+      if (h.kind === 'poison') {
+        const dmg = 10 * dt;
+        p.takeDamage(dmg, null);
+        if (p === this.player) this._statHazardDmg += dmg;
+        if (!p.alive) this._handleKill(null, p, false);
+      } else if (h.kind === 'wet') {
+        // Multiplicative velocity dampening
+        p.vx *= Math.max(0, 1 - 1.6 * dt);
+        p.vy *= Math.max(0, 1 - 1.6 * dt);
+      }
+    }
+  }
+
+  // Mini-objective progress.
+  _tickObjectives(dt) {
+    if (!this.world.objectives) return;
+    if (!this.player.alive) return;
+    for (const ob of this.world.objectives) {
+      if (ob.state !== 'available') continue;
+      const dx = this.player.x - ob.x, dy = this.player.y - ob.y;
+      const inRange = dx * dx + dy * dy < ob.r * ob.r;
+      if (ob.kind === 'beef' && inRange) {
+        // Instant grab
+        this.world.consumeObjective(ob);
+        this._beefBuffT = 30;
+        // Synthetic buff for damage scaling
+        const buffDef = { id: 'beef_buff', name: 'BEEF!', icon: '🥩',
+          mult: { dmgMult: 1.5 }, duration: 30 };
+        const idx = this.player.buffs.findIndex((b) => b.def.id === 'beef_buff');
+        if (idx >= 0) this.player.buffs.splice(idx, 1);
+        this.player.buffs.push({ def: buffDef, timeLeft: 30 });
+        this.hud.toastMessage(`🥩 BEEF! +50% DMG for 30s`, 'kill');
+        this._spawnTextBurst(ob.x, ob.y, 'BEEF!', 0xff5a3a, 22);
+        this._spawnBorkRing(ob.x, ob.y, 80, 0xff5a3a);
+        this._screenShake(4, 0.22);
+        Sfx.pickup?.();
+        this._statObjectivesGrabbed += 1;
+      } else if (ob.kind === 'radio' && inRange) {
+        // Capture by standing
+        ob.captureProgress += dt;
+        if (ob.captureProgress >= ob.captureRequired) {
+          this.world.consumeObjective(ob);
+          this._radioRevealT = 15;
+          this.hud.toastMessage(`📡 RADIO! All bots revealed for 15s`, 'kill');
+          this._spawnTextBurst(ob.x, ob.y, 'RADIO!', 0x4cc9f0, 20);
+          this._spawnBorkRing(ob.x, ob.y, 120, 0x4cc9f0);
+          this._screenShake(3, 0.2);
+          Sfx.pickup?.();
+          this._statObjectivesGrabbed += 1;
+        }
+      } else if (ob.kind === 'radio' && !inRange) {
+        // Decay capture when player steps off
+        ob.captureProgress = Math.max(0, ob.captureProgress - dt * 0.5);
+      }
+    }
+  }
+
   _updateHydrants(dt) {
     for (const h of this.world.hydrants) {
       if (!h.ready) continue;
@@ -2010,14 +2152,17 @@ export class Game {
   _applyPowerup(def) {
     const p = this.player;
     if (def.id === 'med') {
-      p.heal(p.maxHp * 0.4);
-      this.hud.toastMessage(`💊 ${def.name} +HP`, 'kill');
+      const healed = Math.round(p.maxHp * 0.4);
+      p.heal(healed);
+      this.hud.toastMessage(`💊 ${def.name} +${healed} HP`, 'kill');
+      this._spawnTextBurst(p.x, p.y - 30, `+${healed} HP`, 0x5ef38c, 14);
     } else if (def.id === 'ammo') {
       const w = p.weapon || defaultWeapon();
       p.ammo = w.magSize;
       p.reloading = false;
       p.reloadT = 0;
-      this.hud.toastMessage(`📦 ${def.name} reloaded!`, 'kill');
+      this.hud.toastMessage(`📦 ${def.name} +${w.magSize} AMMO`, 'kill');
+      this._spawnTextBurst(p.x, p.y - 30, `+${w.magSize} AMMO`, 0xffd23f, 14);
     } else if (def.duration) {
       // Replace any existing buff of same id with a fresh timer
       const existing = p.buffs.findIndex((b) => b.def.id === def.id);
@@ -2438,7 +2583,7 @@ export class Game {
   // attached to app.stage so it sits above the world but respects ticker
   // (which we stop, then resume briefly only to drive a small countdown).
   _startKillCam(killer, byZone, weaponName, weaponIcon) {
-    const DURATION = 3.0;
+    const DURATION = 4.0; // longer killcam — gives more time to read & breathe
     // Freeze the underlying simulation by stopping the ticker. We render the
     // killcam manually via a short setTimeout cascade.
     try { this.app.ticker.stop(); } catch (e) {}
@@ -2469,6 +2614,19 @@ export class Game {
     title.x = w / 2;
     title.y = Math.max(24, h * 0.10);
     overlay.addChild(title);
+
+    // Sub-title: "★ KILLCAM · LAST FEW SECONDS ★" — gives context for the freeze.
+    const subTitle = new Text({
+      text: '★ KILLCAM · FINAL MOMENTS ★',
+      style: {
+        fill: 0xffd23f, fontFamily: 'monospace', fontSize: 11,
+        stroke: { color: 0x000000, width: 2 }, letterSpacing: 1,
+      },
+    });
+    subTitle.anchor.set(0.5, 0);
+    subTitle.x = w / 2;
+    subTitle.y = title.y + 28;
+    overlay.addChild(subTitle);
 
     // Killer panel — black box with sprite, name, weapon
     const panelW = Math.min(360, w - 60);

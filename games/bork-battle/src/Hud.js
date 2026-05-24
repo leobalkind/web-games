@@ -82,7 +82,7 @@ export class Hud {
     }, 60);
   }
 
-  updateMinimap(world, pugs, player) {
+  updateMinimap(world, pugs, player, opts = {}) {
     const ctx = this.minimapCtx;
     if (!ctx) return;
     const W = this.minimap.width, H = this.minimap.height;
@@ -104,6 +104,23 @@ export class Hud {
     ctx.strokeStyle = '#ff2bd6';
     ctx.lineWidth = 1;
     ctx.strokeRect(z.x * sx + 0.5, z.y * sy + 0.5, z.w * sx - 1, z.h * sy - 1);
+    // Hazards — show as colored circles on the minimap (poison green, wet cyan)
+    if (world.hazards) {
+      for (const h of world.hazards) {
+        ctx.fillStyle = h.kind === 'poison' ? 'rgba(106, 170, 58, 0.55)' : 'rgba(76, 201, 240, 0.5)';
+        ctx.beginPath();
+        ctx.arc(h.x * sx, h.y * sy, Math.max(2, h.r * sx), 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    // Objectives — gold star for available ones
+    if (world.objectives) {
+      for (const ob of world.objectives) {
+        if (ob.state !== 'available') continue;
+        ctx.fillStyle = ob.kind === 'beef' ? '#ff5a3a' : '#4cc9f0';
+        ctx.fillRect(Math.floor(ob.x * sx) - 2, Math.floor(ob.y * sy) - 2, 4, 4);
+      }
+    }
     // tornado
     if (world.tornado) {
       ctx.fillStyle = 'rgba(255, 58, 161, 0.6)';
@@ -116,7 +133,8 @@ export class Hud {
       ctx.fillStyle = '#ffd23f';
       ctx.fillRect(Math.floor(f.x * sx) - 1, Math.floor(f.y * sy) - 1, 2, 2);
     }
-    // pugs
+    // pugs — under RADIO reveal mode, bots pulse and are larger.
+    const reveal = !!opts.reveal;
     for (const p of pugs) {
       if (!p.alive) continue;
       const px = Math.floor(p.x * sx);
@@ -128,8 +146,15 @@ export class Hud {
         ctx.strokeStyle = '#ffffff';
         ctx.strokeRect(px - 2.5, py - 2.5, 5, 5);
       } else {
-        ctx.fillStyle = '#ff3a3a';
-        ctx.fillRect(px - 1, py - 1, 3, 3);
+        if (reveal) {
+          // Pulsing red dot for revealed bots
+          const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 200);
+          ctx.fillStyle = `rgba(255, 58, 58, ${0.55 + pulse * 0.4})`;
+          ctx.fillRect(px - 2, py - 2, 4, 4);
+        } else {
+          ctx.fillStyle = '#ff3a3a';
+          ctx.fillRect(px - 1, py - 1, 3, 3);
+        }
       }
     }
   }

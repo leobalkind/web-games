@@ -774,3 +774,97 @@ body.reduced-motion .pugfort-cutscene { animation: none; }
   letter-spacing: 0.05em;
   animation: ul-pulse 1.4s ease-out 2;
 }
+
+/* =========================================================================
+   PRO POLISH WAVE 1A — map/mode picker + stats overlay
+   ========================================================================= */
+.map-btn, .mode-btn {
+  background: rgba(0, 0, 0, 0.45);
+  color: var(--text-soft, #c8c0e8);
+  border: 2px solid #2a2540;
+  border-radius: 4px;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.42rem;
+  letter-spacing: 0.06em;
+  padding: 8px 10px;
+  cursor: pointer;
+  min-width: 110px;
+  transition: all 0.16s;
+  -webkit-tap-highlight-color: transparent;
+}
+.map-btn:hover, .mode-btn:hover {
+  border-color: #4cc9f0;
+  color: #4cc9f0;
+}
+.map-btn--active {
+  background: linear-gradient(180deg, rgba(76,201,240,0.3), rgba(76,201,240,0.15));
+  border-color: #4cc9f0;
+  color: #4cc9f0;
+  box-shadow: 0 0 16px rgba(76,201,240,0.5);
+}
+.mode-btn--active {
+  background: linear-gradient(180deg, rgba(255,210,63,0.3), rgba(255,210,63,0.15));
+  border-color: #ffd23f;
+  color: #ffd23f;
+  box-shadow: 0 0 16px rgba(255,210,63,0.5);
+}
+
+.pf-stats-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  background: rgba(10, 7, 22, 0.4);
+  animation: pfStatsFade 0.18s ease-out;
+}
+@keyframes pfStatsFade { from { opacity: 0; } to { opacity: 1; } }
+.pf-stats-panel {
+  background: rgba(10, 7, 22, 0.93);
+  border: 3px solid #4cc9f0;
+  border-radius: 12px;
+  padding: 22px 32px;
+  min-width: 320px;
+  box-shadow: 0 0 36px rgba(76, 201, 240, 0.4);
+  pointer-events: auto;
+  font-family: 'Press Start 2P', monospace;
+}
+.pf-stats-panel h3 {
+  margin: 0 0 16px;
+  text-align: center;
+  font-size: 0.75rem;
+  color: #ffd23f;
+  letter-spacing: 0.1em;
+  text-shadow: 0 0 10px #ffd23f;
+}
+.pf-stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 24px;
+  font-size: 0.46rem;
+  letter-spacing: 0.04em;
+}
+.pf-stats-grid > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 8px;
+  background: rgba(76, 201, 240, 0.06);
+  border-radius: 3px;
+}
+.pf-stats-grid b { color: #c8c0e8; }
+.pf-stats-grid span { color: #4cc9f0; font-weight: bold; }
+.pf-stats-hint {
+  margin-top: 14px;
+  text-align: center;
+  font-size: 0.38rem;
+  color: #8a90b1;
+  letter-spacing: 0.08em;
+}
+
+/* HP / kills / resources — bigger bolder numbers */
+#hud-hp { font-size: 1.05em; font-weight: 900; text-shadow: 0 0 6px currentColor; }
+#hud-kills { font-size: 1.15em; font-weight: 900; color: #ffd23f; text-shadow: 0 0 6px #ffd23f; }
+#hud-gen-hp { font-size: 1.05em; font-weight: 900; color: #5ef38c; text-shadow: 0 0 6px #5ef38c; }

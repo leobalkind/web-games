@@ -106,18 +106,22 @@ export class Bot extends Pug {
     }
     this.move(mx, my, dt);
 
-    // Decide whether to fire — only when fighting and roughly aimed
+    // Decide whether to fire — only when fighting and roughly aimed.
+    // Skill profile drives aim quality + cadence.
     let fireRequest = null;
+    const prof = this.skillProfile || { aimNoise: 0.07, fireRateMult: 1.0, leadMult: 1.0 };
     if (mode === 'fight' && nearestEnemy && nearestDist < 300) {
       this.cooldownFire -= dt;
       if (this.cooldownFire <= 0) {
-        // lead target slightly
-        const lead = 0.15;
+        // lead target — scaled by skill profile
+        const lead = 0.15 * prof.leadMult;
         const tx = nearestEnemy.x + nearestEnemy.vx * lead;
         const ty = nearestEnemy.y + nearestEnemy.vy * lead;
         this.setAimToward(tx, ty);
+        // Add aim noise — rookies miss more
+        this.aim += (Math.random() - 0.5) * prof.aimNoise;
         fireRequest = { aim: this.aim };
-        this.cooldownFire = this.form.fireRate / 1000;
+        this.cooldownFire = (this.form.fireRate / 1000) / prof.fireRateMult;
       }
     } else {
       this.cooldownFire -= dt;

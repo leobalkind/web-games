@@ -1,7 +1,7 @@
 import { Game } from './src/Game.js';
 import { FORMS } from './src/pugForms.js';
 import { WEAPONS, SKINS } from './src/weapons.js';
-import { DIFFICULTIES } from './src/difficulty.js';
+import { DIFFICULTIES, PERKS } from './src/difficulty.js';
 import { Sfx } from './src/Sfx.js';
 import { createTouchControls } from '../../src/touch/touchControls.js';
 import '../../src/touch/touchControls.css';
@@ -15,6 +15,7 @@ import { createSpeedToggle } from '../../src/shared/speedToggle.js';
 import { createKillFeed } from '../../src/shared/killFeed.js';
 import { showWavePreview } from '../../src/shared/wavePreview.js';
 import { createSettingsMenu } from '../../src/shared/settingsMenu.js';
+import { htmlParallax as _depthHtmlParallax } from '../../src/shared/depth3D.js';
 const _isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 createSettingsMenu({ gameId: 'bork-battle', getControlsHelp: () => _isTouch
   ? 'LEFT JOYSTICK move · RIGHT JOYSTICK aim · BORK / DASH / DECOY / HEAL buttons · 🛒 SHOP top-right. Saved to your profile.'
@@ -92,26 +93,44 @@ let chosenStarter = 'bork_pup';
 let chosenWeapon = 'pistol';
 let chosenSkin = 'default';
 let chosenDifficulty = 'normal';
+let chosenPerk = 'none';
 
 const weaponChoicesEl = document.getElementById('weapon-choices');
 const skinChoicesEl = document.getElementById('skin-choices');
 const difficultyChoicesEl = document.getElementById('difficulty-choices');
+const perkChoicesEl = document.getElementById('perk-choices');
 
 function renderDifficulty() {
   difficultyChoicesEl.innerHTML = '';
-  for (const id of ['easy', 'normal', 'hard']) {
+  // EASY/NORMAL/HARD use skull icons (1/2/3); MAYHEM gets a flame.
+  const skulls = { easy: '💀', normal: '💀💀', hard: '💀💀💀', mayhem: '🔥🔥🔥🔥' };
+  for (const id of ['easy', 'normal', 'hard', 'mayhem']) {
     const d = DIFFICULTIES[id];
+    if (!d) continue;
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'loadout-btn loadout-btn--diff loadout-btn--diff-' + id
       + (chosenDifficulty === id ? ' active' : '');
-    const iconHtml = (d.iconName && iconSvg[d.iconName])
-      ? `<span class="loadout-btn__icon">${iconSvg[d.iconName](20)}</span>`
-      : `<span>${d.icon}</span>`;
+    const iconHtml = `<span class="loadout-btn__icon" style="font-size:11px;">${skulls[id] || d.icon}</span>`;
     btn.innerHTML = `${iconHtml}<span>${d.name}</span>`;
     btn.title = `${d.desc}\nbot HP×${d.botHpMult}  bot DMG×${d.botDmgMult}  player HP×${d.playerHpMult}  player DMG×${d.playerDmgMult}  XP×${d.xpMult}  $×${d.moneyMult}`;
     btn.addEventListener('click', () => { chosenDifficulty = id; renderDifficulty(); });
     difficultyChoicesEl.appendChild(btn);
+  }
+}
+
+function renderPerks() {
+  if (!perkChoicesEl) return;
+  perkChoicesEl.innerHTML = '';
+  for (const pid of Object.keys(PERKS)) {
+    const p = PERKS[pid];
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'loadout-btn loadout-btn--perk' + (chosenPerk === pid ? ' active' : '');
+    btn.innerHTML = `<span class="loadout-btn__icon">${p.icon}</span><span>${p.name}</span>`;
+    btn.title = p.desc;
+    btn.addEventListener('click', () => { chosenPerk = pid; renderPerks(); });
+    perkChoicesEl.appendChild(btn);
   }
 }
 
@@ -149,6 +168,38 @@ function renderSkins() {
 renderWeapons();
 renderSkins();
 renderDifficulty();
+renderPerks();
+
+// Daily challenge — same arena seed for all players on a given UTC day. We
+// can't enforce leaderboards without a backend, but we do show today's
+// challenge name + the player's local-best for the day.
+(function _dailyChallenge() {
+  const el = document.getElementById('daily-challenge-line');
+  if (!el) return;
+  const today = new Date().toISOString().slice(0, 10);
+  const dailyKey = 'bork:daily:' + today;
+  const challenges = [
+    { name: 'PISTOL ONLY', desc: 'Only pistol weapons today!', weapon: 'pistol' },
+    { name: 'SHOTGUN SUNDAY', desc: 'Loadout: shotgun', weapon: 'shotgun' },
+    { name: 'SNIPER ELITE', desc: 'Loadout: sniper', weapon: 'sniper' },
+    { name: 'AR ASSAULT', desc: 'Loadout: AR', weapon: 'ar' },
+  ];
+  // Pick deterministically from today's date
+  const seed = today.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+  const challenge = challenges[seed % challenges.length];
+  let bestText = '';
+  try {
+    const raw = localStorage.getItem(dailyKey);
+    if (raw) {
+      const o = JSON.parse(raw);
+      bestText = ` · Today's best: ${o.kills} kills`;
+    }
+  } catch (e) { /* */ }
+  el.hidden = false;
+  el.innerHTML = `★ DAILY: <b>${challenge.name}</b> — ${challenge.desc}${bestText}`;
+  // Persist personal-best for the daily key on each match end.
+  window.__borkDaily = { key: dailyKey, challenge };
+})();
 
 function renderStarters() {
   starterChoices.innerHTML = '';
@@ -203,7 +254,7 @@ async function play() {
     // Wipe stale kill-feed lines + zone-warn flags from a previous match.
     try { __borkFeed.clear(); } catch (e) { /* */ }
     __zoneWarnSent = false; __zoneFinalSent = false;
-    await game.start(chosenStarter, chosenWeapon, chosenSkin, chosenDifficulty);
+    await game.start(chosenStarter, chosenWeapon, chosenSkin, chosenDifficulty, chosenPerk);
     // Defensively unpause + restart ticker (in case any prior interaction stopped it)
     if (typeof paused !== 'undefined' && paused) setPaused(false);
     if (game?.app?.ticker && !game.app.ticker.started) game.app.ticker.start();
@@ -546,6 +597,69 @@ setInterval(() => {
   }
 }, 400);
 
+// ============ Stats overlay (TAB to toggle, refreshed while open) ============
+// Reads game._stat* counters every 250ms while shown. Bot count comes from
+// the pugs[] array (subtract player). Pause-aware: closes when game pauses.
+const statsOv = document.getElementById('hud-stats-overlay');
+const statRefs = statsOv ? {
+  kills: document.getElementById('stat-kills'),
+  time:  document.getElementById('stat-time'),
+  shots: document.getElementById('stat-shots'),
+  hits:  document.getElementById('stat-hits'),
+  acc:   document.getElementById('stat-acc'),
+  dd:    document.getElementById('stat-dd'),
+  dt:    document.getElementById('stat-dt'),
+  hz:    document.getElementById('stat-hz'),
+  obj:   document.getElementById('stat-obj'),
+  bots:  document.getElementById('stat-bots'),
+} : null;
+let statsOpen = false, statsTimer = null;
+function refreshStats() {
+  if (!statsOpen || !game?.running || !statRefs) return;
+  const t = game.matchTime || 0;
+  const m = Math.floor(t / 60), s = Math.floor(t % 60);
+  statRefs.time.textContent = `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  statRefs.kills.textContent = game.player?.kills || 0;
+  const sf = game._statShotsFired || 0, sh = game._statShotsHit || 0;
+  statRefs.shots.textContent = sf;
+  statRefs.hits.textContent  = sh;
+  statRefs.acc.textContent   = sf > 0 ? `${Math.round(sh / sf * 100)}%` : '—';
+  statRefs.dd.textContent    = Math.round(game._statDmgDealt || 0);
+  statRefs.dt.textContent    = Math.round(game._statDmgTaken || 0);
+  statRefs.hz.textContent    = Math.round(game._statHazardDmg || 0);
+  statRefs.obj.textContent   = game._statObjectivesGrabbed || 0;
+  const aliveBots = (game.pugs || []).filter((p) => p.alive && p !== game.player).length;
+  statRefs.bots.textContent  = aliveBots;
+}
+function setStatsOpen(open) {
+  if (!statsOv) return;
+  statsOpen = !!open;
+  statsOv.hidden = !statsOpen;
+  clearInterval(statsTimer);
+  if (statsOpen) { refreshStats(); statsTimer = setInterval(refreshStats, 250); }
+}
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Tab' && !e.repeat && game?.running) {
+    e.preventDefault();
+    setStatsOpen(!statsOpen);
+  }
+});
+
+// Persist daily best on match end (observe the end overlay).
+const __endOv = document.getElementById('end-overlay');
+if (__endOv && window.__borkDaily) {
+  new MutationObserver(() => {
+    if (__endOv.hidden || __endOv.classList.contains('is-hidden')) return;
+    try {
+      const kills = parseInt(document.getElementById('end-kills')?.textContent || '0', 10);
+      const prev = JSON.parse(localStorage.getItem(window.__borkDaily.key) || '{"kills":0}');
+      if (kills > (prev.kills | 0)) {
+        localStorage.setItem(window.__borkDaily.key, JSON.stringify({ kills }));
+      }
+    } catch (e) { /* */ }
+  }).observe(__endOv, { attributes: true, attributeFilter: ['hidden', 'class'] });
+}
+
 // === Round 3B: start/end screen polish (fun-facts, new-best confetti, replay-prompt) ===
 (function _r3bPolish(){
   const FACTS = [
@@ -629,3 +743,17 @@ setInterval(() => {
     new MutationObserver(endUpdate).observe(endOv, { attributes: true, attributeFilter: ['hidden','class'] });
   }
 })();
+
+// depth3D: HTML parallax layer over the Pixi canvas — slow drifting stars +
+// cloud silhouettes that respond to mouse for a 3D-camera feel. Z-index sits
+// below all HUD/overlay UI so it never blocks gameplay. Reduced-motion off.
+try {
+  _depthHtmlParallax({
+    layers: [
+      // Distant stars (slow)
+      { speed: 0.2, html: '<div style="position:absolute;inset:0;background:radial-gradient(circle at 12% 18%, rgba(255,255,255,0.45) 1px, transparent 2px), radial-gradient(circle at 32% 42%, rgba(180,200,255,0.35) 1px, transparent 2px), radial-gradient(circle at 58% 22%, rgba(255,255,255,0.4) 1px, transparent 2px), radial-gradient(circle at 78% 70%, rgba(255,210,160,0.3) 1px, transparent 2px), radial-gradient(circle at 88% 12%, rgba(255,255,255,0.4) 1px, transparent 2px);"></div>' },
+      // Mid-layer cloud band (faster)
+      { speed: 0.55, html: '<div style="position:absolute;top:8%;left:-10%;right:-10%;height:14%;background:radial-gradient(ellipse at 30% 50%, rgba(76,201,240,0.08) 0%, transparent 60%), radial-gradient(ellipse at 70% 50%, rgba(255,58,161,0.06) 0%, transparent 60%);"></div>' },
+    ],
+  });
+} catch (e) { /* */ }

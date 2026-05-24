@@ -44,7 +44,7 @@
 </head><body>
 <canvas id="game-canvas"></canvas>
 <button id="mute-btn" class="mute-btn">🔊</button>
-<button id="cart-btn" type="button" style="position:fixed;right:20px;bottom:140px;width:80px;height:80px;border-radius:50%;background:linear-gradient(180deg,#4cc9f0,#3a8aac);color:#fff;border:3px solid #b0e8ff;font-family:var(--font-display);font-size:0.6rem;cursor:pointer;display:none;z-index:150;-webkit-tap-highlight-color:transparent;box-shadow:0 6px 0 rgba(20,80,120,0.8);">🛒<br>CART</button>
+<button id="cart-btn" type="button" title="Toggle CART · faster but louder · sound +heat over time" style="position:fixed;right:20px;bottom:140px;width:80px;height:80px;border-radius:50%;background:linear-gradient(180deg,#4cc9f0,#3a8aac);color:#fff;border:3px solid #b0e8ff;font-family:var(--font-display);font-size:0.6rem;cursor:pointer;display:none;z-index:150;-webkit-tap-highlight-color:transparent;box-shadow:0 6px 0 rgba(20,80,120,0.8);">🛒<br>CART</button>
 <div id="overlay" class="overlay"><div class="overlay__panel">
   <div class="overlay__tag">HEIST · CHAOS</div>
   <h1 class="overlay__title">SUPERMARKET PUG</h1>
@@ -55,6 +55,8 @@
     <li>Reach the EXIT with as much loot as possible</li>
   </ul>
   <p class="wg-last-best" id="start-best" hidden></p>
+  <div id="mart-map-pick" style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin:6px 0 4px;"></div>
+  <p id="mart-map-hint" style="font-size:0.42rem;color:var(--text-soft);text-align:center;margin:2px 0 6px;"></p>
   <button id="start-btn" class="overlay__btn">STEAL</button>
   <a class="overlay__back" href="../../index.html">← BACK TO HUB</a>
   <div class="wg-fun-facts" id="wg-fun-facts"></div>

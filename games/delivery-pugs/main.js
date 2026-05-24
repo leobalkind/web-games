@@ -14,6 +14,7 @@ import { showGradeCard } from '../../src/shared/gradeCard.js';
 import { createKillFeed } from '../../src/shared/killFeed.js';
 import { createSettingsMenu } from '../../src/shared/settingsMenu.js';
 import { getShakeMul as _shakeMul } from '../../src/shared/screenShake.js';
+import { drawShadow as _depthShadow, depthSort as _depthSort, isReducedMotion as _depthReduced } from '../../src/shared/depth3D.js';
 
 // Scrolling kill feed (top-right) for delivery completions
 const __deliveryFeed = createKillFeed({ maxLines: 5, lifespan: 4500 });
@@ -49,7 +50,24 @@ function resize() {
 }
 window.addEventListener('resize', resize); resize();
 
-const WORLD_W = 2400, WORLD_H = 1800;
+// World 1.5× original size (was 2400×1800). Bigger sandbox = more variety, more
+// road events, less repetition. Districts get carved out below in buildCityDecor.
+const WORLD_W = 3600, WORLD_H = 2700;
+// 3 DISTRICTS — horizontal bands across the world. Each has its own palette,
+// road density, decor and procedural hazards (Downtown skyscrapers, Suburbs
+// kids/houses, Industrial warehouses). District() returns the active one for
+// the given world coordinate.
+const DISTRICTS = {
+  downtown:   { name: 'DOWNTOWN',   roadCol: '#1a1530', sideCol: '#3a3050', tint: 'rgba(60,40,80,0.0)',   accent: '#4cc9f0' },
+  suburbs:    { name: 'SUBURBS',    roadCol: '#1f1a30', sideCol: '#3a4030', tint: 'rgba(50,70,40,0.06)',  accent: '#5ef38c' },
+  industrial: { name: 'INDUSTRIAL', roadCol: '#1a1a1a', sideCol: '#3a2a20', tint: 'rgba(70,40,20,0.08)',  accent: '#ff8e3c' },
+};
+function districtAt(x, y) {
+  const band = Math.floor(y / (WORLD_H / 3));
+  if (band <= 0) return DISTRICTS.downtown;
+  if (band === 1) return DISTRICTS.suburbs;
+  return DISTRICTS.industrial;
+}
 const VEHICLES = {
   skateboard:    { name: 'skateboard',   speed: 280, turn: 4.5, hp: 1, color: '#ff8e3c', icon: '🛹' },
   shoppingCart:  { name: 'shop cart',    speed: 240, turn: 5.0, hp: 2, color: '#4cc9f0', icon: '🛒' },
@@ -60,7 +78,11 @@ const VEHICLES = {
   pizzaTruck:    { name: 'pizza truck',  speed: 180, turn: 2.4, hp: 6, color: '#5a3a1c', icon: '🍕' },
   rocketSled:    { name: 'rocket sled',  speed: 410, turn: 5.6, hp: 1, color: '#ff5a3a', icon: '🚀' },
   boneChopper:   { name: 'bone chopper', speed: 300, turn: 4.2, hp: 2, color: '#eae0c0', icon: '🦴' },
+  // Wave 1E additions — selectable at start. Van trades speed for HP + cargo.
+  van:           { name: 'cargo van',    speed: 210, turn: 2.8, hp: 5, color: '#5ef3c0', icon: '🚐' },
 };
+// Starter trio (selector). All others unlock via streak/earnings.
+const STARTER_VEHICLES = ['skateboard', 'motorbike', 'van'];
 
 let pug, vehicle, marker, obstacles, time, deliveries, fuel, running, cam;
 let powerups, skidMarks, nitroT, shieldT, magnetT;
@@ -82,14 +104,30 @@ let stuntMultT = 0; // seconds remaining before stuntMult decays back to 1
 let weather = 'clear'; // 'clear' | 'rain' | 'fog' | 'night'
 let weatherT = 0; // seconds remaining in current weather
 let raindrops = []; // for rain visual
-// Map upgrade: world decor (rendered once per match), city center landmark, road events
-let cityCenter = null;        // {x, y} with bus + tower + campfire components
-let trafficLights = [];       // {x, y, phase, t} — cycles red/yellow/green
-let wreckedCars = [];         // {x, y, ang, color}
-let billboards = [];          // {x, y, ang, text, color, scrollT}
-let phonePoles = [];          // {x, y, neighborY}
-let campfires = [];           // {x, y, flickerT, sparks: []}
-let debris = [];              // {x, y, sz, color, ang}
+// World decor (rendered once per match)
+let cityCenter = null, trafficLights = [], wreckedCars = [], billboards = [], phonePoles = [], campfires = [], debris = [];
+// Wave 1E: districts/houses/etc
+let skyscrapers = [], houses = [], warehouses = [], parkedCars = [], kids = [];
+let trainTrack = null, train = null, trainCooldown = 30;
+let bridges = [], tunnels = [], trafficCars = [];
+// Crash spin-out
+let crashSpinT = 0, crashSpinAng = 0;
+// Customer reaction bubble
+let customerBubble = null;
+// Delivery type queue
+const _DTC = { standard: '#5ef38c', fragile: '#ff8e3c', urgent: '#ffd23f', multi: '#4cc9f0', vip: '#b055ff' };
+const _DTG = { standard: '📍', fragile: '📦', urgent: '⚡', multi: '🎁', vip: '⭐' };
+let upcomingDeliveries = [], currentDeliveryType = 'standard', multiStops = 0, vipHits = 0;
+// Vehicle selector + persistent garage
+let selectedStartVehicle = 'skateboard';
+let garageUpgrades = { speedT: 0, hpT: 0, fuelT: 0 };
+try { const g = JSON.parse(localStorage.getItem('delivery:garage') || '{}'); if (g && typeof g === 'object') Object.assign(garageUpgrades, g); } catch {}
+function saveGarage() { try { localStorage.setItem('delivery:garage', JSON.stringify(garageUpgrades)); } catch {} }
+let totalEarnings = 0;
+try { totalEarnings = parseInt(localStorage.getItem('delivery:earnings') || '0', 10) || 0; } catch {}
+function saveEarnings() { try { localStorage.setItem('delivery:earnings', String(totalEarnings)); } catch {} }
+let paused = false;
+let timeOfDay = 0.3;
 // Road events
 let eventTimer = 0;
 let activeEvent = null;       // {kind:'flood'|'gang'|'package', t, life, x, y, w?, h?, marker?}
@@ -150,15 +188,26 @@ const keys = new Set();
 let touchAim = null; // legacy — kept null; mobile controls now use synth-WASD via shared module
 
 function reset() {
-  vehicle = VEHICLES.skateboard;
+  // Use selectedStartVehicle (set by selector UI). Apply persistent garage
+  // upgrades on top: +20 speed per speedT tier, +1 hp per hpT tier.
+  const baseV = VEHICLES[selectedStartVehicle] || VEHICLES.skateboard;
+  vehicle = { ...baseV };
+  vehicle.speed += (garageUpgrades.speedT || 0) * 20;
+  vehicle.hp += (garageUpgrades.hpT || 0);
   pug = { x: WORLD_W / 2, y: WORLD_H / 2, vx: 0, vy: 0, ang: 0, hp: vehicle.hp };
+  // Set up delivery type queue (current + next 3 preview)
+  upcomingDeliveries = [];
+  for (let i = 0; i < 3; i++) upcomingDeliveries.push({ type: rollDeliveryType(0) });
+  currentDeliveryType = rollDeliveryType(0);
+  multiStops = currentDeliveryType === 'multi' ? 3 : 0;
+  vipHits = 0;
   marker = newMarker();
   obstacles = [];
-  for (let i = 0; i < 40; i++) spawnObstacle();
+  for (let i = 0; i < 60; i++) spawnObstacle(); // scaled up with bigger world
   // 6 drones initially
-  for (let i = 0; i < 4; i++) spawnDrone();
+  for (let i = 0; i < 6; i++) spawnDrone();
   powerups = [];
-  for (let i = 0; i < 5; i++) spawnPowerup();
+  for (let i = 0; i < 8; i++) spawnPowerup();
   skidMarks = [];
   nitroT = 0; shieldT = 0; magnetT = 0;
   combo = 0; comboT = 0;
@@ -167,11 +216,17 @@ function reset() {
   stuntMult = 1; stuntMultT = 0;
   toxicPuddles = []; spikeStrips = []; toasts = [];
   weather = 'clear'; weatherT = 0; raindrops = [];
-  // Spawn raccoons (2), toxic puddles (5), spike strips (4)
-  for (let i = 0; i < 2; i++) spawnRaccoon();
-  for (let i = 0; i < 5; i++) toxicPuddles.push({ x: rand(80, WORLD_W - 80), y: rand(80, WORLD_H - 80), r: 36 });
-  for (let i = 0; i < 4; i++) spikeStrips.push({ x: rand(80, WORLD_W - 80), y: rand(80, WORLD_H - 80), w: 80 });
-  time = 35; deliveries = 0; fuel = 100;
+  crashSpinT = 0; crashSpinAng = 0;
+  customerBubble = null; paused = false;
+  timeOfDay = 0.3;
+  trainCooldown = 30 + Math.random() * 20;
+  train = null;
+  // Spawn raccoons (3), toxic puddles (8), spike strips (6) — scaled with world
+  for (let i = 0; i < 3; i++) spawnRaccoon();
+  for (let i = 0; i < 8; i++) toxicPuddles.push({ x: rand(80, WORLD_W - 80), y: rand(80, WORLD_H - 80), r: 36 });
+  for (let i = 0; i < 6; i++) spikeStrips.push({ x: rand(80, WORLD_W - 80), y: rand(80, WORLD_H - 80), w: 80 });
+  // Time/fuel with garage upgrade
+  time = 35; deliveries = 0; fuel = 100 + (garageUpgrades.fuelT || 0) * 20;
   intact = 100; intactFlashT = 0;
   cam = { x: pug.x, y: pug.y };
   shakeT = 0; shakeMag = 0; hitFlashT = 0;
@@ -184,12 +239,81 @@ function reset() {
   }
   // Map decoration — generated once per match
   buildCityDecor();
+  // Spawn 12 procedural NPC traffic cars after roads exist
+  trafficCars = [];
+  for (let i = 0; i < 12; i++) spawnTrafficCar();
   // Road events
   eventTimer = 25 + Math.random() * 15;
   activeEvent = null; bonusMarker = null;
 }
+// Delivery types — bias toward standard early, add variety with more deliveries
+function rollDeliveryType(_count) {
+  const r = Math.random();
+  if (r < 0.45) return 'standard';
+  if (r < 0.60) return 'fragile';
+  if (r < 0.75) return 'urgent';
+  if (r < 0.90) return 'multi';
+  return 'vip';
+}
+function isPerfectCheck() { return intact >= 90 && (currentDeliveryType !== 'vip' || vipHits === 0); }
+function spawnTrafficCar() {
+  // Pick a horizontal or vertical road and drive along it. Non-hostile.
+  const horiz = Math.random() < 0.5;
+  const ROAD = 320;
+  const lane = Math.floor(Math.random() * Math.max(1, Math.floor((horiz ? WORLD_H : WORLD_W) / ROAD)));
+  const colors = ['#4cc9f0','#ffd23f','#5ef38c','#b055ff','#ff3a3a','#ff8e3c','#eaeaff'];
+  trafficCars.push({
+    horiz,
+    pos: rand(80, (horiz ? WORLD_W : WORLD_H) - 80),
+    lane: lane * ROAD + 320, // road center
+    speed: 90 + Math.random() * 60,
+    dir: Math.random() < 0.5 ? 1 : -1,
+    color: colors[Math.floor(Math.random() * colors.length)],
+    hit: false,
+  });
+}
 
 function buildCityDecor() {
+  // Districts: downtown=top third, suburbs=middle, industrial=bottom
+  const bandH = WORLD_H / 3;
+  const _skC = ['#2a2540','#3a3050','#4a3a5a','#3a2a4a','#5a4060'];
+  const _hsC = ['#5a4030','#5a3a40','#4a5040','#5a5030','#4a3a4a'];
+  const _rfC = ['#3a2030','#3a3020','#4a2020'];
+  const _pcC = ['#3a3a4a','#5a3a3a','#3a4a3a','#4a3a5a','#52523a'];
+  const _kdC = ['#ff3aa1','#4cc9f0','#5ef38c','#ffd23f'];
+  skyscrapers = []; houses = []; warehouses = []; parkedCars = []; kids = [];
+  for (let i = 0; i < 18; i++) {
+    const x = rand(120, WORLD_W - 200), y = rand(60, bandH - 200);
+    if ((x % 320 < 80) || (y % 320 < 80)) { i--; continue; }
+    skyscrapers.push({ x, y, w: 50 + Math.random() * 80, h: 100 + Math.random() * 130, color: _skC[i % 5], seed: i * 73 });
+  }
+  for (let i = 0; i < 28; i++) {
+    const x = rand(80, WORLD_W - 120), y = rand(bandH + 80, 2 * bandH - 80);
+    if ((x % 320 < 80) || (y % 320 < 80)) { i--; continue; }
+    houses.push({ x, y, w: 60 + Math.random() * 50, h: 40 + Math.random() * 30, color: _hsC[i % 5], roof: _rfC[i % 3], hasLawn: Math.random() < 0.7 });
+  }
+  for (let i = 0; i < 12; i++) {
+    const x = rand(120, WORLD_W - 200), y = rand(2 * bandH + 80, WORLD_H - 200);
+    if ((x % 320 < 80) || (y % 320 < 80)) { i--; continue; }
+    warehouses.push({ x, y, w: 120 + Math.random() * 100, h: 80 + Math.random() * 60, color: '#3a3030', hasHazard: Math.random() < 0.5 });
+  }
+  for (let i = 0; i < 30; i++) {
+    const horiz = Math.random() < 0.5, ROAD2 = 320, off = Math.random() < 0.5 ? -56 : 56;
+    if (horiz) {
+      const yRoad = Math.floor(rand(1, WORLD_H / ROAD2)) * ROAD2;
+      parkedCars.push({ x: rand(80, WORLD_W - 80), y: yRoad + off, ang: 0, color: _pcC[i % 5] });
+    } else {
+      const xRoad = Math.floor(rand(1, WORLD_W / ROAD2)) * ROAD2;
+      parkedCars.push({ x: xRoad + off, y: rand(80, WORLD_H - 80), ang: Math.PI / 2, color: _pcC[i % 5] });
+    }
+  }
+  for (let i = 0; i < 5; i++) {
+    kids.push({ x: rand(120, WORLD_W - 120), y: rand(bandH + 80, 2 * bandH - 80), vx: (Math.random() < 0.5 ? -1 : 1) * (60 + Math.random() * 50), color: _kdC[i % 4] });
+  }
+  trainTrack = { y: bandH * 1.5, dir: 1 };
+  bridges = [{ x: WORLD_W * 0.25, y: bandH * 0.7, w: 220, isHorizontal: true }, { x: WORLD_W * 0.7, y: bandH * 2.3, w: 240, isHorizontal: true }];
+  tunnels = [{ x: WORLD_W * 0.55, y: bandH * 1.1, w: 200, h: 80 }, { x: WORLD_W * 0.2, y: bandH * 2.5, w: 180, h: 90 }];
+  const ROAD = 320;
   // CITY CENTER landmark — at world middle. Crashed bus + radio tower + campfire + debris.
   cityCenter = { x: WORLD_W / 2, y: WORLD_H / 2 };
   // Cluster of debris around center
@@ -217,7 +341,6 @@ function buildCityDecor() {
   }
   // Traffic lights at road intersections (skip if too close to city center)
   trafficLights = [];
-  const ROAD = 320;
   for (let x = ROAD; x < WORLD_W; x += ROAD) {
     for (let y = ROAD; y < WORLD_H; y += ROAD) {
       if (Math.hypot(x - cityCenter.x, y - cityCenter.y) < 200) continue;
@@ -318,14 +441,34 @@ function newMarker() {
 function spawnObstacle() {
   const type = Math.random();
   let o;
+  // Reroll up to 5x if it lands on a bridge (no zombies/cats/mailboxes on bridges).
+  let x, y;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    x = rand(0, WORLD_W); y = rand(0, WORLD_H);
+    if (!isOnBridge(x, y)) break;
+  }
   if (type < 0.45) {
-    o = { type: 'zombie', x: rand(0, WORLD_W), y: rand(0, WORLD_H), vx: 0, vy: 0, speed: 50 + Math.random() * 40 };
+    o = { type: 'zombie', x, y, vx: 0, vy: 0, speed: 50 + Math.random() * 40 };
   } else if (type < 0.75) {
-    o = { type: 'cat', x: rand(0, WORLD_W), y: rand(0, WORLD_H), vx: 0, vy: 0, speed: 110, jumpT: 0 };
+    o = { type: 'cat', x, y, vx: 0, vy: 0, speed: 110, jumpT: 0 };
   } else {
-    o = { type: 'mailbox', x: rand(0, WORLD_W), y: rand(0, WORLD_H), fuse: -1 }; // -1 = stationary, set positive when triggered
+    o = { type: 'mailbox', x, y, fuse: -1 }; // -1 = stationary, set positive when triggered
   }
   obstacles.push(o);
+}
+function isOnBridge(x, y) {
+  if (!bridges) return false;
+  for (const b of bridges) {
+    if (b.isHorizontal && Math.abs(y - b.y) < 28 && x > b.x - b.w / 2 && x < b.x + b.w / 2) return true;
+  }
+  return false;
+}
+function isInTunnel(x, y) {
+  if (!tunnels) return false;
+  for (const t of tunnels) {
+    if (x > t.x - t.w / 2 && x < t.x + t.w / 2 && y > t.y - t.h / 2 && y < t.y + t.h / 2) return true;
+  }
+  return false;
 }
 function rand(a, b) { return a + Math.random() * (b - a); }
 
@@ -399,9 +542,53 @@ showOrientationHint({ gameId: 'delivery-pugs' });
 
 function tick(dt) {
   if (!running) return;
+  if (paused) return;
   _cityAmbience(dt);
+  timeOfDay = (timeOfDay + dt / 120) % 1;
   time -= dt;
   if (time <= 0) return end();
+  if (crashSpinT > 0) { crashSpinT -= dt; crashSpinAng += dt * 18; }
+  if (customerBubble) { customerBubble.life += dt; if (customerBubble.life >= customerBubble.max) customerBubble = null; }
+  // Train
+  trainCooldown -= dt;
+  if (!train && trainCooldown <= 0 && trainTrack) {
+    const dir = Math.random() < 0.5 ? 1 : -1;
+    train = { x: dir > 0 ? -200 : WORLD_W + 200, y: trainTrack.y, vx: dir * 300, len: 220 };
+    toasts.push({ text: '🚂 TRAIN APPROACHING!', t: 0 });
+    sfx.tone(110, 'square', 0.6, 0.3);
+  }
+  if (train) {
+    train.x += train.vx * dt;
+    if (Math.abs(pug.y - train.y) < 30 && pug.x > train.x - train.len / 2 - 40 && pug.x < train.x + train.len / 2 + 40) {
+      if (shieldT <= 0 && invuln <= 0) { damage(); damage(); crashSpin(); }
+    }
+    if ((train.vx > 0 && train.x > WORLD_W + 200) || (train.vx < 0 && train.x < -200)) { train = null; trainCooldown = 35 + Math.random() * 25; }
+  }
+  // NPC traffic
+  for (const c of trafficCars) {
+    if (c.hit) continue;
+    c.pos += c.speed * c.dir * dt;
+    if (c.pos < -80 || c.pos > (c.horiz ? WORLD_W : WORLD_H) + 80) c.dir = -c.dir;
+    const cx = c.horiz ? c.pos : c.lane, cy = c.horiz ? c.lane : c.pos;
+    if (Math.hypot(cx - pug.x, cy - pug.y) < 22 && invuln <= 0 && shieldT <= 0) {
+      intact = Math.max(0, intact - 10); intactFlashT = 0.4; invuln = 0.8;
+      addPopup(pug.x, pug.y - 12, '-10% TRAFFIC!', '#ff5a3a');
+      addBurst(pug.x, pug.y, '#ff5a3a', 12); addShake(6, 0.22);
+      sfx.tone(220, 'sawtooth', 0.18, 0.22);
+      c.hit = true; setTimeout(() => { c.hit = false; }, 600);
+    }
+  }
+  // Kids
+  for (const k of kids) {
+    k.x += k.vx * dt;
+    if (k.x < 40) k.vx = Math.abs(k.vx); if (k.x > WORLD_W - 40) k.vx = -Math.abs(k.vx);
+    if (Math.hypot(k.x - pug.x, k.y - pug.y) < 18 && invuln <= 0) {
+      pug.vx *= 0.4; pug.vy *= 0.4;
+      intact = Math.max(0, intact - 6); intactFlashT = 0.4; invuln = 0.6;
+      addPopup(pug.x, pug.y - 12, 'WATCH OUT, KID!', '#ffd23f');
+      addShake(4, 0.2); sfx.tone(880, 'square', 0.12, 0.2);
+    }
+  }
   // Weather system — every ~25s pick a new condition for 15-25s
   weatherT -= dt;
   if (weatherT <= 0) {
@@ -568,11 +755,15 @@ function tick(dt) {
       s.x = -9999;
     }
   }
-  if (mx || my) {
+  if ((mx || my) && crashSpinT <= 0) {
     const l = Math.hypot(mx, my);
     pug.vx += (mx / l) * vehicle.speed * boost * weatherSpeedMul * dt * 4;
     pug.vy += (my / l) * vehicle.speed * boost * weatherSpeedMul * dt * 4;
     pug.ang = Math.atan2(my, mx); // visual facing
+  }
+  // Slick roads when raining (less friction) — accentuates lateral drift
+  if (weather === 'rain') {
+    pug.vx *= Math.pow(0.5, dt * 1.5); pug.vy *= Math.pow(0.5, dt * 1.5);
   }
   pug.vx *= Math.pow(0.5, dt * 3); pug.vy *= Math.pow(0.5, dt * 3);
   pug.x += pug.vx * dt; pug.y += pug.vy * dt;
@@ -663,11 +854,44 @@ function tick(dt) {
 
   // Marker reach
   if (Math.hypot(pug.x - marker.x, pug.y - marker.y) < 50) {
+    // MULTI-PACKAGE — pop next stop, don't count delivery until all 3 done
+    if (currentDeliveryType === 'multi' && multiStops > 1) {
+      multiStops--;
+      time = Math.min(time + 6, 60);
+      addPopup(marker.x, marker.y - 10, `MULTI ${4 - multiStops}/3 · +6s`, '#4cc9f0');
+      addBurst(marker.x, marker.y, '#4cc9f0', 12);
+      sfx.tone(880, 'triangle', 0.1, 0.22);
+      try { __deliveryFeed.push(`★ MULTI STOP ${4 - multiStops}/3`, '#4cc9f0'); } catch {}
+      marker = newMarker();
+      return; // exit early — wait for last stop
+    }
+    // VIP — must arrive at full intact, no hits
+    if (currentDeliveryType === 'vip' && vipHits > 0) {
+      addPopup(marker.x, marker.y - 30, '✗ VIP FAILED', '#ff5a3a');
+      sfx.tone(220, 'sawtooth', 0.3, 0.25);
+      customerBubble = { x: marker.x, y: marker.y - 50, text: 'YOU RUINED IT!', color: '#ff5a3a', life: 0, max: 2.5 };
+      try { __deliveryFeed.push(`✗ VIP FAILED (no hits allowed)`, '#ff5a3a'); } catch {}
+      // No counted delivery; just refresh marker + next type
+      currentDeliveryType = upcomingDeliveries.shift().type;
+      upcomingDeliveries.push({ type: rollDeliveryType(deliveries + 1) });
+      multiStops = currentDeliveryType === 'multi' ? 3 : 0;
+      vipHits = 0;
+      marker = newMarker();
+      return;
+    }
     deliveries++;
     // Combo: deliveries within 12s chain
     if (comboT > 0) combo = Math.min(99, combo + 1); else combo = 1;
     comboT = 12;
-    const baseBonus = 18 + Math.floor(combo * 0.5);
+    let baseBonus = 18 + Math.floor(combo * 0.5);
+    // Delivery type modifiers
+    let typeMul = 1; // base time bonus
+    let cashMul = 1; // tip $$$ multiplier
+    if (currentDeliveryType === 'urgent') { typeMul = 0.6; cashMul = 2.5; }
+    else if (currentDeliveryType === 'vip') { typeMul = 1.2; cashMul = 3; }
+    else if (currentDeliveryType === 'fragile') { typeMul = 1; cashMul = 1.5; }
+    else if (currentDeliveryType === 'multi') { typeMul = 1.5; cashMul = 1.6; }
+    baseBonus = Math.floor(baseBonus * typeMul);
     // CARGO FRAGILITY MULTIPLIER — payout scales from 0.5× (0% intact) to
     // 1.5× (100% intact). Linear: 0.5 + intact/100.
     const intactMul = 0.5 + (intact / 100);
@@ -675,6 +899,13 @@ function tick(dt) {
     // payout, giving Crazy Taxi-style "drive crazy = bigger payday" loop.
     const bonusTime = Math.floor(baseBonus * stuntMult * intactMul);
     time = Math.min(time + bonusTime, 60);
+    // Earn cash (saved to garage)
+    const cashEarned = Math.floor(12 * cashMul * intactMul);
+    totalEarnings += cashEarned;
+    saveEarnings();
+    // Customer reaction
+    const reactions = isPerfectCheck() ? ['GREAT!', 'FAST!', 'BEST!'] : (intact <= 30 ? ['MASHED!', 'LATE!', 'UGH!'] : ['THANKS!', 'OK', 'NICE']);
+    customerBubble = { x: marker.x, y: marker.y - 50, text: reactions[Math.floor(Math.random() * reactions.length)], color: isPerfectCheck() ? '#5ef38c' : (intact <= 30 ? '#ff5a3a' : '#ffd23f'), life: 0, max: 2.2 };
     // "PERFECT" celebration when intact stays above 90%
     const isPerfect = intact >= 90;
     if (isPerfect) {
@@ -685,8 +916,12 @@ function tick(dt) {
     } else if (intact <= 20) {
       addPopup(marker.x, marker.y - 30, 'CARGO MASHED ×0.5', '#ff5a3a');
     }
-    // RESET intact for next delivery
+    // RESET intact + advance delivery type queue
     intact = 100; intactFlashT = 0;
+    currentDeliveryType = upcomingDeliveries.shift().type;
+    upcomingDeliveries.push({ type: rollDeliveryType(deliveries) });
+    multiStops = currentDeliveryType === 'multi' ? 3 : 0;
+    vipHits = 0;
     // Refresh the stunt multiplier window on every delivery so stunts during
     // delivery runs keep the chain alive (separate decay so multi-stunt
     // runs feel rewarding).
@@ -819,6 +1054,11 @@ function tick(dt) {
 }
 
 let invuln = 0;
+function crashSpin() {
+  crashSpinT = 1.5;
+  crashSpinAng = 0;
+  pug.vx *= 0.3; pug.vy *= 0.3;
+}
 function damage() {
   if (invuln > 0) return;
   if (shieldT > 0) {
@@ -838,10 +1078,15 @@ function damage() {
   addBurst(pug.x, pug.y, '#ffd23f', 8);
   addBurst(pug.x, pug.y, '#cacacf', 8);
   // CARGO FRAGILITY — every collision drops intact% by 10. Bottom at 0.
-  // Flash the bar so the player sees the hit cost them payout, not just HP.
-  intact = Math.max(0, intact - 8);
+  // FRAGILE deliveries lose 2x. VIP tracks any hit for failure.
+  const intactLoss = currentDeliveryType === 'fragile' ? 16 : 8;
+  intact = Math.max(0, intact - intactLoss);
   intactFlashT = 0.4;
-  addPopup(pug.x, pug.y - 12, '-8% INTACT', '#ff8e3c');
+  if (currentDeliveryType === 'vip') vipHits++;
+  addPopup(pug.x, pug.y - 12, currentDeliveryType === 'fragile' ? '-16% FRAGILE!' : `-${intactLoss}% INTACT`, '#ff8e3c');
+  // Crazy Taxi spin-out on hard hit (random ~30% chance, and always at high speed)
+  const sp = Math.hypot(pug.vx, pug.vy);
+  if (crashSpinT <= 0 && (sp > 280 || Math.random() < 0.3)) crashSpin();
   if (pug.hp <= 0) end();
 }
 
@@ -850,6 +1095,27 @@ function tickInvuln(dt) { invuln = Math.max(0, invuln - dt); }
 function render() {
   // World view
   ctx.fillStyle = '#1a0f2e'; ctx.fillRect(0, 0, W, H);
+  // depth3D: parallax distant horizon — pulled from camera at low speed so
+  // distant city silhouettes drift slowly behind everything (fake skyline).
+  if (!_depthReduced()) {
+    const hp = (cam.x * 0.04) % 240;
+    const horizonY = H * 0.16;
+    ctx.fillStyle = 'rgba(30,18,50,0.8)';
+    for (let i = -1; i < Math.floor(W / 60) + 2; i++) {
+      const seed = ((i + 88) * 41) % 100;
+      const bh = 22 + (seed % 40);
+      const bw = 12 + (seed % 10);
+      ctx.fillRect(i * 60 - hp, horizonY - bh, bw, bh + 6);
+    }
+    // Slow drifting clouds further back (above horizon)
+    const cp = (cam.x * 0.015) % 200;
+    ctx.fillStyle = 'rgba(180,150,220,0.05)';
+    for (let cx = -200; cx < W + 200; cx += 200) {
+      ctx.beginPath();
+      ctx.ellipse(cx - cp, horizonY - 70, 70, 8, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
   // Screen shake offset (applied to world translate)
   let shkx = 0, shky = 0;
   if (shakeT > 0 && shakeMag > 0) {
@@ -926,6 +1192,92 @@ function render() {
     ctx.beginPath();
     ctx.ellipse(x, y, 10 + (i % 4) * 2, 6 + (i % 3) * 2, (i % 7) * 0.4, 0, Math.PI * 2);
     ctx.fill();
+  }
+  // District tint bands (downtown / suburbs / industrial)
+  const bandH = WORLD_H / 3;
+  ctx.fillStyle = DISTRICTS.suburbs.tint;    ctx.fillRect(0, bandH, WORLD_W, bandH);
+  ctx.fillStyle = DISTRICTS.industrial.tint; ctx.fillRect(0, bandH * 2, WORLD_W, bandH);
+  // Skyscrapers (downtown). Windows drawn from deterministic seed.
+  const _winC = ['#ffd23f','#ff8e3c','#fff7d0','#4cc9f0'];
+  const dayLight = Math.abs(timeOfDay - 0.5) * 2;
+  for (const sk of skyscrapers) {
+    ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(sk.x + 4, sk.y + 6, sk.w, sk.h);
+    ctx.fillStyle = sk.color; ctx.fillRect(sk.x, sk.y, sk.w, sk.h);
+    ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.fillRect(sk.x, sk.y, sk.w, 4);
+    // Windows — deterministic from seed; brighter at night
+    let s = sk.seed;
+    for (let r = 4; r < sk.h - 8; r += 14) {
+      for (let c = 6; c < sk.w - 6; c += 12) {
+        s = (s * 1103515245 + 12345) & 0x7fffffff;
+        if ((s & 0xff) < 140) continue;
+        ctx.fillStyle = _winC[(s >> 8) & 3];
+        ctx.globalAlpha = 0.4 + 0.6 * dayLight;
+        ctx.fillRect(sk.x + c, sk.y + r, 6, 8);
+      }
+    }
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#888'; ctx.fillRect(sk.x + sk.w / 2 - 1, sk.y - 16, 2, 16);
+  }
+  // Houses (suburbs)
+  for (const h of houses) {
+    if (h.hasLawn) { ctx.fillStyle = 'rgba(60,140,80,0.4)'; ctx.fillRect(h.x - 8, h.y - 8, h.w + 16, h.h + 18); }
+    ctx.fillStyle = h.color; ctx.fillRect(h.x, h.y, h.w, h.h);
+    ctx.fillStyle = h.roof;
+    ctx.beginPath(); ctx.moveTo(h.x - 4, h.y); ctx.lineTo(h.x + h.w / 2, h.y - 18); ctx.lineTo(h.x + h.w + 4, h.y); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#ffd23f';
+    ctx.fillRect(h.x + 8, h.y + 8, 10, 8); ctx.fillRect(h.x + h.w - 18, h.y + 8, 10, 8);
+    ctx.fillStyle = '#3a2018'; ctx.fillRect(h.x + h.w / 2 - 6, h.y + h.h - 16, 12, 16);
+  }
+  // Warehouses (industrial)
+  for (const wh of warehouses) {
+    ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(wh.x + 4, wh.y + 6, wh.w, wh.h);
+    ctx.fillStyle = wh.color; ctx.fillRect(wh.x, wh.y, wh.w, wh.h);
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    for (let i = 0; i < 3; i++) ctx.fillRect(wh.x, wh.y + (wh.h / 3) * i, wh.w, 2);
+    ctx.fillStyle = '#5a4030';
+    ctx.fillRect(wh.x + 12, wh.y + wh.h - 24, 26, 24); ctx.fillRect(wh.x + wh.w - 38, wh.y + wh.h - 24, 26, 24);
+    if (wh.hasHazard) { ctx.fillStyle = '#ffd23f'; for (let i = 0; i < 4; i++) ctx.fillRect(wh.x + 10 + i * 14, wh.y - 6, 8, 4); }
+  }
+  // Parked cars
+  for (const pc of parkedCars) {
+    ctx.save(); ctx.translate(pc.x, pc.y); ctx.rotate(pc.ang);
+    ctx.fillStyle = pc.color; ctx.fillRect(-14, -8, 28, 16);
+    ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(-12, -6, 24, 4);
+    ctx.fillStyle = '#fff'; ctx.fillRect(-12, 4, 6, 2); ctx.fillRect(6, 4, 6, 2);
+    ctx.restore();
+  }
+  // Bridges
+  for (const b of bridges) {
+    ctx.fillStyle = '#3a3a4a'; ctx.fillRect(b.x - b.w / 2 - 30, b.y - 26, b.w + 60, 52);
+    ctx.fillStyle = '#5a5a6a';
+    ctx.fillRect(b.x - b.w / 2 - 30, b.y - 26, b.w + 60, 4); ctx.fillRect(b.x - b.w / 2 - 30, b.y + 22, b.w + 60, 4);
+    ctx.fillStyle = '#ffd23f'; ctx.font = "8px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText('BRIDGE', b.x, b.y - 12);
+  }
+  // Tunnels (GPS-jam zones)
+  for (const t of tunnels) {
+    ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(t.x - t.w / 2, t.y - t.h / 2, t.w, t.h);
+    ctx.strokeStyle = '#ffd23f'; ctx.lineWidth = 2;
+    ctx.strokeRect(t.x - t.w / 2, t.y - t.h / 2, t.w, t.h);
+    ctx.fillStyle = '#ffd23f'; ctx.font = "8px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText('TUNNEL · NO GPS', t.x, t.y);
+  }
+  // Train tracks
+  if (trainTrack) {
+    ctx.fillStyle = '#3a2818'; ctx.fillRect(0, trainTrack.y - 16, WORLD_W, 32);
+    ctx.fillStyle = '#5a3a20';
+    for (let x = 0; x < WORLD_W; x += 36) { ctx.fillRect(x, trainTrack.y - 14, 24, 6); ctx.fillRect(x, trainTrack.y + 8, 24, 6); }
+    ctx.fillStyle = '#888'; ctx.fillRect(0, trainTrack.y - 10, WORLD_W, 2); ctx.fillRect(0, trainTrack.y + 8, WORLD_W, 2);
+  }
+  // Active train
+  if (train) {
+    ctx.save(); ctx.translate(train.x, train.y); if (train.vx < 0) ctx.scale(-1, 1);
+    ctx.fillStyle = '#4a2030'; ctx.fillRect(-train.len / 2, -22, train.len, 44);
+    ctx.fillStyle = '#2a1018'; ctx.fillRect(train.len / 2 - 40, -22, 40, 44);
+    ctx.fillStyle = '#ffd23f';
+    for (let i = 0; i < 4; i++) ctx.fillRect(-train.len / 2 + 20 + i * 30, -12, 14, 10);
+    ctx.fillStyle = '#fff7d0'; ctx.fillRect(train.len / 2 - 6, -4, 6, 8);
+    ctx.restore();
   }
   // Per-weather: rain reflective shine streaks on the road
   if (weather === 'rain') {
@@ -1180,15 +1532,59 @@ function render() {
     ctx.fillRect(-12, -4, 4, 2); ctx.fillRect(-12, 2, 4, 2);
     ctx.restore();
   }
-  // Marker
-  ctx.shadowColor = '#5ef38c'; ctx.shadowBlur = 20;
-  ctx.strokeStyle = '#5ef38c'; ctx.lineWidth = 4;
+  // NPC traffic cars
+  for (const c of trafficCars) {
+    const cx = c.horiz ? c.pos : c.lane, cy = c.horiz ? c.lane : c.pos;
+    ctx.save(); ctx.translate(cx, cy);
+    if (c.horiz) { if (c.dir < 0) ctx.scale(-1, 1); } else ctx.rotate(c.dir > 0 ? Math.PI / 2 : -Math.PI / 2);
+    ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(-14, -8, 28, 16);
+    ctx.fillStyle = c.color; ctx.fillRect(-14, -8, 28, 14);
+    ctx.fillStyle = '#1a1a30'; ctx.fillRect(-10, -5, 20, 6);
+    ctx.fillStyle = '#fff7d0'; ctx.fillRect(12, -6, 2, 3); ctx.fillRect(12, 3, 2, 3);
+    ctx.restore();
+  }
+  // Kids
+  for (const k of kids) {
+    const wob = Math.sin(performance.now() / 100 + k.x) * 2;
+    ctx.fillStyle = k.color; ctx.fillRect(k.x - 4, k.y - 6, 8, 8);
+    ctx.fillStyle = '#3a2818'; ctx.fillRect(k.x - 3, k.y + 2 + wob, 6, 4);
+    ctx.fillStyle = '#fff'; ctx.fillRect(k.x - 2, k.y - 6, 4, 4);
+    ctx.fillStyle = '#000'; ctx.fillRect(k.x - 1, k.y - 5, 1, 1); ctx.fillRect(k.x + 0, k.y - 5, 1, 1);
+  }
+  // Marker — color/glyph by delivery type (reuses module-level _DTC/_DTG)
+  const mc = _DTC[currentDeliveryType] || '#5ef38c';
+  ctx.shadowColor = mc; ctx.shadowBlur = 20;
+  ctx.strokeStyle = mc; ctx.lineWidth = 4;
   ctx.beginPath(); ctx.arc(marker.x, marker.y, 40 + Math.sin(performance.now() / 200) * 5, 0, Math.PI * 2); ctx.stroke();
-  ctx.fillStyle = '#5ef38c'; ctx.font = "20px serif";
-  ctx.textAlign = 'center'; ctx.fillText('📍', marker.x, marker.y + 7);
+  ctx.fillStyle = mc; ctx.font = "20px serif";
+  ctx.textAlign = 'center'; ctx.fillText(_DTG[currentDeliveryType], marker.x, marker.y + 7);
+  // Multi-package: small "x/3" stops indicator above marker
+  if (currentDeliveryType === 'multi') {
+    ctx.fillStyle = '#4cc9f0'; ctx.font = "10px 'Press Start 2P', monospace";
+    ctx.fillText(`${4 - multiStops}/3`, marker.x, marker.y - 50);
+  }
   ctx.shadowBlur = 0;
-  // Obstacles
-  for (const o of obstacles) drawObstacle(o);
+  // Customer bubble after delivery
+  if (customerBubble) {
+    const cb = customerBubble;
+    const a = cb.life < 0.3 ? cb.life / 0.3 : (cb.life > cb.max - 0.4 ? Math.max(0, (cb.max - cb.life) / 0.4) : 1);
+    ctx.globalAlpha = a;
+    ctx.fillStyle = 'rgba(0,0,0,0.85)'; ctx.fillRect(cb.x - 50, cb.y - 16, 100, 28);
+    ctx.fillStyle = cb.color; ctx.font = "bold 12px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText(cb.text, cb.x, cb.y);
+    ctx.fillStyle = 'rgba(0,0,0,0.85)';
+    ctx.beginPath(); ctx.moveTo(cb.x - 6, cb.y + 12); ctx.lineTo(cb.x + 6, cb.y + 12); ctx.lineTo(cb.x, cb.y + 22); ctx.closePath(); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+  // Obstacles — depth-sort + drop shadow under each
+  _depthSort(obstacles);
+  for (const o of obstacles) {
+    if (o && typeof o.x === 'number') {
+      const r = Math.max(8, Math.min(40, (o.r || o.w || 16)));
+      _depthShadow(ctx, o.x, o.y + r * 0.7, r * 0.95, { alpha: 0.32 });
+    }
+    drawObstacle(o);
+  }
   // Powerups
   for (const p of powerups) {
     const colors = { nitro: '#ff8e3c', shield: '#4cc9f0', magnet: '#b055ff', repair: '#5ef38c' };
@@ -1207,10 +1603,13 @@ function render() {
       ctx.fillRect(p.x - 2, p.y - 6, 4, 12);
     }
   }
+  // depth3D drop shadow under the pug-vehicle — keeps the world axis aligned.
+  _depthShadow(ctx, pug.x, pug.y + 14, 22, { alpha: 0.45 });
   // Pug-vehicle — vehicle chassis + high-detail pug rider
   ctx.save();
   ctx.translate(pug.x, pug.y);
-  ctx.rotate(pug.ang + Math.PI / 2); // rotate so the pug faces movement direction
+  // crashSpin overrides facing direction — spin around fast for "out of control" feel
+  ctx.rotate(pug.ang + Math.PI / 2 + (crashSpinT > 0 ? crashSpinAng : 0));
   ctx.fillStyle = vehicle.color;
   ctx.fillRect(-18, -10, 36, 20);
   // pug rider centered on chassis
@@ -1308,12 +1707,13 @@ function render() {
       ctx.restore();
     }
   } else if (weather === 'fog') {
-    const grd = ctx.createRadialGradient(W / 2, H / 2, 140, W / 2, H / 2, 460);
+    // Fog tightens sight radius severely (Wave 1E impact)
+    const grd = ctx.createRadialGradient(W / 2, H / 2, 100, W / 2, H / 2, 360);
     grd.addColorStop(0, 'rgba(180,180,200,0)');
-    grd.addColorStop(1, 'rgba(180,180,200,0.85)');
+    grd.addColorStop(1, 'rgba(180,180,200,0.94)');
     ctx.fillStyle = grd; ctx.fillRect(0, 0, W, H);
     // Extra grey overlay so distance fades to grey
-    ctx.fillStyle = 'rgba(180,180,200,0.12)';
+    ctx.fillStyle = 'rgba(180,180,200,0.16)';
     ctx.fillRect(0, 0, W, H);
   } else if (weather === 'rain') {
     ctx.fillStyle = 'rgba(0,0,40,0.18)'; ctx.fillRect(0, 0, W, H);
@@ -1328,6 +1728,8 @@ function render() {
   // the camera view; otherwise clamps to a viewport-edge ring. Also draws an
   // "ETA: X.Xs" estimate beneath the arrow head based on straight-line
   // distance / current speed (clamped so a parked vehicle doesn't show 9999).
+  // GPS jammed when player is in a tunnel (Wave 1E).
+  const _inTunnel = isInTunnel(pug.x, pug.y);
   {
     const dxA = marker.x - pug.x, dyA = marker.y - pug.y;
     const dA = Math.hypot(dxA, dyA);
@@ -1337,7 +1739,7 @@ function render() {
     const markerScreenY = marker.y - cam.y + H / 2;
     const offEdge = markerScreenX < 60 || markerScreenX > W - 60 ||
                     markerScreenY < 60 || markerScreenY > H - 60;
-    if (offEdge && dA > 80) {
+    if (offEdge && dA > 80 && !_inTunnel) {
       const ang = Math.atan2(dyA, dxA);
       // Clamp to a viewport-edge ring (rectangular clamp so the arrow hugs
       // the side it points toward — matches Crazy Taxi).
@@ -1421,6 +1823,53 @@ function render() {
   ctx.fillRect(W - 130, 36, 120 * Math.min(1, spd / maxSpd), 16);
   ctx.fillStyle = '#fff'; ctx.font = "10px 'Press Start 2P', monospace"; ctx.textAlign = 'right';
   ctx.fillText(Math.floor(spd) + ' MPH', W - 12, 48);
+  // Delivery type label + Next-3 preview
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(W / 2 + 110, 24, 100, 24);
+  ctx.fillStyle = '#888'; ctx.font = "7px 'Press Start 2P', monospace"; ctx.textAlign = 'left';
+  ctx.fillText('NEXT:', W / 2 + 114, 33);
+  ctx.font = "14px serif"; ctx.textAlign = 'center';
+  for (let i = 0; i < upcomingDeliveries.length; i++) {
+    ctx.fillStyle = _DTC[upcomingDeliveries[i].type];
+    ctx.fillText(_DTG[upcomingDeliveries[i].type], W / 2 + 140 + i * 22, 42);
+  }
+  const _typeLabel = currentDeliveryType === 'multi' ? `MULTI ${4 - multiStops}/3` : (currentDeliveryType === 'vip' && vipHits > 0 ? 'VIP RUINED' : currentDeliveryType.toUpperCase());
+  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.fillRect(W / 2 - 100, 6, 200, 10);
+  ctx.fillStyle = currentDeliveryType === 'vip' && vipHits > 0 ? '#ff5a3a' : _DTC[currentDeliveryType];
+  ctx.font = "8px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+  ctx.fillText(_typeLabel, W / 2, 14);
+  // Time-of-day indicator (top-left corner under HUD card)
+  {
+    const tx = 12, ty = H - 60;
+    const isDay = timeOfDay > 0.25 && timeOfDay < 0.75;
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(tx, ty, 80, 16);
+    ctx.fillStyle = isDay ? '#ffd23f' : '#4cc9f0';
+    ctx.font = "8px 'Press Start 2P', monospace"; ctx.textAlign = 'left';
+    const hour = Math.floor(timeOfDay * 24);
+    ctx.fillText(`${isDay ? '☀' : '🌙'} ${String(hour).padStart(2,'0')}:00`, tx + 4, ty + 11);
+  }
+  // BIG delivery streak counter
+  if (deliveries > 0) {
+    const pulse = 1 + Math.sin(performance.now() / 200) * 0.06;
+    ctx.save(); ctx.translate(W / 2 - 220, 90); ctx.scale(pulse, pulse);
+    ctx.fillStyle = '#000'; ctx.font = "bold 26px 'Press Start 2P', monospace"; ctx.textAlign = 'left';
+    ctx.fillText('×' + deliveries, 2, 2);
+    ctx.fillStyle = '#ffd23f'; ctx.fillText('×' + deliveries, 0, 0);
+    ctx.font = "8px 'Press Start 2P', monospace"; ctx.fillStyle = '#fff';
+    ctx.fillText('DELIVERED', 0, 14);
+    ctx.restore();
+  }
+  if (crashSpinT > 0) {
+    ctx.fillStyle = '#ff5a3a'; ctx.font = "bold 14px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.shadowColor = '#ff5a3a'; ctx.shadowBlur = 12;
+    ctx.fillText('!! SPIN-OUT !!', W / 2, H / 2 - 60); ctx.shadowBlur = 0;
+  }
+  if (_inTunnel) {
+    ctx.fillStyle = '#ffd23f'; ctx.font = "bold 12px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText('GPS LOST · IN TUNNEL', W / 2, H - 90);
+  }
   // Active powerup chips bottom-left
   let py = H - 30;
   const drawChip = (label, t, color) => {
@@ -1549,6 +1998,8 @@ function end() {
     bestEl.innerHTML = `Best: <b>${b.score}</b> deliveries${isNewBest ? ' <span style="color:var(--neon-yellow)">★ NEW</span>' : ''}`;
   }
   document.getElementById('hud').hidden = true;
+  if (_pauseBtn) _pauseBtn.classList.remove('is-shown');
+  if (_pauseOv) _pauseOv.classList.remove('is-open');
   document.getElementById('end-overlay').hidden = false;
   document.getElementById('end-overlay').classList.remove('is-hidden');
   // S/A/B/C/D grade card — supplements existing end-overlay.
@@ -1613,6 +2064,63 @@ function updateHud() {
   if (_dpBestCache !== _dpHudPrev.best) { _dpHud.best.textContent = _dpBestCache; _dpHudPrev.best = _dpBestCache; }
 }
 
+// === Wave 1E: vehicle selector + garage upgrades + pause ===
+function renderVehSel() {
+  const row = document.getElementById('dp-veh-row'); if (!row) return;
+  row.innerHTML = '';
+  for (const id of STARTER_VEHICLES) {
+    const v = VEHICLES[id], b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'dp-veh-btn' + (selectedStartVehicle === id ? ' is-active' : '');
+    b.innerHTML = `${v.icon} ${v.name.toUpperCase()}<span class="dp-veh-stats">SPD ${v.speed} · HP ${v.hp}</span>`;
+    b.addEventListener('click', () => { selectedStartVehicle = id; renderVehSel(); });
+    row.appendChild(b);
+  }
+}
+const _GARAGE_TIERS = [['speedT','⚡ SPEED','+20 speed'], ['hpT','🛡 ARMOR','+1 HP'], ['fuelT','⛽ FUEL','+20 fuel']];
+function renderGarage() {
+  const root = document.getElementById('dp-garage'); if (!root) return;
+  const earnEl = document.getElementById('dp-earn');
+  if (earnEl) earnEl.textContent = `$${totalEarnings} earnings · spend on upgrades:`;
+  root.innerHTML = '';
+  for (const [id, label, desc] of _GARAGE_TIERS) {
+    const cur = garageUpgrades[id] || 0, price = 30 + cur * 40, maxed = cur >= 5;
+    const div = document.createElement('div'); div.className = 'dp-up-row';
+    div.innerHTML = `<b>${label}</b>Lv ${cur}/5<br><span style="font-size:0.4rem;color:var(--muted)">${desc}</span>`;
+    const btn = document.createElement('button'); btn.className = 'dp-up-btn';
+    btn.textContent = maxed ? 'MAX' : `$${price}`;
+    btn.disabled = maxed || totalEarnings < price;
+    btn.addEventListener('click', () => {
+      if (maxed || totalEarnings < price) return;
+      totalEarnings -= price; saveEarnings();
+      garageUpgrades[id] = cur + 1; saveGarage(); renderGarage();
+    });
+    div.appendChild(btn); root.appendChild(div);
+  }
+}
+renderVehSel(); renderGarage();
+{
+  const so = document.getElementById('overlay');
+  if (so) new MutationObserver(() => {
+    if (!so.hidden && !so.classList.contains('is-hidden')) { renderVehSel(); renderGarage(); }
+  }).observe(so, { attributes: true, attributeFilter: ['hidden','class'] });
+}
+// Pause menu
+const _pauseOv = document.getElementById('dp-pause');
+const _pauseBtn = document.getElementById('pause-btn');
+function togglePause(forceState) {
+  if (!running) return;
+  paused = typeof forceState === 'boolean' ? forceState : !paused;
+  if (_pauseOv) _pauseOv.classList.toggle('is-open', paused);
+}
+if (_pauseBtn) _pauseBtn.addEventListener('click', () => togglePause());
+window.addEventListener('keydown', (e) => {
+  if (!running) return;
+  if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') { togglePause(); e.preventDefault(); }
+});
+document.getElementById('pause-resume')?.addEventListener('click', () => togglePause(false));
+document.getElementById('pause-restart')?.addEventListener('click', () => { togglePause(false); start(); });
+
 document.getElementById('start-btn').addEventListener('click', start);
 document.getElementById('end-restart').addEventListener('click', start);
 function start() {
@@ -1623,6 +2131,9 @@ function start() {
   document.getElementById('overlay').hidden = true; document.getElementById('overlay').classList.add('is-hidden');
   document.getElementById('end-overlay').hidden = true; document.getElementById('end-overlay').classList.add('is-hidden');
   document.getElementById('hud').hidden = false;
+  if (_pauseBtn) _pauseBtn.classList.add('is-shown');
+  if (_pauseOv) _pauseOv.classList.remove('is-open');
+  paused = false;
   sfx.resume();
   try { music.setIntensity(0.4); music.play(); } catch {}
 }

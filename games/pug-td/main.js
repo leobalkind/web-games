@@ -10,6 +10,7 @@ import { showWavePreview } from '../../src/shared/wavePreview.js';
 import { createMobileControls } from '../../src/shared/mobileControls.js';
 import { createSettingsMenu } from '../../src/shared/settingsMenu.js';
 import { showOrientationHint } from '../../src/shared/orientationHint.js';
+import { drawShadow as _depthShadow, isReducedMotion as _depthReduced } from '../../src/shared/depth3D.js';
 
 // Tower-defense is tap-only — the shared module just adds the BACK chip and
 // mute toggle in the corners (and is auto-hidden on desktop). No movement.
@@ -534,6 +535,9 @@ const TOWERS = {
   // NEW towers
   bone:   { name: 'Bone', icon: '🦴', iconName: 'bone', cost: 110, range: 3.5, dmg: 12, cd: 0.7, color: '#eae0c0', hitsAir: true, projColor: '#eae0c0', boomerang: true, desc: 'Boomerang hits twice' },
   tar:    { name: 'Tar', icon: '🛢', iconName: 'smokeBomb', cost: 95, range: 2.5, dmg: 6,  cd: 0.55, color: '#222228', hitsAir: false, projColor: '#222228', tarPool: true, slow: 0.5, slowDur: 2.2, desc: 'Drops slow-pools on ground' },
+  // TELEPORT tower — warps enemies BACKWARD along path. No damage; pure
+  // path-control utility. Slower fire rate but huge value on long paths.
+  teleport: { name: 'Warp', icon: '🌀', iconName: 'diamond', cost: 140, range: 3.2, dmg: 0, cd: 1.6, color: '#b055ff', hitsAir: true, projColor: '#b055ff', teleport: true, desc: 'Warps enemies BACK on path' },
 };
 
 const TARGETING_MODES = ['FIRST', 'LAST', 'STRONG', 'CLOSE'];
@@ -579,6 +583,10 @@ const TOWER_PATHS = {
     A: { id: 'BOG',    label: 'BOG',    blurb: '80% slow · pool lingers',    badge: '#222230', glyph: '◉', dmgMul: 1.0, rangeMul: 1.0, rateMul: 1.0, slowBoost: 0.8, slowDurBoost: 2.0 },
     B: { id: 'TOXIC',  label: 'TOXIC',  blurb: 'pool tics +6 dmg/sec',       badge: '#5ef38c', glyph: '☣', dmgMul: 1.0, rangeMul: 1.0, rateMul: 1.0, dotPerSec: 6 },
   },
+  teleport: {
+    A: { id: 'BACKWARD', label: 'BACKWARD', blurb: 'warps enemies 4 tiles back', badge: '#b055ff', glyph: '↶', dmgMul: 1.0, rangeMul: 1.0, rateMul: 1.0, warpAmt: 4 },
+    B: { id: 'CHAOS',    label: 'CHAOS',    blurb: 'warps random 1-6 tiles back', badge: '#ff3aa1', glyph: '⌘', dmgMul: 1.0, rangeMul: 1.2, rateMul: 0.8, warpAmt: 0, warpChaos: true },
+  },
 };
 function getPathDef(tw) {
   if (!tw.path) return null;
@@ -594,6 +602,22 @@ const ENEMIES = {
   boss:     { name: 'BOSS',     hp: 1500, speed: 0.5, gold: 250, color: '#b055ff', size: 22, air: false },
 };
 
+// Track endless-mode state: waves > 15 are procedurally generated and
+// escalate forever. Boss waves every 5 waves get a unique modifier
+// (REGEN, SPLITTER, SUMMONER) chosen by wave index.
+let endlessMode = false;
+const BOSS_MODIFIERS = ['REGEN', 'SPLITTER', 'SUMMONER'];
+function generateEndlessWave(idx) {
+  // idx is 1-based wave number (16, 17, 18, ...)
+  const base = idx - 15;
+  const w = {};
+  w.squirrel = 20 + base * 4;
+  w.cat = 10 + base * 2;
+  w.bird = 6 + Math.floor(base * 1.3);
+  w.tank = Math.floor(base * 0.8);
+  // Every 5 waves: also queue an extra boss (handled separately by spawn)
+  return w;
+}
 const WAVES = [
   { squirrel: 6 },
   { squirrel: 10, cat: 2 },
@@ -613,6 +637,52 @@ const WAVES = [
 ];
 
 let money, lives, waveIdx, enemies, towers, projectiles, particles, popups, running, spawnQueue, spawnT, betweenWaveT, inWave, selectedTowerType, selectedTower;
+// Day/night cycle — 0..1, increases per wave (waves 1..15 = day → night)
+function dayNightT() {
+  // Endless waves keep night
+  return Math.min(1, (waveIdx || 0) / 15);
+}
+// Returns an RGBA color for the night overlay (low-alpha blue → midnight)
+function nightOverlayRGBA() {
+  const t = dayNightT();
+  if (t <= 0) return 'rgba(0,0,0,0)';
+  return `rgba(20, 30, 80, ${0.35 * t})`;
+}
+
+// SYNERGY DETECTION — pre-computed per-frame map of synergies between
+// adjacent towers. Returns: { tower-index: [{ type, label, color }] }.
+function computeSynergies() {
+  const map = new Map();
+  if (!towers || towers.length < 2) return map;
+  for (let i = 0; i < towers.length; i++) {
+    for (let j = i + 1; j < towers.length; j++) {
+      const a = towers[i], b = towers[j];
+      const d = Math.hypot(a.col - b.col, a.row - b.row);
+      if (d > 1.5) continue; // only direct neighbors
+      // FROST + CANNON → DEEP FREEZE (cannon does +50% dmg)
+      const types = new Set([a.type, b.type]);
+      let syn = null;
+      if (types.has('frost') && types.has('cannon')) syn = { label: 'DEEP FREEZE', color: '#b0e8ff' };
+      else if (types.has('gatling') && types.has('buff')) syn = { label: 'OVERCLOCK', color: '#ff8e3c' };
+      else if (types.has('sniper') && types.has('tar')) syn = { label: 'STICKY SHOT', color: '#5ef38c' };
+      else if (types.has('teleport') && types.has('frost')) syn = { label: 'TIME LOCK', color: '#b055ff' };
+      else if (types.has('bone') && types.has('basic')) syn = { label: 'PACK HUNTER', color: '#eae0c0' };
+      if (syn) {
+        const li = map.get(i) || []; li.push(syn); map.set(i, li);
+        const lj = map.get(j) || []; lj.push(syn); map.set(j, lj);
+      }
+    }
+  }
+  return map;
+}
+function towerHasSynergy(tw, label) {
+  if (!towers) return false;
+  const idx = towers.indexOf(tw);
+  if (idx < 0) return false;
+  const syns = _synergyCache.get(idx);
+  return !!(syns && syns.some((s) => s.label === label));
+}
+let _synergyCache = new Map();
 let runId = 0;
 let _lastFireSfxT = 0;
 // Shared speed-toggle multiplier — set by createSpeedToggle (1/2/3)
@@ -639,7 +709,41 @@ function reset() {
   spawnQueue = []; spawnT = 0; betweenWaveT = 0; inWave = false;
   selectedTowerType = null; selectedTower = null;
   shakeT = 0; shakeMag = 0; waveBannerT = 0; vaultFlashT = 0; _tdHitstopT = 0;
+  endlessMode = false;
+  _placeMode = false;
+  // Apply persistent talent buffs to starting money
+  try {
+    const t = loadTalents();
+    if (t.bonusGold) money += t.bonusGold;
+    if (t.bonusLives) lives += t.bonusLives;
+  } catch {}
 }
+
+// ===== TALENT TREE — persistent stars earned by perfect-clearing maps.
+// Stars are spent globally on tiny passive buffs that apply to all maps.
+const TALENT_KEY = 'pug-td:talents';
+function loadTalents() {
+  try { return JSON.parse(localStorage.getItem(TALENT_KEY)) || { stars: 0, spent: 0, bonusGold: 0, bonusLives: 0, bonusDmg: 0 }; }
+  catch { return { stars: 0, spent: 0, bonusGold: 0, bonusLives: 0, bonusDmg: 0 }; }
+}
+function saveTalents(t) {
+  try { localStorage.setItem(TALENT_KEY, JSON.stringify(t)); } catch {}
+}
+function awardTalentStars(n) {
+  const t = loadTalents();
+  t.stars = (t.stars || 0) + n;
+  saveTalents(t);
+}
+
+// Place-tower-mode toggle (P): persistent placement — selected tower stays
+// armed after placement so you can drop several quickly. Press P again to exit.
+let _placeMode = false;
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'p' || e.key === 'P') {
+    _placeMode = !_placeMode;
+    try { sfx.tone(_placeMode ? 880 : 440, 'square', 0.05, 0.14); } catch {}
+  }
+});
 
 function buildBar() {
   const bar = document.getElementById('td-bar');
@@ -661,10 +765,18 @@ function buildBar() {
   }
   const wv = document.createElement('button');
   wv.id = 'td-wave-btn';
-  wv.textContent = inWave ? `WAVE ${waveIdx} RUNNING` : `▶ START WAVE ${waveIdx + 1}/${WAVES.length}`;
+  const isEndlessNext = waveIdx >= WAVES.length;
+  wv.textContent = inWave
+    ? `WAVE ${waveIdx} RUNNING`
+    : (isEndlessNext
+        ? `▶ ENDLESS WAVE ${waveIdx + 1}`
+        : `▶ START WAVE ${waveIdx + 1}/${WAVES.length}`);
   wv.disabled = inWave;
   if (inWave) wv.style.opacity = 0.5;
-  wv.addEventListener('click', () => { if (!inWave && waveIdx < WAVES.length) startWave(); });
+  wv.addEventListener('click', () => {
+    if (inWave) return;
+    if (waveIdx < WAVES.length || endlessMode) startWave();
+  });
   bar.appendChild(wv);
 }
 
@@ -860,7 +972,7 @@ function handleClick(x, y) {
         color: '#c8a878', life: 0.5, t: 0, size: 3,
       });
     }
-    selectedTowerType = null;
+    if (!_placeMode) selectedTowerType = null;
     buildBar(); updateHud();
   } else {
     hidePopup(); selectedTower = null;
@@ -868,7 +980,9 @@ function handleClick(x, y) {
 }
 
 function startWave() {
-  if (inWave || waveIdx >= WAVES.length) return;
+  if (inWave) return;
+  // After campaign waves: keep generating endless waves.
+  if (waveIdx >= WAVES.length && !endlessMode) return;
   // Bonus money for calling early (Kingdom Rush mechanic). Pop a yellow text
   // near the vault so the player sees the reward.
   if (betweenWaveT > 0) {
@@ -880,21 +994,22 @@ function startWave() {
     }
     betweenWaveT = 0;
   }
-  const wv = WAVES[waveIdx];
+  // Pick from campaign waves or generate endless wave
+  const wv = waveIdx < WAVES.length ? WAVES[waveIdx] : generateEndlessWave(waveIdx + 1);
   spawnQueue = [];
   for (const [type, count] of Object.entries(wv)) {
     for (let i = 0; i < count; i++) spawnQueue.push(type);
   }
   // Shuffle spawn order
   spawnQueue.sort(() => Math.random() - 0.5);
-  // Mini-boss every 5 waves (wave index 5, 10, 15 / 1-based)
+  // Mini-boss every 5 waves (1-based)
   const oneBased = waveIdx + 1;
-  if (oneBased === 5 || oneBased === 10 || oneBased === 15) {
+  if (oneBased % 5 === 0) {
     spawnQueue.push('__MINIBOSS__');
   }
   inWave = true; spawnT = 0;
   waveIdx++;
-  waveBannerText = `WAVE ${waveIdx}`;
+  waveBannerText = endlessMode || waveIdx > 15 ? `★ ENDLESS WAVE ${waveIdx} ★` : `WAVE ${waveIdx}`;
   waveBannerT = 1.4;
   // Bottom-center "incoming" wave preview (icons + counts + mini-boss flag)
   try {
@@ -913,6 +1028,8 @@ function startWave() {
 let miniBossBannerT = 0, miniBossBannerText = '';
 function spawnMiniBoss() {
   // 5× scaled cat with crown. Drops big money on kill.
+  // Boss modifier rotates every wave: REGEN / SPLITTER / SUMMONER.
+  const modifier = BOSS_MODIFIERS[Math.floor(waveIdx / 5) % BOSS_MODIFIERS.length];
   const base = ENEMIES.cat;
   const hpMul = 5 + waveIdx * 0.5;
   enemies.push({
@@ -921,9 +1038,10 @@ function spawnMiniBoss() {
     speed: base.speed * 0.85, slowT: 0, slowMul: 1,
     pathIdx: 0,
     x: currentMap.path[0][0] + 0.5, y: currentMap.path[0][1] + 0.5,
-    alive: true, miniboss: true,
+    alive: true, miniboss: true, bossMod: modifier,
+    summonT: 0,
   });
-  miniBossBannerText = `★ MINI-BOSS INCOMING ★`;
+  miniBossBannerText = `★ MINI-BOSS — ${modifier} ★`;
   miniBossBannerT = 2;
   // Cinematic intro shake — longer + heavier so MINI-BOSS arrival reads.
   screenShake(9, 0.55);
@@ -997,7 +1115,16 @@ function tick(dt) {
       // Richer victory chime — 4-note major arp + bell-top.
       sfx.arp([523, 659, 784, 1047], 'triangle', 0.07, 0.22, 0.18);
       sfx.tone(1568, 'sine', 0.06, 0.25);
-      if (waveIdx >= WAVES.length) return end(true);
+      // Win — but allow endless mode! After clearing wave 15, flip endless
+      // and show a celebratory banner; player can call further waves.
+      if (waveIdx >= WAVES.length && !endlessMode) {
+        endlessMode = true;
+        miniBossBannerText = '★ VAULT SAFE — ENDLESS MODE UNLOCKED ★';
+        miniBossBannerT = 3;
+        // Award stars for clearing the map (talent currency, persistent).
+        try { awardTalentStars(lives === 10 ? 3 : (lives > 5 ? 2 : 1)); } catch {}
+        sfx.arp([523, 659, 784, 1047, 1319], 'triangle', 0.08, 0.25, 0.25);
+      }
       buildBar();
     }
   } else if (betweenWaveT > 0) {
@@ -1011,6 +1138,25 @@ function tick(dt) {
     // DOT (toxic tar) + NAPALM (cannon NAPALM) damage-over-time
     if (e.dotT > 0)     { e.dotT -= dt;     if (e.dotT > 0)     e.hp -= (e.dotDps     || 0) * dt; }
     if (e.napalmT > 0)  { e.napalmT -= dt;  if (e.napalmT > 0)  e.hp -= (e.napalmDps  || 0) * dt; }
+    // Boss modifier ticks
+    if (e.miniboss && e.bossMod) {
+      if (e.bossMod === 'REGEN' && e.hp < e.maxHp) {
+        e.hp = Math.min(e.maxHp, e.hp + e.maxHp * 0.03 * dt);
+      } else if (e.bossMod === 'SUMMONER') {
+        e.summonT = (e.summonT || 0) + dt;
+        if (e.summonT >= 2.5) {
+          e.summonT = 0;
+          // Spawn a squirrel right at the boss's path position
+          enemies.push({
+            type: 'squirrel', def: ENEMIES.squirrel,
+            hp: ENEMIES.squirrel.hp, maxHp: ENEMIES.squirrel.hp,
+            speed: ENEMIES.squirrel.speed, slowT: 0, slowMul: 1,
+            pathIdx: e.pathIdx, x: e.x, y: e.y, alive: true,
+          });
+          particles.push({ x: e.x * TILE + gridOffsetX(), y: e.y * TILE + gridOffsetY(), t: 0, life: 0.4, ring: true, maxR: 26, color: '#b055ff' });
+        }
+      }
+    }
     const target = currentMap.path[e.pathIdx + 1];
     if (!target) {
       // Reached end
@@ -1040,6 +1186,8 @@ function tick(dt) {
   // Perf: prune in-place via reverse-iter splice — avoids per-frame realloc.
   for (let i = enemies.length - 1; i >= 0; i--) if (!enemies[i].alive) enemies.splice(i, 1);
 
+  // Refresh synergy cache (cheap — at most ~30 towers in practice)
+  _synergyCache = computeSynergies();
   // Towers fire
   for (const tw of towers) {
     if (tw.placeT != null && tw.placeT < 0.35) tw.placeT += dt;
@@ -1089,6 +1237,13 @@ function tick(dt) {
     else target = inRange.reduce((a, b) => (a.d < b.d ? a : b)).e;
     // Fire — base dmg/cd from path-aware effective values
     let dmg = effDmg(tw) * buffMult;
+    // SYNERGY damage bonuses
+    if (towerHasSynergy(tw, 'DEEP FREEZE') && tw.type === 'cannon') dmg *= 1.5;
+    if (towerHasSynergy(tw, 'OVERCLOCK')   && tw.type === 'gatling') dmg *= 1.3;
+    if (towerHasSynergy(tw, 'STICKY SHOT') && tw.type === 'sniper')  dmg *= 1.4;
+    if (towerHasSynergy(tw, 'PACK HUNTER') && tw.type === 'basic')   dmg *= 1.3;
+    // Persistent talent: bonus dmg
+    try { const tal = loadTalents(); if (tal.bonusDmg) dmg *= (1 + tal.bonusDmg); } catch {}
     tw.cd = effCd(tw);
     // CRIT path: random 15% chance ×3
     let isCrit = false;
@@ -1111,6 +1266,9 @@ function tick(dt) {
       knockback: !!(path && path.knockback),
       napalm: !!(path && path.napalm),
       dotPerSec: path && path.dotPerSec ? path.dotPerSec : 0,
+      teleport: !!def.teleport,
+      warpAmt: path && path.warpAmt ? path.warpAmt : 3,
+      warpChaos: !!(path && path.warpChaos),
       crit: isCrit,
       speed: 800, dead: false,
       origX: (tw.col + 0.5) * TILE + gridOffsetX(),
@@ -1207,6 +1365,21 @@ function tick(dt) {
             // crit ping particle
             particles.push({ x: e.x * TILE + gridOffsetX(), y: e.y * TILE + gridOffsetY(), t: 0, life: 0.35, ring: true, maxR: 18, color: '#ffd23f' });
           }
+          // TELEPORT: warp back along path
+          if (p.teleport) {
+            const amt = p.warpChaos ? (1 + Math.floor(Math.random() * 6)) : (p.warpAmt || 3);
+            const newIdx = Math.max(0, e.pathIdx - amt);
+            const node = currentMap.path[newIdx];
+            if (node) {
+              const oldX = e.x, oldY = e.y;
+              e.pathIdx = newIdx;
+              e.x = node[0] + 0.5;
+              e.y = node[1] + 0.5;
+              // Warp ring at old + new pos
+              particles.push({ x: oldX * TILE + gridOffsetX(), y: oldY * TILE + gridOffsetY(), t: 0, life: 0.4, ring: true, maxR: 24, color: '#b055ff' });
+              particles.push({ x: e.x * TILE + gridOffsetX(), y: e.y * TILE + gridOffsetY(), t: 0, life: 0.4, ring: true, maxR: 24, color: '#ff3aa1' });
+            }
+          }
         };
         applyHit(p.target);
         if (p.pierce > 0) {
@@ -1261,6 +1434,18 @@ function tick(dt) {
             sfx.arp([523, 659, 880, 1175], 'triangle', 0.08, 0.25, 0.25);
             // Sub-bass thud sweetener.
             sfx.tone(70, 'sine', 0.3, 0.4);
+            // SPLITTER boss: spawn 3 cats on death
+            if (e.bossMod === 'SPLITTER') {
+              for (let k = 0; k < 3; k++) {
+                enemies.push({
+                  type: 'cat', def: ENEMIES.cat,
+                  hp: ENEMIES.cat.hp * 1.5, maxHp: ENEMIES.cat.hp * 1.5,
+                  speed: ENEMIES.cat.speed * 1.2, slowT: 0, slowMul: 1,
+                  pathIdx: e.pathIdx, x: e.x + (k - 1) * 0.2, y: e.y, alive: true,
+                });
+              }
+              spawnPopup(e.x * TILE + gridOffsetX(), e.y * TILE + gridOffsetY() - 20, 'SPLIT!', '#ff3aa1');
+            }
           }
           money += goldDrop;
           sfx.tone(660, 'triangle', 0.05, 0.16);
@@ -1313,6 +1498,19 @@ function render() {
   const biome = getBiome();
   // Background — vignette per biome
   ctx.fillStyle = biome.ground; ctx.fillRect(0, 0, W, H);
+  // depth3D: subtle parallax cloud band along the top — gentle scroll over time.
+  if (!_depthReduced()) {
+    const t = performance.now() * 0.012;
+    const py = H * 0.06;
+    ctx.fillStyle = 'rgba(255,255,255,0.05)';
+    for (let i = -1; i < Math.floor(W / 140) + 1; i++) {
+      const cw = 70 + ((i * 17) % 30);
+      const cx = (i * 140 - t) % (W + 280) - 70;
+      ctx.beginPath();
+      ctx.ellipse(cx, py + (i % 2) * 10, cw, 10, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
   // Soft vignette to make the map pop
   const grad = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.3, W / 2, H / 2, Math.max(W, H) * 0.7);
   grad.addColorStop(0, 'rgba(0,0,0,0)');
@@ -1386,6 +1584,8 @@ function render() {
     }
     // Tower body — bob gently
     const bobY = y + Math.sin(performance.now() / 400 + (tw.bob || 0)) * 2;
+    // depth3D drop shadow under tower — grounds the pug body on its tile.
+    _depthShadow(ctx, x, y + TILE * 0.36, TILE * 0.32, { alpha: 0.4 });
     // Level upgrade rings — 1 ring per level under tower
     if (tw.level > 0) {
       for (let i = 0; i < tw.level; i++) {
@@ -1444,11 +1644,13 @@ function render() {
       ctx.fillRect(x - 8 + i * 6, y + TILE * 0.32, 4, 4);
     }
   }
-  // Enemies
+  // Enemies (depth3D shadow under each)
   for (const e of enemies) {
     if (!e.alive) continue;
     const x = ox + e.x * TILE;
     const y = oy + e.y * TILE;
+    // shadow on the ground beneath enemy (air units = smaller shadow further down)
+    _depthShadow(ctx, x, y + e.def.size + (e.def.air ? 18 : 6), e.def.size * 0.9, { alpha: e.def.air ? 0.22 : 0.4 });
     // Mini-boss: aura ring
     if (e.miniboss) {
       const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 200);
@@ -1519,8 +1721,73 @@ function render() {
   }
   // Close screen-shake transform before drawing UI overlays
   if (shakeT > 0 && shakeMag > 0) ctx.restore();
+  // Day/night blue tint — gradually deepens as waves progress
+  const dnT = dayNightT();
+  if (dnT > 0) {
+    ctx.fillStyle = nightOverlayRGBA();
+    ctx.fillRect(0, 0, W, H);
+    // Subtle moon when fully night
+    if (dnT > 0.7) {
+      const moonAlpha = (dnT - 0.7) / 0.3;
+      ctx.fillStyle = `rgba(255,250,220,${0.5 * moonAlpha})`;
+      ctx.beginPath(); ctx.arc(W - 60, 80, 22, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = `rgba(200,200,170,${0.35 * moonAlpha})`;
+      ctx.beginPath(); ctx.arc(W - 52, 76, 6, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(W - 68, 88, 4, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  // Synergy badges — small tag next to towers that have a synergy active
+  if (_synergyCache.size > 0) {
+    const ox = gridOffsetX(), oy = gridOffsetY();
+    for (let i = 0; i < towers.length; i++) {
+      const syns = _synergyCache.get(i);
+      if (!syns || syns.length === 0) continue;
+      const tw = towers[i];
+      const x = ox + tw.col * TILE + TILE / 2;
+      const y = oy + tw.row * TILE + TILE * 0.4;
+      const syn = syns[0]; // show only first
+      ctx.font = "5px 'Press Start 2P', monospace";
+      ctx.textAlign = 'center';
+      const tw2 = ctx.measureText(syn.label).width;
+      ctx.fillStyle = 'rgba(0,0,0,0.7)';
+      ctx.fillRect(x - tw2 / 2 - 2, y - 4, tw2 + 4, 8);
+      ctx.fillStyle = syn.color;
+      ctx.fillText(syn.label, x, y + 2);
+    }
+  }
   // Ambient biome particles drawn after shake-restore so they don't jitter
   drawAmbientParticles();
+  // Wave progress bar (top center) — visualizes spawn queue progress
+  if (inWave) {
+    const totalCount = enemies.filter((e) => e.alive).length + spawnQueue.length;
+    const totalSent = (spawnQueue.length === 0 && totalCount === 0) ? 1 : 1 - (spawnQueue.length / Math.max(1, spawnQueue.length + enemies.filter((e) => e.alive).length + 0.0001));
+    // Use a smarter denominator
+    void totalSent;
+    const pbX = W / 2 - 120, pbY = 10, pbW = 240, pbH = 8;
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(pbX, pbY, pbW, pbH);
+    // Fill = (remaining sends + remaining alive) ratio to total wave size
+    const remaining = spawnQueue.length + enemies.filter((e) => e.alive).length;
+    const orig = remaining + 1; // approx
+    const frac = 1 - remaining / Math.max(orig, 1);
+    ctx.fillStyle = '#ffd23f';
+    ctx.fillRect(pbX, pbY, pbW * frac, pbH);
+    ctx.strokeStyle = '#5ef38c'; ctx.lineWidth = 1;
+    ctx.strokeRect(pbX + 0.5, pbY + 0.5, pbW - 1, pbH - 1);
+    ctx.fillStyle = '#5ef38c';
+    ctx.font = "7px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText(`WAVE ${waveIdx}  ${spawnQueue.length} queued · ${enemies.filter((e) => e.alive).length} alive`, W / 2, pbY - 2);
+  }
+  // Place-mode indicator
+  if (_placeMode) {
+    ctx.fillStyle = 'rgba(94,243,140,0.18)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(W / 2 - 110, 26, 220, 22);
+    ctx.fillStyle = '#5ef38c';
+    ctx.font = "9px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText('★ PLACE MODE (P) ★', W / 2, 40);
+  }
   // Mini-boss banner (above wave banner)
   if (miniBossBannerT > 0) {
     const k = Math.min(1, miniBossBannerT / 2);
@@ -1578,7 +1845,7 @@ function updateHud() {
       _tdHudPrev.critical = crit;
     }
   }
-  const w = `${waveIdx}/${WAVES.length}`;
+  const w = endlessMode || waveIdx > WAVES.length ? `${waveIdx} ★` : `${waveIdx}/${WAVES.length}`;
   if (w !== _tdHudPrev.wave) { _tdHud.wave.textContent = w; _tdHudPrev.wave = w; }
   if (enemies.length !== _tdHudPrev.enemies) {
     _tdHud.enemies.textContent = enemies.length;
@@ -1602,11 +1869,16 @@ function end(won) {
   if (!running) return;
   running = false;
   sfx.sweep(won ? 1320 : 220, won ? 880 : 60, won ? 'triangle' : 'sawtooth', 0.8, 0.25);
-  document.getElementById('end-title').textContent = won ? 'VAULT SAFE!' : 'VAULT EMPTY';
-  document.getElementById('end-sub').textContent = won ? 'You defended all 15 waves.' : 'The squirrels got all the biscuits.';
+  const isEndless = endlessMode && waveIdx > WAVES.length;
+  document.getElementById('end-title').textContent = isEndless ? `ENDLESS · WAVE ${waveIdx}` : (won ? 'VAULT SAFE!' : 'VAULT EMPTY');
+  document.getElementById('end-sub').textContent = isEndless
+    ? `Endless rampage — ${waveIdx - 15} waves past victory.`
+    : (won ? 'You defended all 15 waves.' : 'The squirrels got all the biscuits.');
   document.getElementById('end-waves').textContent = waveIdx;
-  const score = waveIdx * 100 + lives * 20;
+  const score = waveIdx * 100 + lives * 20 + (isEndless ? (waveIdx - 15) * 150 : 0);
   document.getElementById('end-score').textContent = score;
+  // Award stars in endless mode too (1 per 5 extra waves)
+  if (isEndless) try { awardTalentStars(Math.floor((waveIdx - 15) / 5)); } catch {}
   const { isNewBest, current } = submitRun('pug-td', { score, waves: waveIdx, won });
   const bestEl = document.getElementById('end-best');
   if (bestEl) {
@@ -1620,8 +1892,11 @@ function end(won) {
   document.getElementById('end-overlay').classList.remove('is-hidden');
 }
 
-// Map picker
+// Map picker — now with per-map difficulty rating (dots)
 let chosenMapId = 'classic';
+const MAP_DIFFICULTY = {
+  classic: 1, spiral: 2, zigzag: 2, corridor: 3, loop: 2, uturn: 2, edge: 3, cross: 3, funnel: 3,
+};
 function renderMapPicker() {
   const el = document.getElementById('map-picker');
   if (!el) return;
@@ -1630,10 +1905,22 @@ function renderMapPicker() {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.style.cssText = `background:rgba(0,0,0,0.4);color:var(--text);border:2px solid ${chosenMapId === id ? 'var(--neon-yellow)' : 'var(--border)'};border-radius:4px;padding:8px 14px;font-family:var(--font-display);font-size:0.5rem;letter-spacing:0.06em;cursor:pointer;${chosenMapId === id ? 'background:rgba(255,210,63,0.18);color:var(--neon-yellow);box-shadow:0 0 12px rgba(255,210,63,0.45);' : ''}`;
-    btn.innerHTML = `${m.name}<br><span style="color:var(--text-soft);font-size:0.42rem;">${m.desc}</span>`;
+    const diff = MAP_DIFFICULTY[id] || 2;
+    const dots = '★'.repeat(diff) + '☆'.repeat(Math.max(0, 3 - diff));
+    btn.innerHTML = `${m.name} <span style="color:var(--neon-pink);font-size:0.4rem;">${dots}</span><br><span style="color:var(--text-soft);font-size:0.42rem;">${m.desc}</span>`;
     btn.addEventListener('click', () => { chosenMapId = id; renderMapPicker(); });
     el.appendChild(btn);
   }
+  // Show talent panel if stars > 0
+  try {
+    const t = loadTalents();
+    const panel = document.getElementById('td-talents');
+    const cnt = document.getElementById('td-stars-count');
+    if (panel && cnt && t.stars) {
+      panel.style.display = 'block';
+      cnt.textContent = t.stars;
+    }
+  } catch {}
 }
 renderMapPicker();
 
@@ -1647,6 +1934,8 @@ function start() {
   mapParticles = [];
   generateDecor();
   miniBossBannerT = 0; miniBossBannerText = '';
+  // Show start tip + place-mode key hint
+  try { showTip('Tip: SYNERGY! Place FROST+CANNON adjacent → DEEP FREEZE bonus. Endless mode after wave 15. P=place-mode.', 6500); } catch {}
   document.getElementById('overlay').hidden = true; document.getElementById('overlay').classList.add('is-hidden');
   document.getElementById('end-overlay').hidden = true; document.getElementById('end-overlay').classList.add('is-hidden');
   document.getElementById('hud').hidden = false;
@@ -1682,7 +1971,8 @@ setInterval(() => {
 const callWaveBtn = document.getElementById('td-call-wave');
 const callWaveBonusEl = callWaveBtn?.querySelector('.td-call-bonus');
 callWaveBtn?.addEventListener('click', () => {
-  if (!running || inWave || waveIdx >= WAVES.length) return;
+  if (!running || inWave) return;
+  if (waveIdx >= WAVES.length && !endlessMode) return;
   sfx.tone(920, 'square', 0.08, 0.22);
   startWave();
   callWaveBtn.hidden = true;
@@ -1690,7 +1980,7 @@ callWaveBtn?.addEventListener('click', () => {
 
 function refreshCallWaveBtn() {
   if (!callWaveBtn) return;
-  const showable = running && !inWave && waveIdx < WAVES.length && betweenWaveT > 0.1;
+  const showable = running && !inWave && (waveIdx < WAVES.length || endlessMode) && betweenWaveT > 0.1;
   callWaveBtn.hidden = !showable;
   if (showable && callWaveBonusEl) {
     const bonus = Math.floor(betweenWaveT * 5);
@@ -1782,7 +2072,9 @@ if (_startOv) {
     shareBtn.addEventListener('click', async () => {
       const w = document.getElementById('end-waves')?.textContent || '0';
       const sc = document.getElementById('end-score')?.textContent || '0';
-      const text = `🐶 PUG TOWER DEFENSE — Survived ${w} waves with ${sc} score! Beat me at https://leobalkind.github.io/web-games/`;
+      const wn = parseInt(w, 10) || 0;
+      const endlessSuffix = wn > 15 ? ` (★ ENDLESS +${wn - 15})` : '';
+      const text = `🐶 PUG TOWER DEFENSE — Survived ${w} waves with ${sc} score${endlessSuffix}! Beat me at https://leobalkind.github.io/web-games/`;
       try {
         if (navigator.share) await navigator.share({ title: 'PUG TOWER DEFENSE', text, url: 'https://leobalkind.github.io/web-games/' });
         else { await navigator.clipboard.writeText(text); shareBtn.textContent = '✓ COPIED!'; setTimeout(() => { shareBtn.textContent = '📋 SHARE'; }, 1800); }

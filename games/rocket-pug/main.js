@@ -99,17 +99,31 @@ window.addEventListener('resize', () => {
 }); resize();
 
 const WEAPONS = [
-  { id: 'tennis',   name: 'Tennis', drawIconFn: drawIcon.tennisBall, cooldown: 0.4, speed: 480, dmg: 14, color: '#5ef38c', shape: 'ball' },
-  { id: 'sausage',  name: 'Sausage', drawIconFn: drawSausage, cooldown: 0.55, speed: 380, dmg: 22, color: '#ff8e3c', shape: 'sausage' },
-  { id: 'toaster',  name: 'Toast', drawIconFn: drawToast, cooldown: 0.8, speed: 320, dmg: 30, color: '#ffd23f', shape: 'toast' },
-  { id: 'bubble',   name: 'Bubble', drawIconFn: drawBubble, cooldown: 0.3, speed: 240, dmg: 8, color: '#4cc9f0', shape: 'bubble' },
+  { id: 'tennis',  name: 'Tennis',  drawIconFn: drawIcon.tennisBall, cooldown: 0.4,  speed: 480, dmg: 14, color: '#5ef38c', shape: 'ball',    recoil: 0.05, desc: 'Fast & light.' },
+  { id: 'sausage', name: 'Sausage', drawIconFn: drawSausage,         cooldown: 0.55, speed: 380, dmg: 22, color: '#ff8e3c', shape: 'sausage', recoil: 0.12, desc: 'Solid hit.' },
+  { id: 'toaster', name: 'Toast',   drawIconFn: drawToast,           cooldown: 0.8,  speed: 320, dmg: 30, color: '#ffd23f', shape: 'toast',   recoil: 0.22, desc: 'Slow but heavy.' },
+  { id: 'bubble',  name: 'Bubble',  drawIconFn: drawBubble,          cooldown: 0.3,  speed: 240, dmg: 8,  color: '#4cc9f0', shape: 'bubble',  recoil: 0.02, desc: 'Spam at range.' },
+  { id: 'bfg',     name: 'BFG',     drawIconFn: drawSausage,         cooldown: 1.4,  speed: 260, dmg: 60, color: '#ff3aa1', shape: 'bfg',     recoil: 0.35, desc: 'BIG. RARE.', rare: true },
 ];
+let activePerkId = 'tough';
 
 let pug, bots, projectiles, particles, popups, sparks, kills, running;
 let mouse = { x: 0, y: 0 };
 let shakeT = 0, shakeAmp = 0;
 let comboT = 0, comboN = 0, comboBannerT = 0;
 let lastHitT = 0; // for player hit-flash
+// Wave 1D: 3 arenas, 3 modes, series, accuracy stats, spectator
+const ARENA_LABELS = { kitchen: 'KITCHEN', gym: 'GYM', rooftop: 'ROOFTOP' };
+const MODE_LABELS = { dm: 'DEATHMATCH', ctf: 'CAPTURE THE BREAD', koth: 'KING OF THE TOPPING' };
+let activeArena = 'kitchen', activeMode = 'dm';
+let treadmills = [], dumbbells = [], acUnits = [], trampolines = [], smashTables = [];
+let chopperT = 0, bgChefsT = 0;
+let flags = [], teamScore = 0, botScore = 0;
+let kothZone = null, kothMeter = { team: 0, bots: 0 };
+let seriesRound = 1, seriesTeam = 0, seriesBots = 0;
+const SERIES_TARGET = 3;
+let shotsFired = 0, shotsHit = 0, longestStreak = 0, matchStartT = 0;
+let spectatorIdx = -1;
 // Round 2C polish: hit-pause window pauses physics for ~0.08s on big hits, and
 // ring shockwaves expand outward on detonation/kills (drawn under particles).
 let hitPauseT = 0;
@@ -227,6 +241,38 @@ function buildPedestal() {
   pedestal = { x: W / 2, y: H / 2, ready: false, t: 0, type: BUFF_TYPES[0] };
   pedestalCd = 8;
 }
+// Wave 1D: arena + mode props
+function buildArenaProps() {
+  treadmills = []; dumbbells = []; acUnits = []; trampolines = []; smashTables = [];
+  if (activeArena === 'gym') {
+    treadmills.push({ x: W * 0.22, y: H * 0.3, w: 100, h: 40, dir: 1, t: 0 });
+    treadmills.push({ x: W * 0.78 - 100, y: H * 0.7, w: 100, h: 40, dir: -1, t: 0 });
+    for (let i = 0; i < 6; i++) {
+      const ax = [0.15, 0.4, 0.6, 0.85, 0.35, 0.65][i];
+      const ay = [0.55, 0.18, 0.82, 0.45, 0.7, 0.25][i];
+      dumbbells.push({ x: ax * W - 18, y: ay * H - 10, w: 36, h: 20 });
+    }
+  } else if (activeArena === 'rooftop') {
+    for (let i = 0; i < 5; i++) {
+      const ax = [0.18, 0.45, 0.75, 0.3, 0.7][i];
+      const ay = [0.25, 0.7, 0.25, 0.45, 0.7][i];
+      acUnits.push({ x: ax * W - 22, y: ay * H - 18, w: 44, h: 36 });
+    }
+  }
+  trampolines.push({ x: W * 0.28, y: H * 0.5, r: 22, t: 0 });
+  trampolines.push({ x: W * 0.72, y: H * 0.5, r: 22, t: 0 });
+  smashTables.push({ x: W * 0.35 - 30, y: H * 0.35 - 18, w: 60, h: 36, hp: 1, hidden: 'ammo' });
+  smashTables.push({ x: W * 0.65 - 30, y: H * 0.65 - 18, w: 60, h: 36, hp: 1, hidden: 'shield' });
+}
+function buildModeProps() {
+  flags = []; kothZone = null; teamScore = 0; botScore = 0; kothMeter = { team: 0, bots: 0 };
+  if (activeMode === 'ctf') {
+    for (let i = 0; i < 3; i++) {
+      const fx = (i + 1) * (W / 4), fy = H / 2 + (i % 2 === 0 ? -60 : 60);
+      flags.push({ x: fx, y: fy, baseX: fx, baseY: fy, holder: null, t: 0 });
+    }
+  } else if (activeMode === 'koth') kothZone = { x: W / 2, y: H / 2, r: 70 };
+}
 // Rect-circle resolve for obstacles (simple AABB-vs-pug)
 function resolveObstacles(p) {
   const pr = 18;
@@ -279,6 +325,8 @@ function pushKillFeed(killer, victim) {
 function reset() {
   pug = mkPug(W / 2, H - 100, true, '#c8854a', '#1a0d05');
   pug.weapon = WEAPONS[0]; // start with tennis
+  // Apply perk effects
+  if (activePerkId === 'tough') { pug.maxHp = 130; pug.hp = 130; }
   bots = [];
   const colors = [['#eac888','#6b3a1c'], ['#5a5a72','#222'], ['#fafaff','#a8a8c8'], ['#ff5a3a','#6a2a14']];
   for (let i = 0; i < 4; i++) {
@@ -298,17 +346,26 @@ function reset() {
   // previous match ended while the cam was still up.
   pwnedT = 0; pwnedVictim = null;
   lastHitT = 0;
+  // Wave 1D: reset stats + spectator
+  shotsFired = 0; shotsHit = 0; longestStreak = 0;
+  matchStartT = performance.now();
+  spectatorIdx = -1;
+  chopperT = 0; bgChefsT = 0;
   buildCrowd();
   buildStove();
   buildObstacles();
   buildPuddles();
   buildGoalPosts();
   buildPedestal();
+  buildArenaProps();
+  buildModeProps();
 }
 function spawnWeaponPickup() {
-  // Pick a random non-current weapon for variety
-  const candidates = WEAPONS.filter((w) => !pug || w.id !== pug.weapon.id);
-  const w = candidates[Math.floor(Math.random() * candidates.length)] || WEAPONS[0];
+  // Pick a random non-current weapon for variety. BFG = rare (1-in-6) drop.
+  const isBfg = Math.random() < 0.16;
+  const pool = isBfg ? WEAPONS.filter((w) => w.id === 'bfg')
+                     : WEAPONS.filter((w) => !w.rare && (!pug || w.id !== pug.weapon.id));
+  const w = pool[Math.floor(Math.random() * pool.length)] || WEAPONS[0];
   // Spawn at a random arena spot away from any pug
   for (let tries = 0; tries < 30; tries++) {
     const x = 80 + Math.random() * (W - 160);
@@ -326,6 +383,17 @@ const keys = new Set();
 window.addEventListener('keydown', (e) => {
   keys.add(e.key.toLowerCase());
   if (e.key === ' ' && !e.repeat) doJet();
+  // Spectator: arrow keys cycle bot targets while player is dead
+  if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && pug && pug.hp <= 0 && bots) {
+    const dir = e.key === 'ArrowRight' ? 1 : -1;
+    let idx = spectatorIdx + dir;
+    for (let i = 0; i < bots.length; i++) {
+      if (idx < 0) idx = bots.length - 1; if (idx >= bots.length) idx = 0;
+      if (bots[idx] && bots[idx].hp > 0) break;
+      idx += dir;
+    }
+    spectatorIdx = idx;
+  }
 });
 window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 canvas.addEventListener('mousemove', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; });
@@ -361,14 +429,23 @@ function doJet() {
 
 function fire(shooter, ang) {
   if (shooter.fireCd > 0) return;
-  shooter.fireCd = shooter.weapon.cooldown;
   const w = shooter.weapon;
+  // Perk: QUICKFIRE reduces shooter cooldown for player only
+  const cdMul = (shooter === pug && activePerkId === 'quick') ? 0.85 : 1.0;
+  shooter.fireCd = w.cooldown * cdMul;
+  // Each weapon has unique recoil pattern (kicks the shooter back along -aim)
+  if (w.recoil) {
+    shooter.vx -= Math.cos(ang) * 60 * w.recoil;
+    shooter.vy -= Math.sin(ang) * 60 * w.recoil;
+  }
   projectiles.push({
     x: shooter.x + Math.cos(ang) * 22, y: shooter.y + Math.sin(ang) * 22,
     vx: Math.cos(ang) * w.speed, vy: Math.sin(ang) * w.speed,
-    owner: shooter, dmg: w.dmg, color: w.color, shape: w.shape, life: 2.0, ang,
+    owner: shooter, dmg: w.dmg, color: w.color, shape: w.shape, life: w.shape === 'bfg' ? 3.0 : 2.0, ang,
   });
-  sfx.tone(380 + Math.random() * 100, w.shape === 'bubble' ? 'sine' : 'square', 0.06, 0.18);
+  // Accuracy tracking
+  if (shooter === pug) shotsFired++;
+  sfx.tone(380 + Math.random() * 100, w.shape === 'bubble' ? 'sine' : (w.shape === 'bfg' ? 'sawtooth' : 'square'), w.shape === 'bfg' ? 0.18 : 0.06, w.shape === 'bfg' ? 0.34 : 0.18);
 }
 
 function tick(dt) {
@@ -403,75 +480,106 @@ function tick(dt) {
     wp.t += dt; wp.bob += dt * 3;
     // Player pickup
     if (pug.hp > 0 && Math.hypot(pug.x - wp.x, pug.y - wp.y) < 28) {
-      pug.weapon = wp.weapon;
-      popup(pug.x, pug.y - 20, wp.weapon.name.toUpperCase() + '!', wp.weapon.color);
-      sfx.tone(880, 'triangle', 0.1, 0.25);
-      sfx.tone(1320, 'triangle', 0.1, 0.18);
+      if (wp.buff) {
+        // Smash-table buff: instant 8s shield/damage/speed activation
+        activeBuffs.set(pug, { type: wp.buff, t: 10 });
+        popup(pug.x, pug.y - 20, wp.buff.toUpperCase() + '!', wp.weapon.color);
+        sfx.tone(880, 'triangle', 0.12, 0.25);
+        sfx.tone(1320, 'triangle', 0.12, 0.18);
+      } else {
+        pug.weapon = wp.weapon;
+        popup(pug.x, pug.y - 20, wp.weapon.name.toUpperCase() + '!', wp.weapon.color);
+        sfx.tone(880, 'triangle', 0.1, 0.25);
+        sfx.tone(1320, 'triangle', 0.1, 0.18);
+      }
       weaponPickups.splice(i, 1);
       continue;
     }
-    // Bot pickup
-    for (const b of bots) {
-      if (b.hp <= 0) continue;
-      if (Math.hypot(b.x - wp.x, b.y - wp.y) < 26) {
-        b.weapon = wp.weapon;
-        weaponPickups.splice(i, 1);
-        break;
+    // Bot pickup (only weapon pickups, not buff)
+    if (!wp.buff) {
+      for (const b of bots) {
+        if (b.hp <= 0) continue;
+        if (Math.hypot(b.x - wp.x, b.y - wp.y) < 26) {
+          b.weapon = wp.weapon;
+          weaponPickups.splice(i, 1);
+          break;
+        }
       }
     }
   }
-  // Player movement (controls disabled while slipping)
-  let mx = 0, my = 0;
-  if (pug.slipT <= 0) {
-    if (keys.has('w')) my -= 1;
-    if (keys.has('s')) my += 1;
-    if (keys.has('a')) mx -= 1;
-    if (keys.has('d')) mx += 1;
+  // Player movement (controls disabled while slipping AND when alive)
+  if (pug.hp > 0) {
+    let mx = 0, my = 0;
+    if (pug.slipT <= 0) {
+      if (keys.has('w')) my -= 1;
+      if (keys.has('s')) my += 1;
+      if (keys.has('a')) mx -= 1;
+      if (keys.has('d')) mx += 1;
+    }
+    if (mx || my) {
+      const l = Math.hypot(mx, my);
+      const baseSp = (pug.jetT > 0 ? 480 : 220) * buffMod(pug, 'speed');
+      // SPRINTER perk = +20% move speed
+      const sp = baseSp * (activePerkId === 'sprint' ? 1.20 : 1.0);
+      pug.vx += (mx / l) * sp * dt * 3;
+      pug.vy += (my / l) * sp * dt * 3;
+    }
+    pug.jetT = Math.max(0, pug.jetT - dt);
+    pug.jetCd = Math.max(0, pug.jetCd - dt);
+    pug.fireCd = Math.max(0, pug.fireCd - dt);
+    if (pug.invuln > 0) pug.invuln = Math.max(0, pug.invuln - dt);
+    // MEDIC perk: +1 HP/sec regen
+    if (activePerkId === 'medic' && pug.hp < pug.maxHp) pug.hp = Math.min(pug.maxHp, pug.hp + dt);
+    // Aim
+    pug.ang = Math.atan2(mouse.y - pug.y, mouse.x - pug.x);
+    if (firing) fire(pug, pug.ang);
   }
-  if (mx || my) {
-    const l = Math.hypot(mx, my);
-    const sp = (pug.jetT > 0 ? 480 : 220) * buffMod(pug, 'speed');
-    pug.vx += (mx / l) * sp * dt * 3;
-    pug.vy += (my / l) * sp * dt * 3;
-  }
-  pug.jetT = Math.max(0, pug.jetT - dt);
-  pug.jetCd = Math.max(0, pug.jetCd - dt);
-  pug.fireCd = Math.max(0, pug.fireCd - dt);
-  if (pug.invuln > 0) pug.invuln = Math.max(0, pug.invuln - dt);
-  // Aim
-  pug.ang = Math.atan2(mouse.y - pug.y, mouse.x - pug.x);
-  if (firing) fire(pug, pug.ang);
+  // Wave 1D: animated bg + arena props update
+  bgChefsT += dt; chopperT += dt;
+  for (const tr of trampolines) tr.t = Math.max(0, tr.t - dt);
+  for (const tm of treadmills) tm.t += dt;
 
-  // Bots AI
+  // Bots AI — cover-seeking, projectile dodge, strafe
   for (const b of bots) {
     if (b.hp <= 0) continue;
     b.fireCd = Math.max(0, b.fireCd - dt);
-    // Perf: scan bots directly, skip self — no allocation per bot per frame.
     let target = null, bestD = Infinity;
-    if (pug.hp > 0) {
-      const d = Math.hypot(pug.x - b.x, pug.y - b.y);
-      bestD = d; target = pug;
-    }
+    if (pug.hp > 0) { bestD = Math.hypot(pug.x - b.x, pug.y - b.y); target = pug; }
     for (const o of bots) {
       if (o === b || o.hp <= 0) continue;
       const d = Math.hypot(o.x - b.x, o.y - b.y);
       if (d < bestD) { bestD = d; target = o; }
     }
-    if (target) {
-      const tx = target.x, ty = target.y;
-      const angTo = Math.atan2(ty - b.y, tx - b.x);
-      b.ang = angTo;
-      if (bestD > 200) {
-        b.vx += Math.cos(angTo) * 800 * dt;
-        b.vy += Math.sin(angTo) * 800 * dt;
-      } else if (bestD < 100) {
-        b.vx -= Math.cos(angTo) * 700 * dt;
-        b.vy -= Math.sin(angTo) * 700 * dt;
-      } else {
-        // strafe
-        b.vx += Math.cos(angTo + Math.PI / 2) * 500 * dt;
-        b.vy += Math.sin(angTo + Math.PI / 2) * 500 * dt;
+    let dodgeAng = 0, dodgeForce = 0;
+    for (const pr of projectiles) {
+      if (pr.owner === b) continue;
+      const dx = b.x - pr.x, dy = b.y - pr.y, dd = Math.hypot(dx, dy);
+      if (dd > 180) continue;
+      const vl = Math.hypot(pr.vx, pr.vy) || 1;
+      if (((-dx) * pr.vx + (-dy) * pr.vy) / vl > dd * 0.7) {
+        dodgeAng = Math.atan2(pr.vx / vl, -pr.vy / vl); dodgeForce = 600; break;
       }
+    }
+    if (target) {
+      const angTo = Math.atan2(target.y - b.y, target.x - b.x);
+      b.ang = angTo;
+      if (b.hp < b.maxHp * 0.4 && obstacles.length) {
+        let nd = Infinity, near = obstacles[0];
+        for (const o of obstacles) {
+          const dd = Math.hypot((o.x + o.w / 2) - b.x, (o.y + o.h / 2) - b.y);
+          if (dd < nd) { nd = dd; near = o; }
+        }
+        const ca = Math.atan2((near.y + near.h / 2) - b.y, (near.x + near.w / 2) - b.x);
+        b.vx += Math.cos(ca) * 600 * dt; b.vy += Math.sin(ca) * 600 * dt;
+      } else if (bestD > 200) { b.vx += Math.cos(angTo) * 800 * dt; b.vy += Math.sin(angTo) * 800 * dt; }
+      else if (bestD < 100) { b.vx -= Math.cos(angTo) * 700 * dt; b.vy -= Math.sin(angTo) * 700 * dt; }
+      else {
+        const dir = (b._strafeDir = b._strafeDir ?? (Math.random() < 0.5 ? 1 : -1));
+        b.vx += Math.cos(angTo + dir * Math.PI / 2) * 500 * dt;
+        b.vy += Math.sin(angTo + dir * Math.PI / 2) * 500 * dt;
+        if (Math.random() < dt * 0.5) b._strafeDir *= -1;
+      }
+      if (dodgeForce > 0) { b.vx += Math.cos(dodgeAng) * dodgeForce * dt; b.vy += Math.sin(dodgeAng) * dodgeForce * dt; }
       fire(b, angTo);
     }
   }
@@ -489,6 +597,24 @@ function tick(dt) {
         break;
       }
     }
+    // Trampoline — bounce upward (give jet effect briefly)
+    for (const tr of trampolines) {
+      if (Math.hypot(p.x - tr.x, p.y - tr.y) < tr.r && tr.t <= 0) {
+        p.vy -= 480;
+        tr.t = 0.4;
+        if (p === pug) {
+          p.jetT = Math.max(p.jetT, 0.5);
+          popup(p.x, p.y - 26, 'BOING!', '#ff3aa1');
+        }
+        sfx.tone(880, 'sine', 0.12, 0.22);
+      }
+    }
+    // Treadmill (gym arena): push pugs along its direction while standing on it
+    for (const tm of treadmills) {
+      if (p.x > tm.x && p.x < tm.x + tm.w && p.y > tm.y && p.y < tm.y + tm.h) {
+        p.vx += tm.dir * 240 * dt;
+      }
+    }
     p.x += p.vx * dt; p.y += p.vy * dt;
     // Friction (less when slipping — keeps the slide alive)
     const fric = p.slipT > 0 ? 1.5 : 4;
@@ -497,6 +623,21 @@ function tick(dt) {
     p.y = Math.max(30, Math.min(H - 30, p.y));
     // Obstacle collision
     resolveObstacles(p);
+    // Arena cover collisions — generic AABB-vs-pug push for dumbbells/AC/tables
+    const resolveBox = (b) => {
+      const cx = Math.max(b.x, Math.min(p.x, b.x + b.w));
+      const cy = Math.max(b.y, Math.min(p.y, b.y + b.h));
+      const dx = p.x - cx, dy = p.y - cy, d2 = dx * dx + dy * dy;
+      if (d2 >= 324) return;
+      const dd = Math.sqrt(d2) || 0.001;
+      const nx = dx / dd, ny = dy / dd, push = 18 - dd;
+      p.x += nx * push; p.y += ny * push;
+      const dot = p.vx * nx + p.vy * ny;
+      if (dot < 0) { p.vx -= nx * dot; p.vy -= ny * dot; }
+    };
+    for (const d of dumbbells) resolveBox(d);
+    for (const d of acUnits) resolveBox(d);
+    for (const t of smashTables) if (t.hp > 0) resolveBox(t);
     // Stove hazard — flames damage anyone within 26px of any burner
     if (stove) {
       for (const b of stove.burners) {
@@ -559,12 +700,34 @@ function tick(dt) {
       spawnSpark(Math.max(4, Math.min(W - 4, pr.x)), Math.max(4, Math.min(H - 4, pr.y)));
     }
     if (pr.life <= 0 || pr.x < -20 || pr.x > W + 20 || pr.y < -20 || pr.y > H + 20) { projectiles.splice(i, 1); continue; }
+    // Smash table hit — destroy + reveal hidden pickup
+    let tableHit = false;
+    for (const t of smashTables) {
+      if (t.hp <= 0) continue;
+      if (pr.x > t.x && pr.x < t.x + t.w && pr.y > t.y && pr.y < t.y + t.h) {
+        t.hp = 0;
+        spawnHit(pr.x, pr.y, '#ffd23f'); spawnShockwave(pr.x, pr.y, '#ffd23f', 50, 0.32); shake(4, 0.18);
+        const cx = t.x + t.w / 2, cy = t.y + t.h / 2;
+        if (t.hidden === 'shield') {
+          weaponPickups.push({ x: cx, y: cy, weapon: { name: 'SHIELD', drawIconFn: drawBubble, color: '#4cc9f0' }, t: 0, bob: 0, buff: 'shield' });
+        } else {
+          const choices = WEAPONS.filter((w) => !w.rare && w.id !== 'tennis' && w.id !== 'bubble');
+          weaponPickups.push({ x: cx, y: cy, weapon: choices[Math.floor(Math.random() * choices.length)], t: 0, bob: 0 });
+        }
+        popup(cx, cy - 24, 'SMASHED!', '#ffd23f'); sfx.tone(280, 'square', 0.18, 0.22);
+        projectiles.splice(i, 1); tableHit = true; break;
+      }
+    }
+    if (tableHit) continue;
     // Hit check
     for (const target of _fighters()) {
       if (target === pr.owner || target.hp <= 0) continue;
       if (target.invuln > 0) continue; // skip projectiles on invulnerable targets (player spawn grace)
       const d = Math.hypot(target.x - pr.x, target.y - pr.y);
-      if (d < 22) {
+      const radius = pr.shape === 'bfg' ? 32 : 22;
+      if (d < radius) {
+        // Accuracy: track shots-hit when the player's projectile lands
+        if (pr.owner === pug) shotsHit++;
         const outMul = pr.owner ? buffMod(pr.owner, 'damage_out') : 1;
         const inMul = buffMod(target, 'damage_in');
         const finalDmg = pr.dmg * outMul * inMul;
@@ -598,6 +761,7 @@ function tick(dt) {
             // combo
             if (comboT > 0) comboN++; else comboN = 1;
             comboT = 3.0;
+            if (comboN > longestStreak) longestStreak = comboN;
             if (comboN >= 2) comboBannerT = 1.4;
             // Round 2C: combo escalation popup — bigger text with each step
             const popText = comboN >= 3 ? `+${25 * comboN} x${comboN}!` : '+25';
@@ -662,12 +826,73 @@ function tick(dt) {
   for (const p of _fighters()) p.hitFlashT = Math.max(0, p.hitFlashT - dt);
   // crowd ambient sway uses real-time, no state to update
 
-  // End check
-  if (pug.hp <= 0) return end(false);
-  if (bots.every((b) => b.hp <= 0)) return end(true);
+  // CTF / KOTH mode logic
+  if (activeMode === 'ctf') {
+    for (const fl of flags) {
+      if (fl.holder) {
+        if (fl.holder.hp <= 0) { fl.x = fl.holder.x; fl.y = fl.holder.y; fl.holder = null; }
+        else {
+          fl.x = fl.holder.x; fl.y = fl.holder.y - 30;
+          if (fl.holder === pug && pug.y > H - 100) {
+            teamScore++; fl.holder = null; fl.x = fl.baseX; fl.y = fl.baseY;
+            popup(pug.x, pug.y - 30, 'FLAG SCORE!', '#ffd23f');
+            sfx.arp([523, 659, 784, 1047], 'triangle', 0.06, 0.2, 0.12); shake(7, 0.32);
+          } else if (fl.holder !== pug && fl.holder.y < 100) {
+            botScore++; fl.holder = null; fl.x = fl.baseX; fl.y = fl.baseY;
+            popup(W / 2, 60, 'BOTS SCORED!', '#ff5a3a');
+            sfx.tone(220, 'sawtooth', 0.18, 0.22);
+          }
+        }
+      } else {
+        for (const p of _fighters()) {
+          if (p.hp > 0 && Math.hypot(p.x - fl.x, p.y - fl.y) < 24) {
+            fl.holder = p;
+            if (p === pug) popup(pug.x, pug.y - 30, 'FLAG!', '#ffd23f');
+            break;
+          }
+        }
+      }
+    }
+    if (teamScore >= 3) return end(true);
+    if (botScore >= 3) return end(false);
+  } else if (activeMode === 'koth') {
+    let teamIn = pug.hp > 0 && Math.hypot(pug.x - kothZone.x, pug.y - kothZone.y) < kothZone.r;
+    let botsIn = false;
+    for (const b of bots) if (b.hp > 0 && Math.hypot(b.x - kothZone.x, b.y - kothZone.y) < kothZone.r) { botsIn = true; break; }
+    if (teamIn && !botsIn) kothMeter.team = Math.min(10, kothMeter.team + dt);
+    else if (botsIn && !teamIn) kothMeter.bots = Math.min(10, kothMeter.bots + dt);
+    if (kothMeter.team >= 10) return end(true);
+    if (kothMeter.bots >= 10) return end(false);
+  }
+  if (activeMode === 'dm') {
+    if (pug.hp <= 0) return end(false);
+    if (bots.every((b) => b.hp <= 0)) return end(true);
+  } else if (pug.hp <= 0 && spectatorIdx === -1) {
+    spectatorIdx = bots.findIndex((b) => b.hp > 0);
+  }
   updateHud();
 }
 
+function drawMinimap() {
+  const w = 120, h = 80, x = W - w - 12, y = 12, sx = w / W, sy = h / H;
+  ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = '#ffd23f'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w, h);
+  ctx.fillStyle = '#ffd23f'; ctx.font = "6px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+  ctx.fillText(ARENA_LABELS[activeArena], x + w / 2, y - 2);
+  ctx.fillStyle = '#5a5a72';
+  for (const o of obstacles) ctx.fillRect(x + o.x * sx, y + o.y * sy, o.w * sx, o.h * sy);
+  if (kothZone) {
+    ctx.strokeStyle = '#ffd23f';
+    ctx.beginPath(); ctx.arc(x + kothZone.x * sx, y + kothZone.y * sy, kothZone.r * sx, 0, Math.PI * 2); ctx.stroke();
+  }
+  ctx.fillStyle = '#ffd23f';
+  for (const fl of flags) ctx.fillRect(x + fl.x * sx - 1, y + fl.y * sy - 1, 3, 3);
+  ctx.fillStyle = '#ff5a3a';
+  for (const b of bots) if (b.hp > 0) ctx.fillRect(x + b.x * sx - 1, y + b.y * sy - 1, 3, 3);
+  if (pug.hp > 0) {
+    ctx.fillStyle = '#5ef38c'; ctx.fillRect(x + pug.x * sx - 2, y + pug.y * sy - 2, 4, 4);
+  }
+}
 function spawnShockwave(x, y, color, maxR, life) {
   if (shockwaves.length > 14) shockwaves.shift();
   shockwaves.push({ x, y, r: 0, maxR: maxR || 60, life: life || 0.35, t: 0, color: color || '#ffd23f' });
@@ -732,8 +957,9 @@ function render() {
     ctx.translate(-vx, -vy);
   }
 
-  // Stadium floor: warm tone with a parking-lot/stadium grid
-  ctx.fillStyle = '#5a3a1c'; ctx.fillRect(-12, -12, W + 24, H + 24);
+  // Stadium floor: warm tone with a parking-lot/stadium grid — arena-tinted
+  const floorCol = activeArena === 'gym' ? '#3a3a52' : (activeArena === 'rooftop' ? '#3a4a52' : '#5a3a1c');
+  ctx.fillStyle = floorCol; ctx.fillRect(-12, -12, W + 24, H + 24);
   // big tile alternation
   ctx.fillStyle = 'rgba(0,0,0,0.1)';
   for (let y = 0; y < H; y += 48) for (let x = 0; x < W; x += 48)
@@ -932,6 +1158,68 @@ function render() {
     }
     ctx.restore();
   }
+  // Arena props (compact)
+  for (const tm of treadmills) {
+    ctx.fillStyle = '#3a3a4a'; ctx.fillRect(tm.x, tm.y, tm.w, tm.h);
+    ctx.fillStyle = '#1a0d05'; ctx.fillRect(tm.x, tm.y, tm.w, 4); ctx.fillRect(tm.x, tm.y + tm.h - 4, tm.w, 4);
+    const off = (tm.t * 80 * tm.dir) % 20;
+    ctx.fillStyle = '#5ef38c';
+    for (let bx = -20; bx < tm.w; bx += 20) {
+      const ax = tm.x + bx + off, my = tm.y + tm.h / 2;
+      ctx.beginPath();
+      if (tm.dir > 0) { ctx.moveTo(ax + 4, my - 5); ctx.lineTo(ax + 12, my); ctx.lineTo(ax + 4, my + 5); }
+      else { ctx.moveTo(ax + 12, my - 5); ctx.lineTo(ax + 4, my); ctx.lineTo(ax + 12, my + 5); }
+      ctx.closePath(); ctx.fill();
+    }
+  }
+  for (const d of dumbbells) {
+    ctx.fillStyle = '#1a0d05'; ctx.fillRect(d.x, d.y, 8, d.h); ctx.fillRect(d.x + d.w - 8, d.y, 8, d.h);
+    ctx.fillStyle = '#5a5a72'; ctx.fillRect(d.x + 8, d.y + d.h / 2 - 2, d.w - 16, 4);
+  }
+  for (const a of acUnits) {
+    ctx.fillStyle = '#9ec8d8'; ctx.fillRect(a.x, a.y, a.w, a.h);
+    ctx.fillStyle = '#5a7080';
+    for (let yy = a.y + 6; yy < a.y + a.h - 6; yy += 6) ctx.fillRect(a.x + 4, yy, a.w - 8, 2);
+    ctx.fillStyle = '#1a0d05'; ctx.fillRect(a.x, a.y, a.w, 3);
+  }
+  for (const tr of trampolines) {
+    const pulse = 1 + (tr.t > 0 ? 0.3 * (tr.t / 0.4) : 0);
+    ctx.fillStyle = '#ff3aa1';
+    ctx.beginPath(); ctx.arc(tr.x, tr.y, tr.r * pulse, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.fillRect(tr.x - 6, tr.y - 1, 12, 2); ctx.fillRect(tr.x - 1, tr.y - 6, 2, 12);
+  }
+  for (const t of smashTables) {
+    if (t.hp <= 0) continue;
+    ctx.fillStyle = '#8a5a2c'; ctx.fillRect(t.x, t.y, t.w, t.h);
+    ctx.fillStyle = '#5a3a1c'; ctx.fillRect(t.x, t.y, t.w, 4);
+    ctx.fillStyle = '#ffd23f'; ctx.font = "6px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText(t.hidden === 'shield' ? '? SHIELD' : '? AMMO', t.x + t.w / 2, t.y + t.h / 2 + 2);
+  }
+  if (flags.length) {
+    for (const fl of flags) {
+      if (!fl.holder) {
+        ctx.fillStyle = '#5a3a1c'; ctx.fillRect(fl.x - 1, fl.y - 22, 2, 30);
+        ctx.fillStyle = '#ff8e3c'; ctx.fillRect(fl.x, fl.y - 22, 22, 12);
+        ctx.fillStyle = '#ffd23f'; ctx.fillRect(fl.x + 2, fl.y - 20, 18, 4);
+      } else { ctx.fillStyle = '#ff8e3c'; ctx.fillRect(fl.holder.x - 8, fl.holder.y - 30, 16, 6); }
+    }
+    ctx.fillStyle = 'rgba(94,243,140,0.12)'; ctx.fillRect(0, H - 100, W, 100);
+    ctx.fillStyle = 'rgba(255,90,58,0.12)'; ctx.fillRect(0, 0, W, 100);
+    ctx.fillStyle = '#5ef38c'; ctx.font = "9px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText('YOUR BASE', W / 2, H - 80);
+    ctx.fillStyle = '#ff5a3a'; ctx.fillText('BOT BASE', W / 2, 90);
+  }
+  if (kothZone) {
+    const pulse = 0.6 + 0.4 * Math.sin(performance.now() * 0.002);
+    ctx.strokeStyle = '#ffd23f'; ctx.lineWidth = 3; ctx.globalAlpha = pulse * 0.8;
+    ctx.beginPath(); ctx.arc(kothZone.x, kothZone.y, kothZone.r, 0, Math.PI * 2); ctx.stroke();
+    ctx.globalAlpha = 0.16; ctx.fillStyle = '#ffd23f';
+    ctx.beginPath(); ctx.arc(kothZone.x, kothZone.y, kothZone.r, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(kothZone.x - 80, kothZone.y + kothZone.r + 8, 160, 8);
+    ctx.fillStyle = '#5ef38c'; ctx.fillRect(kothZone.x - 80, kothZone.y + kothZone.r + 8, 80 * (kothMeter.team / 10), 8);
+    ctx.fillStyle = '#ff5a3a'; ctx.fillRect(kothZone.x, kothZone.y + kothZone.r + 8, 80 * (kothMeter.bots / 10), 8);
+  }
   // Weapon pickups — glowing crate with floating weapon icon
   for (const wp of weaponPickups) {
     const bobY = wp.y + Math.sin(wp.bob) * 4;
@@ -961,6 +1249,34 @@ function render() {
   ctx.fillStyle = 'rgba(255,255,255,0.08)';
   ctx.fillRect(0, 0, W, 2); ctx.fillRect(0, H - 8, W, 2);
 
+  // Arena-specific animated background — chefs / gym TV / rooftop skyline+chopper
+  if (activeArena === 'kitchen') {
+    ctx.fillStyle = 'rgba(255,210,63,0.18)'; ctx.fillRect(W * 0.3, 16, W * 0.4, 16);
+    ctx.fillStyle = '#1a0d05';
+    for (let i = 0; i < 3; i++) {
+      const cx = W * 0.35 + i * W * 0.12, bob = Math.sin(bgChefsT * 2 + i) * 2;
+      ctx.fillRect(cx - 4, 17 + bob, 8, 4); ctx.fillRect(cx - 3, 21 + bob, 6, 6);
+    }
+  } else if (activeArena === 'gym') {
+    ctx.fillStyle = '#1a0d05'; ctx.fillRect(W - 110, 12, 90, 50);
+    ctx.fillStyle = '#5ef38c'; ctx.fillRect(W - 106, 16, 82, 42);
+    const fcx = W - 65; ctx.fillStyle = '#1a0d05';
+    ctx.beginPath(); ctx.arc(fcx, 26, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.fillRect(fcx - 1, 30, 2, 14);
+    if (Math.floor(bgChefsT * 2) % 2) { ctx.fillRect(fcx - 10, 34, 8, 2); ctx.fillRect(fcx + 2, 34, 8, 2); }
+    else { ctx.fillRect(fcx - 3, 34, 2, 10); ctx.fillRect(fcx + 1, 34, 2, 10); }
+  } else if (activeArena === 'rooftop') {
+    const off = (chopperT * 8) % 80;
+    ctx.fillStyle = '#1a0d2a';
+    for (let bx = -80; bx < W + 80; bx += 80) {
+      const h = 28 + (Math.abs(((bx + 19) * 7) % 30)), x = bx - off;
+      ctx.fillRect(x, 10, 60, h);
+    }
+    const hx = (W + 100) - (chopperT * 90) % (W + 200), hy = 60 + Math.sin(chopperT * 3) * 6;
+    ctx.fillStyle = '#5a5a72'; ctx.fillRect(hx, hy, 20, 6); ctx.fillRect(hx + 14, hy + 2, 8, 4);
+    ctx.fillStyle = '#cacad6'; ctx.fillRect(hx - 4, hy - 5, 28, 1);
+  }
+
   // Crowd silhouettes — waving heads (above/below the walls). waveT scales on kill.
   if (crowd.length) {
     const tNow = performance.now() * 0.001;
@@ -974,9 +1290,11 @@ function render() {
     }
   }
 
-  // pugs
+  // pugs (depth3D drop shadow under each)
   for (const p of _fighters()) {
     if (p.hp <= 0) continue;
+    // shadow beneath body — gives the pug weight on the stadium floor
+    _depthShadow(ctx, p.x, p.y + 16, 18, { alpha: 0.4 });
     // jetpack thruster particles (player only)
     if (p === pug && pug.jetT > 0) spawnJet(p.x, p.y);
     // buff aura
@@ -1032,6 +1350,12 @@ function render() {
       ctx.beginPath(); ctx.arc(pr.x, pr.y, 8, 0, Math.PI * 2); ctx.stroke();
       ctx.fillStyle = `rgba(255,255,255,0.3)`;
       ctx.beginPath(); ctx.arc(pr.x - 3, pr.y - 3, 2, 0, Math.PI * 2); ctx.fill();
+    } else if (pr.shape === 'bfg') {
+      const pulse = 0.8 + 0.2 * Math.sin(performance.now() * 0.005);
+      ctx.fillStyle = pr.color;
+      ctx.beginPath(); ctx.arc(pr.x, pr.y, 14 * pulse, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(pr.x - 3, pr.y - 3, 4, 0, Math.PI * 2); ctx.fill();
     }
   }
   // Sparks (wall hits)
@@ -1080,6 +1404,18 @@ function render() {
     ctx.setLineDash([]);
   }
 
+  // Spectator banner
+  if (spectatorIdx >= 0 && pug.hp <= 0) {
+    const tg = bots[spectatorIdx];
+    if (tg && tg.hp > 0) {
+      ctx.strokeStyle = '#ffd23f'; ctx.lineWidth = 3; ctx.setLineDash([6, 6]);
+      ctx.beginPath(); ctx.arc(tg.x, tg.y, 30, 0, Math.PI * 2); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#ffd23f'; ctx.font = "8px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+      ctx.fillText('SPECTATING', tg.x, tg.y - 38);
+    }
+  }
+
   // Hit vignette when player just got hit
   if (lastHitT > 0) {
     const a = (lastHitT / 0.25) * 0.35;
@@ -1098,6 +1434,24 @@ function render() {
     ctx.fillText('x' + comboN + ' COMBO!', W / 2, 70);
     ctx.globalAlpha = 1;
   }
+  // Mode score banner (CTF/KOTH) + series pips
+  if (activeMode === 'ctf') {
+    ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(W / 2 - 90, 24, 180, 22);
+    ctx.fillStyle = '#5ef38c'; ctx.font = "10px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText(`YOU ${teamScore} : ${botScore} BOTS`, W / 2, 38);
+  } else if (activeMode === 'koth') {
+    ctx.fillStyle = '#ffd23f'; ctx.font = "8px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText('KING OF THE TOPPING · HOLD CENTER 10s', W / 2, 18);
+  }
+  if (seriesRound > 1 || seriesTeam > 0 || seriesBots > 0) {
+    ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(8, H - 30, 168, 22);
+    ctx.fillStyle = '#fff'; ctx.font = "7px 'Press Start 2P', monospace"; ctx.textAlign = 'left';
+    ctx.fillText(`ROUND ${seriesRound}/5`, 14, H - 16);
+    ctx.fillStyle = '#5ef38c'; ctx.fillText(`YOU ${seriesTeam}`, 80, H - 16);
+    ctx.fillStyle = '#ff5a3a'; ctx.fillText(`BOTS ${seriesBots}`, 130, H - 16);
+  }
+  // MINIMAP — top-right corner overview of all pugs + flags/koth zone
+  drawMinimap();
   ctx.restore();
   // PWNED freeze-frame banner — screen-space, drawn after restore so the
   // big yellow text doesn't get scaled with the world zoom.
@@ -1139,6 +1493,7 @@ const _hudEls = {
   kills: document.getElementById('hud-kills'),
   left: document.getElementById('hud-left'),
   weapon: document.getElementById('hud-weapon'),
+  weaponDesc: document.getElementById('hud-weapon-desc'),
   jet: document.getElementById('hud-jet'),
   best: document.getElementById('hud-best'),
 };
@@ -1161,7 +1516,10 @@ function updateHud() {
   for (const b of bots) if (b.hp > 0) aliveBots++;
   if (aliveBots !== _hudPrev.left) { _hudEls.left.textContent = aliveBots; _hudPrev.left = aliveBots; }
   const wn = pug.weapon.name.toUpperCase();
-  if (wn !== _hudPrev.weapon) { _hudEls.weapon.textContent = wn; _hudPrev.weapon = wn; }
+  if (wn !== _hudPrev.weapon) {
+    _hudEls.weapon.textContent = wn; _hudPrev.weapon = wn;
+    if (_hudEls.weaponDesc) _hudEls.weaponDesc.textContent = pug.weapon.desc || '';
+  }
   const jt = pug.jetCd > 0 ? pug.jetCd.toFixed(1) + 's' : 'READY';
   if (jt !== _hudPrev.jet) { _hudEls.jet.textContent = jt; _hudPrev.jet = jt; }
   // loadBest hits localStorage — cache for 2s, it never changes mid-match anyway.
@@ -1179,9 +1537,24 @@ function updateHud() {
 
 function end(won) {
   running = false;
-  document.getElementById('end-title').textContent = won ? 'LAST PUG STANDING' : 'YOU GOT TOASTED';
-  document.getElementById('end-sub').textContent = won ? 'The kitchen is yours.' : 'Try a different weapon next time.';
+  if (won) seriesTeam++; else seriesBots++;
+  const seriesEnded = seriesTeam >= SERIES_TARGET || seriesBots >= SERIES_TARGET || seriesRound >= 5;
+  if (!seriesEnded) seriesRound++;
+  if (seriesEnded) {
+    const p = _loadSkillProfile();
+    p.results.push(seriesTeam > seriesBots ? 1 : 0);
+    while (p.results.length > 10) p.results.shift();
+    _saveSkillProfile(p); try { _refreshRank(); } catch {}
+  }
+  document.getElementById('end-title').textContent = won ? (activeMode === 'dm' ? 'LAST PUG STANDING' : 'ROUND WON') : 'YOU GOT TOASTED';
+  document.getElementById('end-sub').textContent = seriesEnded
+    ? (seriesTeam > seriesBots ? `SERIES WIN ${seriesTeam}-${seriesBots}!` : `SERIES LOST ${seriesTeam}-${seriesBots}.`)
+    : `Series ${seriesTeam}-${seriesBots} (Round ${seriesRound - 1})`;
   document.getElementById('end-kills').textContent = kills;
+  const acc = shotsFired > 0 ? Math.round((shotsHit / shotsFired) * 100) : 0;
+  const matchSec = Math.round((performance.now() - matchStartT) / 1000);
+  const ex = document.getElementById('end-stats-extra');
+  if (ex) ex.innerHTML = `Accuracy <b>${acc}%</b> · Streak <b>${longestStreak}</b> · Time <b>${matchSec}s</b>`;
   const { isNewBest, current } = submitRun('rocket-pug', { score: kills, kills, won });
   const bestEl = document.getElementById('end-best');
   if (bestEl) {
@@ -1191,32 +1564,62 @@ function end(won) {
   document.getElementById('hud').hidden = true;
   document.getElementById('end-overlay').hidden = false;
   document.getElementById('end-overlay').classList.remove('is-hidden');
-  // S/A/B/C/D grade card layered above the existing end-overlay.
   try {
-    const killsPct  = Math.max(0, Math.min(100, (kills / 8) * 100));
-    const winPct    = won ? 100 : 0;
-    const survivPct = Math.max(0, Math.min(100, (pug.hp / 100) * 100));
     showGradeCard({
       title: won ? 'LAST PUG STANDING' : 'KITCHEN CLOSED',
       subtitle: `${kills} kill${kills === 1 ? '' : 's'} · ${won ? 'VICTORY' : 'DEFEAT'}`,
       stats: [
-        { label: 'Kills',    value: killsPct,   weight: 0.55 },
-        { label: 'Victory',  value: winPct,     weight: 0.3 },
-        { label: 'Survival', value: survivPct,  weight: 0.15 },
+        { label: 'Kills', value: Math.min(100, kills / 8 * 100), weight: 0.55 },
+        { label: 'Victory', value: won ? 100 : 0, weight: 0.3 },
+        { label: 'Survival', value: Math.max(0, Math.min(100, pug.hp / 100 * 100)), weight: 0.15 },
       ],
       breakdown: [
-        { label: 'Kills',         value: kills,                max: 8 },
-        { label: 'Won match',     value: won ? 1 : 0,           max: 1 },
-        { label: 'HP remaining',  value: Math.max(0, Math.round(pug.hp)), max: 100 },
+        { label: 'Kills', value: kills, max: 8 },
+        { label: 'Won match', value: won ? 1 : 0, max: 1 },
+        { label: 'HP remaining', value: Math.max(0, Math.round(pug.hp)), max: 100 },
       ],
       onRestart: () => start(),
     });
-  } catch (e) { /* */ }
+  } catch {}
 }
 
+// Wave 1D: arena/mode/perk pickers + skill rank
+for (const id of ['pick-arena', 'pick-mode', 'pick-perk']) {
+  const row = document.getElementById(id);
+  if (!row) continue;
+  row.addEventListener('click', (e) => {
+    const btn = e.target.closest('.pchip');
+    if (!btn) return;
+    for (const b of row.querySelectorAll('.pchip')) b.classList.remove('is-on');
+    btn.classList.add('is-on');
+    if (id === 'pick-arena') activeArena = btn.dataset.v;
+    else if (id === 'pick-mode') activeMode = btn.dataset.v;
+    else activePerkId = btn.dataset.v;
+  });
+}
+function _loadSkillProfile() { try { return JSON.parse(localStorage.getItem('rocket:skillProfile')) || { results: [] }; } catch { return { results: [] }; } }
+function _saveSkillProfile(p) { try { localStorage.setItem('rocket:skillProfile', JSON.stringify(p)); } catch {} }
+function _refreshRank() {
+  const el = document.getElementById('rank-display');
+  if (!el) return;
+  const p = _loadSkillProfile(), n = p.results.length;
+  const wr = n ? p.results.reduce((a, b) => a + b, 0) / n : 0;
+  const r = n < 3 ? { name: 'UNRANKED', col: '#cacacf' } : (wr >= 0.7 ? { name: 'GOLD', col: '#ffd23f' } : (wr >= 0.4 ? { name: 'SILVER', col: '#cacad6' } : { name: 'BRONZE', col: '#c87a4a' }));
+  el.hidden = false; el.style.color = r.col;
+  el.innerHTML = `★ RANK: <b>${r.name}</b> · ${n}/10 matches`;
+}
+_refreshRank();
 document.getElementById('start-btn').addEventListener('click', start);
 document.getElementById('end-restart').addEventListener('click', start);
 function start() {
+  // If the series is over (or hasn't begun), start a fresh series; otherwise
+  // continue into the next round with the existing seriesRound count.
+  const startOv = document.getElementById('overlay');
+  const startVisible = startOv && !startOv.hidden && !startOv.classList.contains('is-hidden');
+  if (startVisible) { seriesRound = 1; seriesTeam = 0; seriesBots = 0; }
+  if (seriesTeam >= SERIES_TARGET || seriesBots >= SERIES_TARGET || seriesRound > 5) {
+    seriesRound = 1; seriesTeam = 0; seriesBots = 0;
+  }
   reset(); running = true;
   firing = false; // safety: don't auto-fire if mouse was held during restart click
   keys.clear();   // wipe any stuck keys from prior match
