@@ -10,6 +10,35 @@ export function ensureSharedStyles() {
   document.head.appendChild(s);
   _injected = true;
 }
+
+// === Loading spinner mount =================================================
+// Auto-injects a centered spinner the moment gameBase.css is in effect. The
+// CSS keyframe defers visibility by 300ms so quick boots never flash it.
+// Removed once any of: settings menu mounts, a play() runs, or the document
+// hits load — the listener block at the bottom takes care of all three.
+if (typeof document !== 'undefined') {
+  const mountSpinner = () => {
+    if (document.getElementById('wg-load-spinner')) return;
+    if (!document.body) return;
+    const div = document.createElement('div');
+    div.id = 'wg-load-spinner';
+    div.setAttribute('aria-hidden', 'true');
+    const i = document.createElement('i');
+    div.appendChild(i);
+    document.body.appendChild(div);
+  };
+  const hideSpinner = () => {
+    const el = document.getElementById('wg-load-spinner');
+    if (!el) return;
+    el.classList.add('is-done');
+    setTimeout(() => { try { el.remove(); } catch {} }, 400);
+  };
+  if (document.body) mountSpinner();
+  else document.addEventListener('DOMContentLoaded', mountSpinner, { once: true });
+  // Hide after window load — by then the game's modules + assets are in.
+  if (document.readyState === 'complete') setTimeout(hideSpinner, 0);
+  else window.addEventListener('load', () => setTimeout(hideSpinner, 50), { once: true });
+}
 // Minified CSS. Common font-family is hoisted to a single selector group, and
 // the deep-bg purple gradient is hoisted to `--wg-bg`.
 const F = "font-family:'Press Start 2P',monospace";

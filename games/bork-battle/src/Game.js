@@ -2428,6 +2428,9 @@ export class Game {
     overlay.classList.remove('is-hidden');
     this.hud.hide();
     if (won) Sfx.win(); else Sfx.lose();
+    // Stop the background music so the win/lose stinger lands clean and the
+    // hub doesn't echo the loop after the player navigates back.
+    try { Sfx.stopMusic?.(); } catch {}
   }
 
   // Surviv.io-style killcam: freeze the world, zoom in on the killer for 3s,

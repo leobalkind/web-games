@@ -1297,5 +1297,8 @@ export class Game {
     overlay.hidden = false;
     overlay.classList.remove('is-hidden');
     this.hud.hide();
+    // Stop the bg music loop so the end stinger reads + audio doesn't bleed
+    // into the start screen if the player picks REMATCH.
+    try { Sfx.stopMusic?.(); } catch {}
   }
 }

@@ -342,7 +342,9 @@ shopModal?.addEventListener('click', (e) => { if (e.target === shopModal) closeS
 
 // Keyboard shortcut: B opens shop (mirrors pug-cafe / pugzilla / supermarket).
 // Guarded against evolve-menu / pause overlay so the shop can't stack on top.
+// e.repeat guard prevents held-B from rapid-flipping open/close every frame.
 window.addEventListener('keydown', (e) => {
+  if (e.repeat) return;
   if (e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
   if ((e.key === 'b' || e.key === 'B') && game?.running && !game?.evolving && !paused) {
     e.preventDefault();

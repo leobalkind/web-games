@@ -98,13 +98,16 @@ let dustMotes = []; // ambient dust motes drifting
 function addShake(mag, dur) { shakeMag = Math.max(shakeMag, mag); shakeT = Math.max(shakeT, dur); }
 function addPopup(x, y, text, color) {
   // Spawn with small random horizontal drift + jitter so back-to-back popups
-  // don't overlap and the burst feels more "splattery".
+  // don't overlap and the burst feels more "splattery". Each popup also gets
+  // a small random tilt + spin so floating numbers feel hand-painted vs robotic.
   const a = (Math.random() - 0.5) * 0.8;
   popups.push({
     x: x + Math.cos(a) * 6,
     y: y + (Math.random() - 0.5) * 4,
     vx: Math.sin(a) * 18,
     text, color: color || '#ffd23f', t: 0,
+    rot: (Math.random() - 0.5) * 0.25,        // initial tilt in radians (~±7°)
+    spin: (Math.random() - 0.5) * 0.6,        // additional spin over lifetime
   });
   if (popups.length > 30) popups.shift();
 }
@@ -1191,14 +1194,21 @@ function render() {
     ctx.lineWidth = 2;
     ctx.beginPath(); ctx.arc(pug.x, pug.y, 30 * (1 - pug.sound + 1), 0, Math.PI * 2); ctx.stroke();
   }
-  // Score popups (world space, before lighting)
+  // Score popups (world space, before lighting). Each one applies its own
+  // tilt + spin so the burst feels organic — guarded by save/restore so it
+  // doesn't bleed into following draws.
   ctx.font = "bold 11px 'Press Start 2P', monospace";
   ctx.textAlign = 'center';
   for (const p of popups) {
     const a = p.t < 0.1 ? p.t / 0.1 : (p.t > 0.9 ? Math.max(0, (1.2 - p.t) / 0.3) : 1);
     ctx.globalAlpha = a;
-    ctx.fillStyle = '#000'; ctx.fillText(p.text, p.x + 1, p.y + 1);
-    ctx.fillStyle = p.color; ctx.fillText(p.text, p.x, p.y);
+    const ang = (p.rot || 0) + (p.spin || 0) * p.t;
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    if (ang) ctx.rotate(ang);
+    ctx.fillStyle = '#000'; ctx.fillText(p.text, 1, 1);
+    ctx.fillStyle = p.color; ctx.fillText(p.text, 0, 0);
+    ctx.restore();
     ctx.globalAlpha = 1;
   }
   // Dust motes (ambient, soft)

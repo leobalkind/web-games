@@ -380,6 +380,9 @@ body.reduced-motion .hub__pug-bg > i {
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   /* 16px-grid aligned (--space-4 * 2 = 32px on desktop, --space-4 on mobile) */
   gap: var(--space-6);
+  /* Perspective context so the card hover rotateX (below) reads as 3D depth
+     rather than a flat squash. ~1200px is a gentle, cinematic falloff. */
+  perspective: 1200px;
 }
 
 .card {
@@ -424,13 +427,22 @@ body.reduced-motion .hub__pug-bg > i {
   border-top: none;
 }
 
-/* Uniform -4px lift + neon-pink glow on every card hover/focus */
+/* Uniform -4px lift + tiny 2deg X-tilt + neon-pink glow on every card hover/focus.
+   The rotateX combines with the .hub__grid perspective to give a subtle 3D pop
+   without straying into "tilted card carousel" territory — feels like the card
+   is presenting itself to the cursor. */
 .card:hover,
 .card:focus-visible {
-  transform: translateY(-4px);
+  transform: translateY(-4px) rotateX(2deg);
   border-color: var(--neon-pink);
   box-shadow: var(--card-shadow-hover);
   outline: none;
+}
+/* Honour Reduced Motion: skip the rotateX so motion-sensitive players just see
+   the flat lift + glow. */
+body.reduced-motion .card:hover,
+body.reduced-motion .card:focus-visible {
+  transform: translateY(-4px);
 }
 .card:focus-visible {
   box-shadow:
@@ -1342,6 +1354,27 @@ body.high-contrast :focus-visible {
 .hub__icon-btn:active {
   animation: iconBtnPop 0.35s ease-out;
 }
+
+/* Press-down feedback — every interactive element on the hub gets a 1px sink
+ * on :active so taps / clicks read as a physical press. Quick (60ms) so it
+ * doesn't fight with the hover transform. */
+.card:active {
+  transform: translateY(-2px) scale(0.995);
+  transition: transform 0.06s ease-in;
+}
+.hub__cat:active,
+.hub__chip:active,
+.hub-modal__btn:active,
+.profile-btn:active {
+  transform: translateY(1px);
+  filter: brightness(0.92);
+  transition: transform 0.05s ease-in, filter 0.05s ease-in;
+}
+body.reduced-motion .card:active,
+body.reduced-motion .hub__cat:active,
+body.reduced-motion .hub__chip:active,
+body.reduced-motion .hub-modal__btn:active,
+body.reduced-motion .profile-btn:active { transform: none; }
 
 /* Modal entrance: backdrop fades, panel rises. */
 .hub-modal:not([hidden]) { animation: modalBackdropFade 0.18s ease-out; }

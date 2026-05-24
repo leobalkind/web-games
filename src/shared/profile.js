@@ -201,12 +201,14 @@ export function createProfile(name, pin) {
 export function deleteProfile(id) {
   const list = listProfiles().filter((p) => p.id !== id);
   _writeJson(LIST_KEY, list);
-  // Wipe all keys under that profile's namespace
+  // Wipe all keys under that profile's namespace + the hub "best seen" cache
+  // so we don't pulse the BEST chip on the next hub visit based on a stale
+  // comparison value left over from the deleted profile.
   const prefix = 'wg:p:' + id + ':';
   const toDelete = [];
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);
-    if (k && k.startsWith(prefix)) toDelete.push(k);
+    if (k && (k.startsWith(prefix) || k.startsWith('wg:bestSeen:'))) toDelete.push(k);
   }
   for (const k of toDelete) localStorage.removeItem(k);
   if (localStorage.getItem(ACTIVE_KEY) === id) localStorage.removeItem(ACTIVE_KEY);

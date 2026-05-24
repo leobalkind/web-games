@@ -1,5 +1,13 @@
 # Research Brief: Reference Games & Polish Wishlist
 
+> **STATUS (2026-05-24):** Most items in this brief shipped across v1.4 and the
+> v1.5.0 → v1.5.5 polish series. See recent commits + the inline `// === Round
+> NX ===` markers across `src/shared/*` and each `games/*/main.js` for what
+> actually landed (kill-feed, grade card, achievements, settings menu, music
+> tracks, mobile controls, cloud sync, etc.). Remaining items in this document
+> are either explicitly punted to a later iteration or already covered by a
+> close-enough equivalent — re-read against current code before re-implementing.
+
 13 web-games audited against established indie/mobile reference titles. For each
 game: top references, three concrete things those references do that **we do
 not** currently, and a rough effort estimate (S = hours, M = a day or two,
