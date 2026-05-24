@@ -1018,6 +1018,13 @@ body.large-text .card__desc {
   font-size: 1.15em;
 }
 body.large-text .card__title { font-size: 1.1rem; }
+body.large-text .hub__chip,
+body.large-text .hub__cat { font-size: 0.6rem; }
+body.large-text .stats-table,
+body.large-text .mydata-table,
+body.large-text .hub-changelog,
+body.large-text .onboard-body,
+body.large-text .onboard-tips li { font-size: 1.05em; }
 
 body.reduced-motion *,
 body.reduced-motion *::before,
@@ -1034,6 +1041,133 @@ body.colorblind {
   --neon-cyan: #ffd23f;
   --neon-cyan-soft: #ffeb55;
   --magenta: #ff8e3c;
+}
+
+/* High contrast — bold white-on-black with thick outlines.
+   Triggered by either the hub's own toggle (already classed) or the global
+   settings menu (writes body.high-contrast via settingsMenu.js). */
+body.high-contrast {
+  background: #000 !important;
+  color: #fff !important;
+}
+body.high-contrast::before,
+body.high-contrast::after { display: none !important; }
+body.high-contrast .hub__pug-bg { display: none !important; }
+body.high-contrast .hub__header h1,
+body.high-contrast .hub__tagline,
+body.high-contrast .hub__chip,
+body.high-contrast .hub__cat,
+body.high-contrast .card__title,
+body.high-contrast .card__desc,
+body.high-contrast .card__cta,
+body.high-contrast .hub__footer,
+body.high-contrast .hub-modal__panel,
+body.high-contrast .stats-table tbody td,
+body.high-contrast .mydata-table tbody td,
+body.high-contrast .login-ov__title,
+body.high-contrast .login-ov__sub,
+body.high-contrast .login-ov__tile-name,
+body.high-contrast .signed-in-pill,
+body.high-contrast .signed-in-pill__name,
+body.high-contrast .signed-in-pill__lbl,
+body.high-contrast .profile-chip__name,
+body.high-contrast .profile-active,
+body.high-contrast .profile-active .profile-name {
+  color: #fff !important;
+  background-image: none !important;
+  -webkit-text-fill-color: #fff !important;
+  text-shadow: 1px 1px 0 #000, -1px 1px 0 #000, 1px -1px 0 #000, -1px -1px 0 #000 !important;
+}
+body.high-contrast .hub__search {
+  background: #000 !important;
+  color: #fff !important;
+  border-color: #fff !important;
+}
+body.high-contrast .card,
+body.high-contrast .hub-modal__panel,
+body.high-contrast .login-ov__panel,
+body.high-contrast .profile-dd,
+body.high-contrast .signed-in-pill {
+  background: #000 !important;
+  border: 3px solid #fff !important;
+  box-shadow: 0 0 0 2px #000, 0 0 0 4px #fff !important;
+}
+body.high-contrast .hub__cat,
+body.high-contrast .hub__icon-btn,
+body.high-contrast .hub-toggle,
+body.high-contrast .hub-modal__close,
+body.high-contrast .profile-btn,
+body.high-contrast .profile-item,
+body.high-contrast .login-ov__big-btn,
+body.high-contrast .login-ov__btn,
+body.high-contrast .login-ov__guest,
+body.high-contrast .login-ov__tile {
+  background: #000 !important;
+  color: #fff !important;
+  border-color: #fff !important;
+  outline: 2px solid #000;
+}
+body.high-contrast .card__art { background: #000 !important; }
+body.high-contrast .card__svg { filter: contrast(2) saturate(1.4); }
+/* Hot-yellow focus ring; impossible to miss against the black/white scheme. */
+body.high-contrast :focus-visible {
+  outline: 4px solid #ff0 !important;
+  outline-offset: 3px !important;
+  box-shadow: 0 0 0 2px #000 !important;
+}
+
+/* ===== Universal visible focus ring ===== */
+/* Default focus on a tabbable element should ALWAYS be visible — guards against
+   inadvertent `outline:none` rules introduced in later passes. */
+:focus-visible {
+  outline: 3px solid var(--neon-cyan);
+  outline-offset: 2px;
+}
+.hub__chip:focus-visible,
+.hub__chip--profile:focus-visible {
+  outline: 3px solid var(--neon-pink);
+  outline-offset: 2px;
+}
+.hub__search:focus-visible {
+  outline: 3px solid var(--neon-cyan);
+  outline-offset: 2px;
+}
+.hub__cat:focus-visible {
+  outline: 3px solid var(--neon-yellow);
+  outline-offset: 3px;
+}
+.hub__icon-btn:focus-visible {
+  outline: 3px solid var(--neon-cyan);
+  outline-offset: 3px;
+  box-shadow: 0 0 14px rgba(76, 201, 240, 0.55);
+}
+
+/* Captions overlay — auto-mounted by settingsMenu; ensures hub pages also
+   render it cleanly above the cards when toggled on. */
+#wg-caption { z-index: 250; }
+
+/* Skip-to-main link — appears only when focused (e.g. via Tab on page load).
+   The first thing a keyboard user lands on; jumps past the header straight
+   to the grid. */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 9999;
+  padding: 10px 16px;
+  background: var(--neon-yellow);
+  color: #000;
+  font-family: var(--font-display);
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  text-decoration: none;
+  border-radius: 0 0 6px 0;
+}
+.skip-link:focus,
+.skip-link:focus-visible {
+  left: 0;
+  outline: 3px solid #000;
+  outline-offset: -3px;
 }
 
 /* =========================================================================
@@ -1241,6 +1375,8 @@ body.reduced-motion .hub__cat.was-pressed { animation: none !important; }
    ========================================================================= */
 
 body.login-locked { overflow: hidden; }
+/* Generic scroll-lock used when any in-hub modal opens (matches games' rule). */
+body.wg-modal-open { overflow: hidden; }
 body.login-locked .hub,
 body.login-locked .hub__footer,
 body.login-locked #signed-in-pill { pointer-events: none; filter: blur(2px) saturate(0.85); }

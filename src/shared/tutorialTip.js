@@ -57,6 +57,10 @@ function ensureTip() {
   ensureTipStyles();
   _tipEl = document.createElement('div');
   _tipEl.id = 'tutorial-tip';
+  // a11y: announced politely by screen readers when shown / updated.
+  _tipEl.setAttribute('role', 'status');
+  _tipEl.setAttribute('aria-live', 'polite');
+  _tipEl.setAttribute('aria-atomic', 'true');
   document.body.appendChild(_tipEl);
   return _tipEl;
 }

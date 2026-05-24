@@ -1313,3 +1313,47 @@ if (_startOv) {
   };
   new MutationObserver(_showOnHide).observe(_startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });
 }
+
+// === Round 3B: start-screen polish (no end screen — this is open-ended discovery) ===
+(function _r3bPolish(){
+  const FACTS = [
+    'TIP: Combine 3 LEGENDARY-tier ingredients for jackpots.',
+    'TIP: Each combo only works ONCE — 1140 combos exist.',
+    'TIP: 13 named LEGENDARIES are hidden — find them all.',
+    'LORE: The Lab was abandoned after the Great Crossbreeding.',
+    'TIP: Some pugs are CURSED — those count too.',
+    'JOKE: A pug fused with a cat once. We do not speak of it.',
+  ];
+  const GAME_ID = 'mutation-lab';
+  const startOv = document.getElementById('overlay');
+  const factEl = document.getElementById('wg-fun-facts');
+  let factIdx = Math.floor(Math.random() * FACTS.length), factTimer = null;
+  function showFact() {
+    if (!factEl) return;
+    factEl.classList.remove('is-shown');
+    setTimeout(() => { factEl.textContent = FACTS[factIdx % FACTS.length]; factEl.classList.add('is-shown'); factIdx++; }, 220);
+  }
+  function startFactLoop() { showFact(); clearInterval(factTimer); factTimer = setInterval(showFact, 4200); }
+  function stopFactLoop() { clearInterval(factTimer); if (factEl) factEl.classList.remove('is-shown'); }
+  function refreshStartBest() {
+    const el = document.getElementById('start-best');
+    if (!el) return;
+    import('../../src/persistence/highScores.js').then(({ loadBest: lb }) => {
+      try {
+        const best = lb(GAME_ID);
+        if (best && (best.discovered || best.score)) {
+          el.hidden = false;
+          el.textContent = `★ LAST BEST: ${best.discovered || best.score} discovered`;
+        } else { el.hidden = true; }
+      } catch {}
+    }).catch(() => {});
+  }
+  if (startOv) {
+    const startUpdate = () => {
+      const visible = !startOv.hidden && !startOv.classList.contains('is-hidden');
+      if (visible) { refreshStartBest(); startFactLoop(); } else { stopFactLoop(); }
+    };
+    new MutationObserver(startUpdate).observe(startOv, { attributes: true, attributeFilter: ['hidden','class'] });
+    startUpdate();
+  }
+})();

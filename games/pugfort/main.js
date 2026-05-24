@@ -98,6 +98,7 @@ function setPaused(p) {
   paused = p;
   if (!pauseOverlay) return;
   pauseOverlay.hidden = !p;
+  document.body.classList.toggle('wg-modal-open', !!p);
   if (game?.app?.ticker) { if (p) game.app.ticker.stop(); else game.app.ticker.start(); }
   if (pauseMuteBtn) pauseMuteBtn.textContent = Sfx.isMuted?.() ? 'SOUND: OFF' : 'SOUND: ON';
   if (pauseLarge) pauseLarge.textContent = document.body.classList.contains('large-text') ? 'LARGE TEXT: ON' : 'LARGE TEXT: OFF';
@@ -343,3 +344,86 @@ if (_startOv) {
   };
   new MutationObserver(_showOnHide).observe(_startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });
 }
+
+// === Round 3B: start/end screen polish (fun-facts, new-best confetti, replay-prompt) ===
+(function _r3bPolish(){
+  const FACTS = [
+    'TIP: The GENERATOR must survive — protect it with walls.',
+    'TIP: Spikes deal damage to zombies that touch them.',
+    'TIP: Sniper turrets pick off threats from across the map.',
+    'TIP: SHIELD modules absorb damage for the generator.',
+    'LORE: The Kennel King rises every third night.',
+    'TIP: Sprint uses stamina — wait for it to refill.',
+    'JOKE: Why did the zombie pug cross the road? Brains.',
+  ];
+  const GAME_ID = 'pugfort';
+  const startOv = document.getElementById('overlay');
+  const endOv = document.getElementById('end-overlay');
+  const factEl = document.getElementById('wg-fun-facts');
+  let factIdx = Math.floor(Math.random() * FACTS.length), factTimer = null;
+  function showFact() {
+    if (!factEl) return;
+    factEl.classList.remove('is-shown');
+    setTimeout(() => { factEl.textContent = FACTS[factIdx % FACTS.length]; factEl.classList.add('is-shown'); factIdx++; }, 220);
+  }
+  function startFactLoop() { showFact(); clearInterval(factTimer); factTimer = setInterval(showFact, 4200); }
+  function stopFactLoop() { clearInterval(factTimer); if (factEl) factEl.classList.remove('is-shown'); }
+  function refreshStartBest() {
+    const el = document.getElementById('start-best');
+    if (!el) return;
+    import('../../src/persistence/highScores.js').then(({ loadBest: lb }) => {
+      try {
+        const best = lb(GAME_ID);
+        if (best && (best.nights || best.score)) {
+          el.hidden = false;
+          el.textContent = `★ LAST BEST: ${best.nights || 0} nights · ${best.kills || 0} kills`;
+        } else { el.hidden = true; }
+      } catch {}
+    }).catch(() => {});
+  }
+  function spawnConfetti() {
+    const colors = ['#ffd23f','#ff3aa1','#4cc9f0','#5ef38c','#ff8e3c','#b055ff'];
+    const root = document.createElement('div'); root.className = 'wg-confetti';
+    for (let i = 0; i < 80; i++) {
+      const s = document.createElement('span');
+      s.style.left = (Math.random() * 100) + 'vw';
+      s.style.background = colors[Math.floor(Math.random() * colors.length)];
+      s.style.animationDelay = (Math.random() * 0.4) + 's';
+      s.style.animationDuration = (1.6 + Math.random() * 1.4) + 's';
+      root.appendChild(s);
+    }
+    document.body.appendChild(root);
+    setTimeout(() => root.remove(), 3200);
+  }
+  let _runStart = 0;
+  function showReplayPrompt() {
+    const el = document.getElementById('wg-tryagain');
+    if (!el) return;
+    const dur = (performance.now() - _runStart) / 1000;
+    el.hidden = dur > 45;
+  }
+  if (startOv) {
+    const startUpdate = () => {
+      const visible = !startOv.hidden && !startOv.classList.contains('is-hidden');
+      if (visible) { refreshStartBest(); startFactLoop(); }
+      else { stopFactLoop(); _runStart = performance.now(); }
+    };
+    new MutationObserver(startUpdate).observe(startOv, { attributes: true, attributeFilter: ['hidden','class'] });
+    startUpdate();
+  }
+  if (endOv) {
+    const endUpdate = () => {
+      const visible = !endOv.hidden && !endOv.classList.contains('is-hidden');
+      if (!visible) return;
+      const title = document.getElementById('end-title');
+      if (title) { title.classList.remove('is-shake'); void title.offsetWidth; title.classList.add('is-shake'); }
+      const bestEl = document.getElementById('end-best');
+      const banner = document.getElementById('wg-newbest');
+      const isNew = bestEl && /NEW/i.test(bestEl.textContent || '');
+      if (banner) banner.classList.toggle('is-shown', !!isNew);
+      if (isNew) spawnConfetti();
+      showReplayPrompt();
+    };
+    new MutationObserver(endUpdate).observe(endOv, { attributes: true, attributeFilter: ['hidden','class'] });
+  }
+})();

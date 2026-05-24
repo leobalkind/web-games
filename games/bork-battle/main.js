@@ -7,6 +7,7 @@ import { createTouchControls } from '../../src/touch/touchControls.js';
 import '../../src/touch/touchControls.css';
 import { getGamepad } from '../../src/gamepad/gamepad.js';
 import { createMobileControls } from '../../src/shared/mobileControls.js';
+import { showOrientationHint } from '../../src/shared/orientationHint.js';
 
 import { showTip } from '../../src/shared/tutorialTip.js';
 import { drawIcon, iconSvg } from '../../src/shared/icons.js';
@@ -33,6 +34,8 @@ createMobileControls({
     { id: 'shop',   label: 'SHOP',   key: 'B' },
   ],
 });
+// Dual-stick arena reads much better with landscape's extra horizontal view.
+showOrientationHint({ gameId: 'bork-battle' });
 
 const root = document.getElementById('game-root');
 const startOverlay = document.getElementById('overlay');
@@ -254,6 +257,7 @@ function setPaused(p) {
   paused = p;
   if (!pauseOverlay) return;
   pauseOverlay.hidden = !p;
+  document.body.classList.toggle('wg-modal-open', !!p);
   if (game && game.app && game.app.ticker) {
     if (p) game.app.ticker.stop(); else game.app.ticker.start();
   }
@@ -320,6 +324,7 @@ function openShopModal() {
   if (!game?.running) return;
   shopOpen = true;
   shopModal.hidden = false;
+  document.body.classList.add('wg-modal-open'); // lock background scroll/rubber-band on iOS
   // Stop the Pixi ticker directly so the world freezes (no pause panel shown).
   if (game?.app?.ticker?.started) game.app.ticker.stop();
   renderShopList();
@@ -327,6 +332,7 @@ function openShopModal() {
 function closeShopModal() {
   shopOpen = false;
   shopModal.hidden = true;
+  document.body.classList.remove('wg-modal-open');
   // Resume Pixi ticker only if the user-pause overlay isn't active.
   if (!paused && game?.app?.ticker && !game.app.ticker.started) game.app.ticker.start();
 }
@@ -526,3 +532,87 @@ setInterval(() => {
     });
   }
 }, 400);
+
+// === Round 3B: start/end screen polish (fun-facts, new-best confetti, replay-prompt) ===
+(function _r3bPolish(){
+  const FACTS = [
+    'TIP: Hold SPACE to charge a BORK blast.',
+    'TIP: Pink zone shrinks fast in late waves — stay central.',
+    'TIP: DASH (E) gives brief invuln — use to escape pinches.',
+    'TIP: Decoy (Q) baits bots away from you.',
+    'LORE: Bork Battle started as a backyard squabble.',
+    'TIP: Higher tiers = more health AND damage.',
+    'TIP: Eat treats to evolve — keep moving between zones.',
+    'JOKE: What did the pug say to the gun? Such fire.',
+  ];
+  const GAME_ID = 'bork-battle';
+  const startOv = document.getElementById('overlay');
+  const endOv = document.getElementById('end-overlay');
+  const factEl = document.getElementById('wg-fun-facts');
+  let factIdx = Math.floor(Math.random() * FACTS.length), factTimer = null;
+  function showFact() {
+    if (!factEl) return;
+    factEl.classList.remove('is-shown');
+    setTimeout(() => { factEl.textContent = FACTS[factIdx % FACTS.length]; factEl.classList.add('is-shown'); factIdx++; }, 220);
+  }
+  function startFactLoop() { showFact(); clearInterval(factTimer); factTimer = setInterval(showFact, 4200); }
+  function stopFactLoop() { clearInterval(factTimer); if (factEl) factEl.classList.remove('is-shown'); }
+  function refreshStartBest() {
+    const el = document.getElementById('start-best');
+    if (!el) return;
+    import('../../src/persistence/highScores.js').then(({ loadBest: lb }) => {
+      try {
+        const best = lb(GAME_ID);
+        if (best && (best.kills || best.score)) {
+          el.hidden = false;
+          el.textContent = `★ LAST BEST: ${best.kills || best.score} kills${best.form ? ' · ' + best.form : ''}`;
+        } else { el.hidden = true; }
+      } catch {}
+    }).catch(() => {});
+  }
+  function spawnConfetti() {
+    const colors = ['#ffd23f','#ff3aa1','#4cc9f0','#5ef38c','#ff8e3c','#b055ff'];
+    const root = document.createElement('div'); root.className = 'wg-confetti';
+    for (let i = 0; i < 80; i++) {
+      const s = document.createElement('span');
+      s.style.left = (Math.random() * 100) + 'vw';
+      s.style.background = colors[Math.floor(Math.random() * colors.length)];
+      s.style.animationDelay = (Math.random() * 0.4) + 's';
+      s.style.animationDuration = (1.6 + Math.random() * 1.4) + 's';
+      root.appendChild(s);
+    }
+    document.body.appendChild(root);
+    setTimeout(() => root.remove(), 3200);
+  }
+  let _runStart = 0;
+  function showReplayPrompt() {
+    const el = document.getElementById('wg-tryagain');
+    if (!el) return;
+    const dur = (performance.now() - _runStart) / 1000;
+    el.hidden = dur > 30;
+  }
+  if (startOv) {
+    const startUpdate = () => {
+      const visible = !startOv.hidden && !startOv.classList.contains('is-hidden');
+      if (visible) { refreshStartBest(); startFactLoop(); }
+      else { stopFactLoop(); _runStart = performance.now(); }
+    };
+    new MutationObserver(startUpdate).observe(startOv, { attributes: true, attributeFilter: ['hidden','class'] });
+    startUpdate();
+  }
+  if (endOv) {
+    const endUpdate = () => {
+      const visible = !endOv.hidden && !endOv.classList.contains('is-hidden');
+      if (!visible) return;
+      const title = document.getElementById('end-title');
+      if (title) { title.classList.remove('is-shake'); void title.offsetWidth; title.classList.add('is-shake'); }
+      const bestEl = document.getElementById('end-best');
+      const banner = document.getElementById('wg-newbest');
+      const isNew = bestEl && /NEW/i.test(bestEl.textContent || '');
+      if (banner) banner.classList.toggle('is-shown', !!isNew);
+      if (isNew) spawnConfetti();
+      showReplayPrompt();
+    };
+    new MutationObserver(endUpdate).observe(endOv, { attributes: true, attributeFilter: ['hidden','class'] });
+  }
+})();

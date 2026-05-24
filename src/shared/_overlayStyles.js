@@ -40,6 +40,7 @@ const CSS = ":where(.wg-speed-toggle,.wg-grade,.wg-feed__item,.wg-grade__btn,.wg
 + ".wg-grade__btns{display:flex;gap:10px;justify-content:center;margin-top:8px;flex-wrap:wrap}"
 + ".wg-grade__btn{font-size:.55rem;letter-spacing:.06em;padding:10px 16px;border-radius:6px;cursor:pointer;text-decoration:none;display:inline-block;background:rgba(0,0,0,.4);color:#f8f5ff;border:2px solid #4cc9f0;transition:transform .1s}"
 + ".wg-grade__btn:hover{transform:translateY(-2px)}"
++ ".wg-grade__btn:focus-visible{outline:3px solid #ffd23f;outline-offset:3px;box-shadow:0 0 12px rgba(255,210,63,.55)}"
 + ".wg-grade__btn--restart{background:linear-gradient(180deg,#5ef38c,#3aa860);color:#0a1018;border-color:#9ef0b0}"
 + ".wg-feed{position:fixed;top:calc(60px + env(safe-area-inset-top,0));right:calc(12px + env(safe-area-inset-right,0));z-index:205;display:flex;flex-direction:column;gap:3px;align-items:flex-end;pointer-events:none;max-width:60vw}"
 + ".wg-feed__item{font-size:.5rem;letter-spacing:.04em;background:rgba(10,7,22,.78);border-left:3px solid currentColor;padding:5px 9px;border-radius:0 4px 4px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;opacity:0;transform:translateX(28px);transition:opacity .25s,transform .25s;text-shadow:0 0 6px currentColor}"

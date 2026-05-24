@@ -12,7 +12,7 @@ import { drawIcon } from '../../src/shared/icons.js';
 import { drawPug, drawMonsterPug } from '../../src/shared/pugSprite.js';
 import { createMobileControls } from '../../src/shared/mobileControls.js';
 import { profileKey } from '../../src/shared/profile.js';
-import { createSettingsMenu } from '../../src/shared/settingsMenu.js';
+import { createSettingsMenu, caption } from '../../src/shared/settingsMenu.js';
 import { getShakeMul as _shakeMul } from '../../src/shared/screenShake.js';
 
 const canvas = document.getElementById('game-canvas');
@@ -339,6 +339,12 @@ function jumpScare(kind) {
     shake(15, 0.35);
     sanity = Math.max(0, sanity - 25);
     silenceHum(1.0);
+    // Caption + SR live-region for the audio cue. Per-kind copy so screen
+    // readers / captioned players know which entity caught them.
+    const label = kind === 'hound' ? 'HOUND SCREAM'
+                : kind === 'smiler' ? 'SMILER SCREAM'
+                : kind === 'monster' ? 'MONSTER SCREAM' : 'SCREAM';
+    try { caption('[' + label + ']', 1400); } catch {}
     // Layered scream: pitch sweep + mid-noise burst + sub-bass thump
     try {
       sfx.sweep(900, 200, 'sawtooth', 0.3, 0.45);
@@ -354,6 +360,7 @@ function jumpScare(kind) {
       sfx.tone(180, 'sine', 0.18, 0.20);
       sfx.sweep(380, 220, 'sine', 0.18, 0.10);
     } catch {}
+    try { caption('[DISTANT NOISE]', 1100); } catch {}
     shake(3, 0.12);
   }
 }
@@ -370,18 +377,22 @@ function fireTriggerScare(kind) {
       // High-pitched piercing shriek + sub thump
       sfx.sweep(1200, 320, 'sawtooth', 0.34, 0.45);
       sfx.tone(60, 'sine', 0.45, 0.45);
+      caption('[MIRROR SHRIEK]', 1300);
     } else if (kind === 'hand') {
       // Skitter — fast filtered noise
       sfx.noise(0.18, 0.4, 800);
       sfx.tone(120, 'sine', 0.3, 0.35);
+      caption('[SKITTERING HANDS]', 1300);
     } else if (kind === 'shadow') {
       // Single piercing shriek
       sfx.sweep(1400, 600, 'square', 0.4, 0.35);
+      caption('[SHADOW SHRIEK]', 1300);
     } else if (kind === 'whisper') {
       // Loud whisper — short noise pop with low filter sweep, no visual
       sfx.noise(0.22, 0.35, 200);
       sfx.tone(220, 'sine', 0.5, 0.3);
       shake(18, 0.5);
+      caption('[LOUD WHISPER]', 1400);
     }
   } catch {}
 }
@@ -2727,3 +2738,97 @@ if (_startOv) {
   };
   new MutationObserver(_showOnHide).observe(_startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });
 }
+
+// === Round 3B: start/end screen polish ===
+(function _r3bPolish(){
+  const FACTS = [
+    'TIP: Stay near lights to keep sanity high.',
+    'TIP: Hounds chase on sight — sneak instead of run.',
+    'TIP: Smilers hate light — flash them to scare them off.',
+    'TIP: Stand on furniture to HIDE from the giant pug.',
+    'LORE: You noclipped through reality and now exist here.',
+    'TIP: 30 notes are scattered across the layers — collect them.',
+    'JOKE: Why is the wallpaper yellow? Don\'t ask.',
+  ];
+  const GAME_ID = 'backrooms-pug';
+  const startOv = document.getElementById('overlay');
+  const endOv = document.getElementById('end-overlay');
+  const factEl = document.getElementById('wg-fun-facts');
+  let factIdx = Math.floor(Math.random() * FACTS.length), factTimer = null;
+  function showFact() {
+    if (!factEl) return;
+    factEl.classList.remove('is-shown');
+    setTimeout(() => { factEl.textContent = FACTS[factIdx % FACTS.length]; factEl.classList.add('is-shown'); factIdx++; }, 220);
+  }
+  function startFactLoop() { showFact(); clearInterval(factTimer); factTimer = setInterval(showFact, 4200); }
+  function stopFactLoop() { clearInterval(factTimer); if (factEl) factEl.classList.remove('is-shown'); }
+  function refreshStartBest() {
+    const el = document.getElementById('start-best');
+    if (!el) return;
+    import('../../src/persistence/highScores.js').then(({ loadBest: lb }) => {
+      try {
+        const best = lb(GAME_ID);
+        if (best && (best.level || best.score)) {
+          el.hidden = false;
+          el.textContent = `★ LAST BEST: level ${best.level || best.score || 0}`;
+        } else { el.hidden = true; }
+      } catch {}
+    }).catch(() => {});
+  }
+  function spawnConfetti() {
+    const colors = ['#ffd23f','#ff3aa1','#4cc9f0','#5ef38c','#ff8e3c','#b055ff'];
+    const root = document.createElement('div'); root.className = 'wg-confetti';
+    for (let i = 0; i < 80; i++) {
+      const s = document.createElement('span');
+      s.style.left = (Math.random() * 100) + 'vw';
+      s.style.background = colors[Math.floor(Math.random() * colors.length)];
+      s.style.animationDelay = (Math.random() * 0.4) + 's';
+      s.style.animationDuration = (1.6 + Math.random() * 1.4) + 's';
+      root.appendChild(s);
+    }
+    document.body.appendChild(root);
+    setTimeout(() => root.remove(), 3200);
+  }
+  let _runStart = 0;
+  function showReplayPrompt() {
+    const el = document.getElementById('wg-tryagain');
+    if (!el) return;
+    const dur = (performance.now() - _runStart) / 1000;
+    el.hidden = dur > 30;
+  }
+  const shareBtn = document.getElementById('wg-share');
+  if (shareBtn) {
+    shareBtn.addEventListener('click', async () => {
+      const lvl = document.getElementById('end-level')?.textContent || '0';
+      const cans = document.getElementById('end-cans')?.textContent || '0';
+      const text = `🐶 BACKROOMS OF PUG — Reached level ${lvl} with ${cans} cans! Beat me at https://leobalkind.github.io/web-games/`;
+      try {
+        if (navigator.share) await navigator.share({ title: 'BACKROOMS OF PUG', text, url: 'https://leobalkind.github.io/web-games/' });
+        else { await navigator.clipboard.writeText(text); shareBtn.textContent = '✓ COPIED!'; setTimeout(() => { shareBtn.textContent = '📋 SHARE'; }, 1800); }
+      } catch { shareBtn.textContent = '⚠ FAILED'; setTimeout(() => { shareBtn.textContent = '📋 SHARE'; }, 1800); }
+    });
+  }
+  if (startOv) {
+    const startUpdate = () => {
+      const visible = !startOv.hidden && !startOv.classList.contains('is-hidden');
+      if (visible) { refreshStartBest(); startFactLoop(); } else { stopFactLoop(); _runStart = performance.now(); }
+    };
+    new MutationObserver(startUpdate).observe(startOv, { attributes: true, attributeFilter: ['hidden','class'] });
+    startUpdate();
+  }
+  if (endOv) {
+    const endUpdate = () => {
+      const visible = !endOv.hidden && !endOv.classList.contains('is-hidden');
+      if (!visible) return;
+      const title = document.getElementById('end-title');
+      if (title) { title.classList.remove('is-shake'); void title.offsetWidth; title.classList.add('is-shake'); }
+      const bestEl = document.getElementById('end-best');
+      const banner = document.getElementById('wg-newbest');
+      const isNew = bestEl && /NEW/i.test(bestEl.textContent || '');
+      if (banner) banner.classList.toggle('is-shown', !!isNew);
+      if (isNew) spawnConfetti();
+      showReplayPrompt();
+    };
+    new MutationObserver(endUpdate).observe(endOv, { attributes: true, attributeFilter: ['hidden','class'] });
+  }
+})();

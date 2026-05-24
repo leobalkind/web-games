@@ -16,6 +16,12 @@ export function createKillFeed({
   ensureSharedStyles();
   const root = document.createElement('div');
   root.className = 'wg-feed ' + (className || '');
+  // a11y: it's a streaming activity log, so role="log" + polite live region
+  // — SR users hear each new line read out without it being interrupting.
+  root.setAttribute('role', 'log');
+  root.setAttribute('aria-live', 'polite');
+  root.setAttribute('aria-atomic', 'false');
+  root.setAttribute('aria-label', 'Activity feed');
   (container || document.body).appendChild(root);
 
   const items = []; // { el, timer, fadeTimer }

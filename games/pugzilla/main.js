@@ -10,6 +10,7 @@ import { profileKey } from '../../src/shared/profile.js';
 import { createMobileControls } from '../../src/shared/mobileControls.js';
 import { createKillFeed } from '../../src/shared/killFeed.js';
 import { createSettingsMenu } from '../../src/shared/settingsMenu.js';
+import { showOrientationHint } from '../../src/shared/orientationHint.js';
 import { getShakeMul as _shakeMul } from '../../src/shared/screenShake.js';
 
 // Scrolling kill feed (top-right) — pushed when buildings are destroyed.
@@ -323,6 +324,8 @@ createMobileControls({
   ],
   getCanvas: () => canvas,
 });
+// Top-down sprawling city = much better in landscape on phones.
+showOrientationHint({ gameId: 'pugzilla' });
 canvas.addEventListener('mousemove', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; });
 canvas.addEventListener('mousedown', () => {
   if (!running || shopOpen) return; // ignore taps while paused / shopping
@@ -1716,3 +1719,96 @@ if (_startOv) {
   };
   new MutationObserver(_showOnHide).observe(_startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });
 }
+
+// === Round 3B: start/end screen polish ===
+(function _r3bPolish(){
+  const FACTS = [
+    'TIP: Eat 5 vehicles to evolve to your next form.',
+    'TIP: Shockwave bork (SPACE) downs helicopters.',
+    'TIP: Higher tier forms = more HP and damage.',
+    'TIP: Smashed buildings drop $ for the SHOP.',
+    'LORE: Pugzilla was born during a science experiment.',
+    'JOKE: What does Pugzilla eat? Whatever moves.',
+  ];
+  const GAME_ID = 'pugzilla';
+  const startOv = document.getElementById('overlay');
+  const endOv = document.getElementById('end-overlay');
+  const factEl = document.getElementById('wg-fun-facts');
+  let factIdx = Math.floor(Math.random() * FACTS.length), factTimer = null;
+  function showFact() {
+    if (!factEl) return;
+    factEl.classList.remove('is-shown');
+    setTimeout(() => { factEl.textContent = FACTS[factIdx % FACTS.length]; factEl.classList.add('is-shown'); factIdx++; }, 220);
+  }
+  function startFactLoop() { showFact(); clearInterval(factTimer); factTimer = setInterval(showFact, 4200); }
+  function stopFactLoop() { clearInterval(factTimer); if (factEl) factEl.classList.remove('is-shown'); }
+  function refreshStartBest() {
+    const el = document.getElementById('start-best');
+    if (!el) return;
+    import('../../src/persistence/highScores.js').then(({ loadBest: lb }) => {
+      try {
+        const best = lb(GAME_ID);
+        if (best && (best.score || best.smashed)) {
+          el.hidden = false;
+          el.textContent = `★ LAST BEST: ${best.score || 0} score · ${best.smashed || 0} smashed`;
+        } else { el.hidden = true; }
+      } catch {}
+    }).catch(() => {});
+  }
+  function spawnConfetti() {
+    const colors = ['#ffd23f','#ff3aa1','#4cc9f0','#5ef38c','#ff8e3c','#b055ff'];
+    const root = document.createElement('div'); root.className = 'wg-confetti';
+    for (let i = 0; i < 80; i++) {
+      const s = document.createElement('span');
+      s.style.left = (Math.random() * 100) + 'vw';
+      s.style.background = colors[Math.floor(Math.random() * colors.length)];
+      s.style.animationDelay = (Math.random() * 0.4) + 's';
+      s.style.animationDuration = (1.6 + Math.random() * 1.4) + 's';
+      root.appendChild(s);
+    }
+    document.body.appendChild(root);
+    setTimeout(() => root.remove(), 3200);
+  }
+  let _runStart = 0;
+  function showReplayPrompt() {
+    const el = document.getElementById('wg-tryagain');
+    if (!el) return;
+    const dur = (performance.now() - _runStart) / 1000;
+    el.hidden = dur > 30;
+  }
+  const shareBtn = document.getElementById('wg-share');
+  if (shareBtn) {
+    shareBtn.addEventListener('click', async () => {
+      const sc = document.getElementById('end-score')?.textContent || '0';
+      const sm = document.getElementById('end-smashed')?.textContent || '0';
+      const text = `🐶 PUGZILLA RAMPAGE — Score ${sc} · ${sm} buildings smashed! Beat me at https://leobalkind.github.io/web-games/`;
+      try {
+        if (navigator.share) await navigator.share({ title: 'PUGZILLA RAMPAGE', text, url: 'https://leobalkind.github.io/web-games/' });
+        else { await navigator.clipboard.writeText(text); shareBtn.textContent = '✓ COPIED!'; setTimeout(() => { shareBtn.textContent = '📋 SHARE'; }, 1800); }
+      } catch { shareBtn.textContent = '⚠ FAILED'; setTimeout(() => { shareBtn.textContent = '📋 SHARE'; }, 1800); }
+    });
+  }
+  if (startOv) {
+    const startUpdate = () => {
+      const visible = !startOv.hidden && !startOv.classList.contains('is-hidden');
+      if (visible) { refreshStartBest(); startFactLoop(); } else { stopFactLoop(); _runStart = performance.now(); }
+    };
+    new MutationObserver(startUpdate).observe(startOv, { attributes: true, attributeFilter: ['hidden','class'] });
+    startUpdate();
+  }
+  if (endOv) {
+    const endUpdate = () => {
+      const visible = !endOv.hidden && !endOv.classList.contains('is-hidden');
+      if (!visible) return;
+      const title = document.getElementById('end-title');
+      if (title) { title.classList.remove('is-shake'); void title.offsetWidth; title.classList.add('is-shake'); }
+      const bestEl = document.getElementById('end-best');
+      const banner = document.getElementById('wg-newbest');
+      const isNew = bestEl && /NEW/i.test(bestEl.textContent || '');
+      if (banner) banner.classList.toggle('is-shown', !!isNew);
+      if (isNew) spawnConfetti();
+      showReplayPrompt();
+    };
+    new MutationObserver(endUpdate).observe(endOv, { attributes: true, attributeFilter: ['hidden','class'] });
+  }
+})();

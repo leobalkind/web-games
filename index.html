@@ -14,6 +14,9 @@
     <link rel="stylesheet" href="/src/hub/hub.css" />
   </head>
   <body>
+    <!-- Skip-to-main link: first focusable element so keyboard users can jump
+         past the header straight to the playable grid. -->
+    <a class="skip-link" href="#hub-grid">Skip to games</a>
     <!-- Decorative drifting pug-ear silhouettes behind the cards (5% opacity, pointer-events:none).
          Three layers (::before, ::after, > i) so all three drift at different speeds. -->
     <div class="hub__pug-bg" aria-hidden="true"><i></i></div>
@@ -35,22 +38,22 @@
           aria-label="Search games"
         />
         <div id="hub-cats" class="hub__cats" role="tablist" aria-label="Filter by category">
-          <button class="hub__cat is-active" data-cat="all" type="button">ALL</button>
-          <button class="hub__cat" data-cat="action" type="button">ACTION</button>
-          <button class="hub__cat" data-cat="stealth" type="button">STEALTH</button>
-          <button class="hub__cat" data-cat="defense" type="button">DEFENSE</button>
-          <button class="hub__cat" data-cat="driving" type="button">DRIVING</button>
-          <button class="hub__cat" data-cat="platform" type="button">PLATFORM</button>
-          <button class="hub__cat" data-cat="mining" type="button">MINING</button>
-          <button class="hub__cat" data-cat="puzzle" type="button">PUZZLE</button>
-          <button class="hub__cat" data-cat="management" type="button">MANAGEMENT</button>
-          <button class="hub__cat" data-cat="horror" type="button">HORROR</button>
+          <button class="hub__cat is-active" data-cat="all" type="button" role="tab" aria-selected="true">ALL</button>
+          <button class="hub__cat" data-cat="action" type="button" role="tab" aria-selected="false">ACTION</button>
+          <button class="hub__cat" data-cat="stealth" type="button" role="tab" aria-selected="false">STEALTH</button>
+          <button class="hub__cat" data-cat="defense" type="button" role="tab" aria-selected="false">DEFENSE</button>
+          <button class="hub__cat" data-cat="driving" type="button" role="tab" aria-selected="false">DRIVING</button>
+          <button class="hub__cat" data-cat="platform" type="button" role="tab" aria-selected="false">PLATFORM</button>
+          <button class="hub__cat" data-cat="mining" type="button" role="tab" aria-selected="false">MINING</button>
+          <button class="hub__cat" data-cat="puzzle" type="button" role="tab" aria-selected="false">PUZZLE</button>
+          <button class="hub__cat" data-cat="management" type="button" role="tab" aria-selected="false">MANAGEMENT</button>
+          <button class="hub__cat" data-cat="horror" type="button" role="tab" aria-selected="false">HORROR</button>
         </div>
         <!-- Empty-state node is built lazily by setupSearchAndCats() when needed,
              so web scrapers / screen-readers don't see "No games match" on initial load. -->
       </header>
 
-      <section class="hub__grid">
+      <section id="hub-grid" class="hub__grid" aria-label="Game grid">
         <a class="card" href="/games/bork-battle/index.html">
           <div class="card__art card__art--bork">
             <!-- BORK BATTLE: neon arena, shrinking ring, hero kart firing through rivals -->
@@ -2777,6 +2780,14 @@
           <span>Color-blind friendly palette</span>
         </label>
         <label class="hub-toggle">
+          <input id="opt-high-contrast" type="checkbox" />
+          <span>High contrast (white-on-black)</span>
+        </label>
+        <label class="hub-toggle">
+          <input id="opt-captions" type="checkbox" />
+          <span>Audio captions / subtitles</span>
+        </label>
+        <label class="hub-toggle">
           <input id="opt-aim-assist" type="checkbox" />
           <span>Aim assist (auto-aim nearest target)</span>
         </label>
@@ -2889,12 +2900,29 @@
       const STORE = (k, v) => localStorage.setItem(`wg:${k}`, v ? '1' : '0');
       const LOAD = (k) => localStorage.getItem(`wg:${k}`) === '1';
 
+      // Hub toggles. The `applyShared` ones also persist under the shared
+      // `wg:settings:*` keys read by src/shared/settingsMenu.js so the same
+      // pref applies inside each game (large-text / reduced-motion / etc.).
+      const SHARED = {
+        'large-text':     'wg:settings:largeText',
+        'reduced-motion': 'wg:settings:reducedMotion',
+        'colorblind':     'wg:settings:colorBlind',
+        'high-contrast':  'wg:settings:highContrast',
+        'captions':       'wg:settings:captions',
+      };
+      const applyShared = (key, on) => {
+        const sk = SHARED[key]; if (!sk) return;
+        try { localStorage.setItem(sk, on ? '1' : '0'); } catch {}
+      };
       const opts = {
         music: { el: $('opt-music'), key: 'music', default: true, apply: () => {} },
         sfx: { el: $('opt-sfx'), key: 'sfx', default: true, apply: () => {} },
-        'large-text': { el: $('opt-large-text'), key: 'large-text', apply: (on) => document.body.classList.toggle('large-text', on) },
-        'reduced-motion': { el: $('opt-reduced-motion'), key: 'reduced-motion', apply: (on) => document.body.classList.toggle('reduced-motion', on) },
-        colorblind: { el: $('opt-colorblind'), key: 'colorblind', apply: (on) => document.body.classList.toggle('colorblind', on) },
+        'large-text': { el: $('opt-large-text'), key: 'large-text', apply: (on) => { document.body.classList.toggle('large-text', on); applyShared('large-text', on); } },
+        'reduced-motion': { el: $('opt-reduced-motion'), key: 'reduced-motion', apply: (on) => { document.body.classList.toggle('reduced-motion', on); applyShared('reduced-motion', on); } },
+        // Toggle BOTH class names so any leftover CSS works under either form.
+        colorblind: { el: $('opt-colorblind'), key: 'colorblind', apply: (on) => { document.body.classList.toggle('colorblind', on); document.body.classList.toggle('color-blind', on); applyShared('colorblind', on); } },
+        'high-contrast': { el: $('opt-high-contrast'), key: 'high-contrast', apply: (on) => { document.body.classList.toggle('high-contrast', on); applyShared('high-contrast', on); } },
+        captions: { el: $('opt-captions'), key: 'captions', apply: (on) => { document.body.classList.toggle('captions', on); applyShared('captions', on); } },
         'aim-assist': { el: $('opt-aim-assist'), key: 'aim-assist', apply: () => {} },
         'auto-fire': { el: $('opt-auto-fire'), key: 'auto-fire', apply: () => {} },
       };
@@ -2910,7 +2938,11 @@
       function initOpts() {
         for (const [k, o] of Object.entries(opts)) {
           if (!o.el) continue;
-          const stored = localStorage.getItem(`wg:${o.key}`);
+          // Read the legacy hub key first, then fall back to the shared key
+          // so changes flipped inside a game (which writes wg:settings:*) are
+          // reflected in this hub-side checkbox.
+          let stored = localStorage.getItem(`wg:${o.key}`);
+          if (stored === null && SHARED[o.key]) stored = localStorage.getItem(SHARED[o.key]);
           const on = stored === null ? !!o.default : stored === '1';
           o.el.checked = on;
           if (o.apply) o.apply(on);
@@ -2922,16 +2954,66 @@
       }
       initOpts();
 
-      // Modals
-      function openModal(id) { $(id).hidden = false; }
-      function closeModal(id) { $(id).hidden = true; }
-      $('settings-btn')?.addEventListener('click', () => openModal('settings-modal'));
+      // Modals — opens manage ARIA attrs, trap Tab inside the panel while open,
+      // and restore focus to the opener on close so keyboard users land back
+      // where they were. Maps modalId -> { opener, releaseTrap } at runtime.
+      const FOCUSABLE_SELECTOR = 'a[href],button:not([disabled]),input:not([disabled]):not([type="hidden"]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+      const _modalState = {};
+      function trapTab(panel, onEsc) {
+        const handler = (e) => {
+          if (e.key === 'Escape' && onEsc) { e.preventDefault(); onEsc(); return; }
+          if (e.key !== 'Tab') return;
+          const f = [...panel.querySelectorAll(FOCUSABLE_SELECTOR)].filter((el) => el.offsetParent !== null);
+          if (!f.length) { e.preventDefault(); panel.focus(); return; }
+          const first = f[0], last = f[f.length - 1];
+          if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+          else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+        };
+        panel.addEventListener('keydown', handler);
+        return () => panel.removeEventListener('keydown', handler);
+      }
+      function openModal(id, opener) {
+        const m = $(id); if (!m) return;
+        m.hidden = false;
+        // Mark as a true modal dialog for assistive tech.
+        m.setAttribute('role', 'dialog');
+        m.setAttribute('aria-modal', 'true');
+        const panel = m.querySelector('.hub-modal__panel');
+        if (panel && !panel.hasAttribute('tabindex')) panel.setAttribute('tabindex', '-1');
+        // Wire aria-labelledby to the panel's <h2> id if present (else create).
+        const h2 = panel?.querySelector('h2');
+        if (h2) {
+          if (!h2.id) h2.id = id + '-title';
+          m.setAttribute('aria-labelledby', h2.id);
+        }
+        const opener_ = opener || document.activeElement;
+        // Defer focus to next frame so the panel is visible first.
+        requestAnimationFrame(() => {
+          const target = panel?.querySelector(FOCUSABLE_SELECTOR) || panel;
+          try { target?.focus(); } catch {}
+        });
+        const release = panel ? trapTab(panel, () => closeModal(id)) : () => {};
+        _modalState[id] = { opener: opener_, release };
+      }
+      function closeModal(id) {
+        const m = $(id); if (!m) return;
+        m.hidden = true;
+        const st = _modalState[id];
+        if (st) {
+          try { st.release(); } catch {}
+          if (st.opener && document.contains(st.opener) && typeof st.opener.focus === 'function') {
+            try { st.opener.focus(); } catch {}
+          }
+          delete _modalState[id];
+        }
+      }
+      $('settings-btn')?.addEventListener('click', (e) => openModal('settings-modal', e.currentTarget));
       $('settings-close')?.addEventListener('click', () => closeModal('settings-modal'));
-      $('changelog-btn')?.addEventListener('click', () => openModal('changelog-modal'));
+      $('changelog-btn')?.addEventListener('click', (e) => openModal('changelog-modal', e.currentTarget));
       $('changelog-close')?.addEventListener('click', () => closeModal('changelog-modal'));
-      $('stats-btn')?.addEventListener('click', () => { renderStats(); openModal('stats-modal'); });
+      $('stats-btn')?.addEventListener('click', (e) => { renderStats(); openModal('stats-modal', e.currentTarget); });
       $('stats-close')?.addEventListener('click', () => closeModal('stats-modal'));
-      $('profile-btn')?.addEventListener('click', () => { renderProfileModal(); openModal('profile-modal'); });
+      $('profile-btn')?.addEventListener('click', (e) => { renderProfileModal(); openModal('profile-modal', e.currentTarget); });
       $('profile-close')?.addEventListener('click', () => closeModal('profile-modal'));
       $('profile-modal')?.addEventListener('click', (e) => { if (e.target.id === 'profile-modal') closeModal('profile-modal'); });
 
@@ -3256,10 +3338,15 @@
           }
         });
         // Category chips
-        document.querySelectorAll('.hub__cat').forEach((btn) => {
+        const cats = [...document.querySelectorAll('.hub__cat')];
+        cats.forEach((btn) => {
           btn.addEventListener('click', () => {
             activeCat = btn.dataset.cat || 'all';
-            document.querySelectorAll('.hub__cat').forEach((b) => b.classList.toggle('is-active', b === btn));
+            cats.forEach((b) => {
+              const on = b === btn;
+              b.classList.toggle('is-active', on);
+              b.setAttribute('aria-selected', String(on));
+            });
             // Brief active-state spring/bounce
             btn.classList.remove('was-pressed');
             // force reflow then re-add to retrigger animation
@@ -3267,6 +3354,64 @@
             btn.classList.add('was-pressed');
             apply();
           });
+          // Arrow-key navigation between category tabs (tablist convention)
+          btn.addEventListener('keydown', (e) => {
+            if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight' && e.key !== 'Home' && e.key !== 'End') return;
+            e.preventDefault();
+            const i = cats.indexOf(btn);
+            let next = i;
+            if (e.key === 'ArrowLeft') next = (i - 1 + cats.length) % cats.length;
+            else if (e.key === 'ArrowRight') next = (i + 1) % cats.length;
+            else if (e.key === 'Home') next = 0;
+            else next = cats.length - 1;
+            cats[next].focus();
+          });
+        });
+
+        // Arrow-key navigation across visible cards in the grid (left/right and
+        // up/down by approximate column count). Enter is the default <a> action.
+        const grid = document.getElementById('hub-grid');
+        if (grid) {
+          // Cards are <a> with implicit tabindex 0 already, so just hook keydown.
+          grid.addEventListener('keydown', (e) => {
+            const tgt = e.target;
+            if (!tgt || !tgt.classList || !tgt.classList.contains('card')) return;
+            if (!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Home','End'].includes(e.key)) return;
+            const visibleCards = [...grid.querySelectorAll('.card, .card--coming')]
+              .filter((c) => c.style.display !== 'none' && c.offsetParent !== null);
+            if (visibleCards.length === 0) return;
+            const i = visibleCards.indexOf(tgt);
+            if (i < 0) return;
+            e.preventDefault();
+            // Estimate columns from the first card's parent layout. We use
+            // the bounding rects: cards with the same `top` are in the same row.
+            const top0 = visibleCards[0].getBoundingClientRect().top;
+            let cols = 0;
+            for (const c of visibleCards) {
+              if (Math.abs(c.getBoundingClientRect().top - top0) < 2) cols++; else break;
+            }
+            if (cols < 1) cols = 1;
+            let next = i;
+            if (e.key === 'ArrowLeft')  next = Math.max(0, i - 1);
+            else if (e.key === 'ArrowRight') next = Math.min(visibleCards.length - 1, i + 1);
+            else if (e.key === 'ArrowUp')    next = Math.max(0, i - cols);
+            else if (e.key === 'ArrowDown')  next = Math.min(visibleCards.length - 1, i + cols);
+            else if (e.key === 'Home') next = 0;
+            else if (e.key === 'End') next = visibleCards.length - 1;
+            visibleCards[next].focus();
+          });
+        }
+
+        // "?" opens onboarding/help anywhere outside text inputs
+        window.addEventListener('keydown', (e) => {
+          if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+          if (e.key === '?' || (e.key === '/' && e.shiftKey)) {
+            e.preventDefault();
+            // Onboarding modal already exists; doubles as quick-help.
+            const onb = $('onboard-modal');
+            if (onb && onb.hidden) openModal('onboard-modal', document.activeElement);
+            else if (onb) closeModal('onboard-modal');
+          }
         });
       })();
       // Gamepad detection — show chip when a gamepad connects

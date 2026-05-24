@@ -75,6 +75,12 @@ function injectStyles() {
 }
 
 function isTouchDevice() {
+  // `?touch=1` query string is a manual-override for desktop QA — lets you
+  // preview the mobile overlay without dev-tools touch emulation.
+  try {
+    if (location.search.indexOf('touch=1') !== -1) return true;
+    if (location.search.indexOf('touch=0') !== -1) return false;
+  } catch {}
   return ('ontouchstart' in window) ||
     (navigator.maxTouchPoints && navigator.maxTouchPoints > 0) ||
     window.matchMedia('(pointer: coarse)').matches;
@@ -575,6 +581,83 @@ export function createMobileControls(opts = {}) {
   };
   window.addEventListener('blur', onBlur);
   document.addEventListener('visibilitychange', () => { if (document.hidden) onBlur(); });
+
+  // If we ever observe a `mouse` pointer (e.g. iPad with trackpad/mouse, or
+  // a USB mouse plugged into Android), demote the overlay so the player isn't
+  // stuck behind a joystick they don't need. Touch always wins back: any
+  // subsequent `touchstart` re-shows the overlay via syncOverlay().
+  let _seenMouse = false;
+  const onPointerDown = (e) => {
+    if (forceShow) return;
+    if (e.pointerType === 'mouse' && !_seenMouse) {
+      _seenMouse = true;
+      root.classList.add('is-hidden');
+    }
+  };
+  const onTouchStartReshow = () => {
+    if (forceShow || !touch) return;
+    if (_seenMouse) { _seenMouse = false; syncOverlay(); }
+  };
+  window.addEventListener('pointerdown', onPointerDown);
+  window.addEventListener('touchstart', onTouchStartReshow, { passive: true });
+  cleanupBag.push(() => window.removeEventListener('pointerdown', onPointerDown));
+  cleanupBag.push(() => window.removeEventListener('touchstart', onTouchStartReshow));
+
+  // Long-press anywhere outside the overlay UI → synthesise Escape (most games
+  // bind Esc to pause). 650ms hold w/ <12px finger drift so we don't fire on
+  // accidental thumb scuffs while moving the joystick.
+  let _lpTimer = 0, _lpStartX = 0, _lpStartY = 0;
+  const startLp = (e) => {
+    if (!touch && !forceShow) return;
+    // Skip our own UI + any HTML element interactive (buttons, inputs, links).
+    if (e.target?.closest?.('.mc-root, button, a, input, textarea, select, .overlay__panel')) return;
+    const t = e.touches?.[0]; if (!t) return;
+    _lpStartX = t.clientX; _lpStartY = t.clientY;
+    clearTimeout(_lpTimer);
+    _lpTimer = setTimeout(() => {
+      // Dispatch synth-Escape so pause-on-Escape games trigger their pause UI.
+      try {
+        const ev = new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true });
+        window.dispatchEvent(ev);
+        const evUp = new KeyboardEvent('keyup', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true });
+        window.dispatchEvent(evUp);
+        vibrate(40);
+      } catch {}
+    }, 650);
+  };
+  const cancelLp = (e) => {
+    if (!_lpTimer) return;
+    const t = e.touches?.[0] || e.changedTouches?.[0];
+    if (t && (Math.abs(t.clientX - _lpStartX) > 12 || Math.abs(t.clientY - _lpStartY) > 12)) {
+      clearTimeout(_lpTimer); _lpTimer = 0;
+    }
+  };
+  const endLp = () => { clearTimeout(_lpTimer); _lpTimer = 0; };
+  document.addEventListener('touchstart', startLp, { passive: true });
+  document.addEventListener('touchmove', cancelLp, { passive: true });
+  document.addEventListener('touchend', endLp, { passive: true });
+  document.addEventListener('touchcancel', endLp, { passive: true });
+  cleanupBag.push(() => document.removeEventListener('touchstart', startLp));
+  cleanupBag.push(() => document.removeEventListener('touchmove', cancelLp));
+  cleanupBag.push(() => document.removeEventListener('touchend', endLp));
+  cleanupBag.push(() => document.removeEventListener('touchcancel', endLp));
+
+  // iOS Safari address-bar shifts → set a CSS var `--wg-vvh` to the actual
+  // visualViewport height (in px) so games' layout can opt in via height:
+  // calc(var(--wg-vvh) * 1px). Falls back gracefully if VV is unsupported.
+  const onVv = () => {
+    if (window.visualViewport) {
+      const h = window.visualViewport.height;
+      document.documentElement.style.setProperty('--wg-vvh', h + 'px');
+    }
+  };
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', onVv);
+    window.visualViewport.addEventListener('scroll', onVv);
+    onVv();
+    cleanupBag.push(() => window.visualViewport.removeEventListener('resize', onVv));
+    cleanupBag.push(() => window.visualViewport.removeEventListener('scroll', onVv));
+  }
 
   return {
     enabled: showByDefault,

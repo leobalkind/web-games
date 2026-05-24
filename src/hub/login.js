@@ -636,11 +636,14 @@ const MYDATA_ID = 'mydata-modal';
 
 function buildMyDataDom() {
   if ($(MYDATA_ID)) return $(MYDATA_ID);
-  const m = el('div', { id: MYDATA_ID, class: 'hub-modal', hidden: true });
+  const m = el('div', {
+    id: MYDATA_ID, class: 'hub-modal', hidden: true,
+    role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'mydata-title',
+  });
   m.innerHTML = `
-    <div class="hub-modal__panel hub-modal__panel--wide mydata-panel">
+    <div class="hub-modal__panel hub-modal__panel--wide mydata-panel" tabindex="-1">
       <div class="mydata-header">
-        <h2>MY DATA</h2>
+        <h2 id="mydata-title">MY DATA</h2>
         <div id="mydata-profile-card" class="mydata-profile-card"></div>
       </div>
       <div id="mydata-summary" class="mydata-summary"></div>
@@ -955,15 +958,51 @@ function renderMyDataModal() {
   showMyDataMsg('');
 }
 
+// Track who opened the modal so we can restore focus on close.
+let _mydataOpener = null;
+let _mydataKeyHandler = null;
 export function openMyDataModal() {
   buildMyDataDom();
   renderMyDataModal();
   const m = $(MYDATA_ID);
-  if (m) m.hidden = false;
+  if (!m) return;
+  _mydataOpener = document.activeElement;
+  m.hidden = false;
+  // Defer focus until visible
+  requestAnimationFrame(() => {
+    const panel = m.querySelector('.hub-modal__panel');
+    const target = panel?.querySelector('button,a[href]') || panel;
+    try { target?.focus(); } catch {}
+  });
+  // Tab trap inside the panel + Escape closes
+  const panel = m.querySelector('.hub-modal__panel');
+  if (panel) {
+    _mydataKeyHandler = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); closeMyDataModal(); return; }
+      if (e.key !== 'Tab') return;
+      const f = [...panel.querySelectorAll('a[href],button:not([disabled]),input:not([disabled]):not([type="hidden"]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')]
+        .filter((el) => el.offsetParent !== null);
+      if (!f.length) return;
+      const first = f[0], last = f[f.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    };
+    panel.addEventListener('keydown', _mydataKeyHandler);
+  }
 }
 export function closeMyDataModal() {
   const m = $(MYDATA_ID);
-  if (m) m.hidden = true;
+  if (!m) return;
+  m.hidden = true;
+  const panel = m.querySelector('.hub-modal__panel');
+  if (panel && _mydataKeyHandler) {
+    panel.removeEventListener('keydown', _mydataKeyHandler);
+    _mydataKeyHandler = null;
+  }
+  if (_mydataOpener && document.contains(_mydataOpener) && typeof _mydataOpener.focus === 'function') {
+    try { _mydataOpener.focus(); } catch {}
+  }
+  _mydataOpener = null;
 }
 
 // =============================================================================

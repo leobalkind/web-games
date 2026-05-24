@@ -8,6 +8,7 @@ import { showTip } from '../../src/shared/tutorialTip.js';
 import { drawIcon } from '../../src/shared/icons.js';
 import { drawPug } from '../../src/shared/pugSprite.js';
 import { createMobileControls } from '../../src/shared/mobileControls.js';
+import { showOrientationHint } from '../../src/shared/orientationHint.js';
 import { showGradeCard } from '../../src/shared/gradeCard.js';
 import { createKillFeed } from '../../src/shared/killFeed.js';
 import { createSettingsMenu } from '../../src/shared/settingsMenu.js';
@@ -380,6 +381,8 @@ createMobileControls({
   ],
   getCanvas: () => canvas,
 });
+// Driving + delivery arrow + minimap = better with horizontal room.
+showOrientationHint({ gameId: 'delivery-pugs' });
 
 function tick(dt) {
   if (!running) return;
@@ -1575,3 +1578,97 @@ if (_startOv) {
   };
   new MutationObserver(_showOnHide).observe(_startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });
 }
+
+// === Round 3B: start/end screen polish ===
+(function _r3bPolish(){
+  const FACTS = [
+    'TIP: Boost (SHIFT) burns fuel — refuel at gas stations.',
+    'TIP: Stay 100% intact for 1.5× tips.',
+    'TIP: Each 5th delivery = new vehicle.',
+    'TIP: Chain deliveries fast for combo multipliers.',
+    'LORE: The pugs survived because someone always wants pizza.',
+    'TIP: Mutant cats hit hard — dodge them.',
+    'JOKE: Why was the pizza late? Zombies in the elevator.',
+  ];
+  const GAME_ID = 'delivery-pugs';
+  const startOv = document.getElementById('overlay');
+  const endOv = document.getElementById('end-overlay');
+  const factEl = document.getElementById('wg-fun-facts');
+  let factIdx = Math.floor(Math.random() * FACTS.length), factTimer = null;
+  function showFact() {
+    if (!factEl) return;
+    factEl.classList.remove('is-shown');
+    setTimeout(() => { factEl.textContent = FACTS[factIdx % FACTS.length]; factEl.classList.add('is-shown'); factIdx++; }, 220);
+  }
+  function startFactLoop() { showFact(); clearInterval(factTimer); factTimer = setInterval(showFact, 4200); }
+  function stopFactLoop() { clearInterval(factTimer); if (factEl) factEl.classList.remove('is-shown'); }
+  function refreshStartBest() {
+    const el = document.getElementById('start-best');
+    if (!el) return;
+    import('../../src/persistence/highScores.js').then(({ loadBest: lb }) => {
+      try {
+        const best = lb(GAME_ID);
+        if (best && (best.score)) {
+          el.hidden = false;
+          el.textContent = `★ LAST BEST: ${best.score} deliveries`;
+        } else { el.hidden = true; }
+      } catch {}
+    }).catch(() => {});
+  }
+  function spawnConfetti() {
+    const colors = ['#ffd23f','#ff3aa1','#4cc9f0','#5ef38c','#ff8e3c','#b055ff'];
+    const root = document.createElement('div'); root.className = 'wg-confetti';
+    for (let i = 0; i < 80; i++) {
+      const s = document.createElement('span');
+      s.style.left = (Math.random() * 100) + 'vw';
+      s.style.background = colors[Math.floor(Math.random() * colors.length)];
+      s.style.animationDelay = (Math.random() * 0.4) + 's';
+      s.style.animationDuration = (1.6 + Math.random() * 1.4) + 's';
+      root.appendChild(s);
+    }
+    document.body.appendChild(root);
+    setTimeout(() => root.remove(), 3200);
+  }
+  let _runStart = 0;
+  function showReplayPrompt() {
+    const el = document.getElementById('wg-tryagain');
+    if (!el) return;
+    const dur = (performance.now() - _runStart) / 1000;
+    el.hidden = dur > 25;
+  }
+  const shareBtn = document.getElementById('wg-share');
+  if (shareBtn) {
+    shareBtn.addEventListener('click', async () => {
+      const d = document.getElementById('end-del')?.textContent || '0';
+      const t = document.getElementById('end-tip')?.textContent || '$0';
+      const text = `🐶 APOCALYPSE DELIVERY PUGS — ${d} deliveries, ${t} tips! Beat me at https://leobalkind.github.io/web-games/`;
+      try {
+        if (navigator.share) await navigator.share({ title: 'APOCALYPSE DELIVERY PUGS', text, url: 'https://leobalkind.github.io/web-games/' });
+        else { await navigator.clipboard.writeText(text); shareBtn.textContent = '✓ COPIED!'; setTimeout(() => { shareBtn.textContent = '📋 SHARE'; }, 1800); }
+      } catch { shareBtn.textContent = '⚠ FAILED'; setTimeout(() => { shareBtn.textContent = '📋 SHARE'; }, 1800); }
+    });
+  }
+  if (startOv) {
+    const startUpdate = () => {
+      const visible = !startOv.hidden && !startOv.classList.contains('is-hidden');
+      if (visible) { refreshStartBest(); startFactLoop(); } else { stopFactLoop(); _runStart = performance.now(); }
+    };
+    new MutationObserver(startUpdate).observe(startOv, { attributes: true, attributeFilter: ['hidden','class'] });
+    startUpdate();
+  }
+  if (endOv) {
+    const endUpdate = () => {
+      const visible = !endOv.hidden && !endOv.classList.contains('is-hidden');
+      if (!visible) return;
+      const title = document.getElementById('end-title');
+      if (title) { title.classList.remove('is-shake'); void title.offsetWidth; title.classList.add('is-shake'); }
+      const bestEl = document.getElementById('end-best');
+      const banner = document.getElementById('wg-newbest');
+      const isNew = bestEl && /NEW/i.test(bestEl.textContent || '');
+      if (banner) banner.classList.toggle('is-shown', !!isNew);
+      if (isNew) spawnConfetti();
+      showReplayPrompt();
+    };
+    new MutationObserver(endUpdate).observe(endOv, { attributes: true, attributeFilter: ['hidden','class'] });
+  }
+})();

@@ -47,9 +47,13 @@ body { animation: wgBodyFadeIn 0.6s ease 0.05s forwards; }
 }
 .mute-btn {
   position: fixed;
-  top: calc(12px + env(safe-area-inset-top, 0));
-  right: calc(12px + env(safe-area-inset-right, 0));
-  z-index: 200; width: 40px; height: 40px; border-radius: 50%;
+  /* `max(12px, env(safe-area-inset-top))` is safer than `12 + safe-area`
+   * on iOS — the latter pushes the button below the notch in landscape. */
+  top: max(12px, env(safe-area-inset-top, 12px));
+  right: max(12px, env(safe-area-inset-right, 12px));
+  z-index: 200;
+  /* 44x44 hit target — Apple HIG / WCAG 2.5.5 minimum. Was 40x40 (too small). */
+  width: 44px; height: 44px; min-width: 44px; min-height: 44px; border-radius: 50%;
   border: 2px solid var(--neon-cyan);
   background: rgba(10, 7, 22, 0.8); color: var(--neon-cyan);
   font-size: 18px; cursor: pointer;
@@ -202,4 +206,170 @@ body { animation: wgBodyFadeIn 0.6s ease 0.05s forwards; }
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* =========================================================================
+   A11Y polish (Round 3C)
+   ========================================================================= */
+/* Universal visible focus ring — never invisible regardless of theme */
+:focus-visible {
+  outline: 3px solid var(--neon-cyan);
+  outline-offset: 2px;
+}
+.overlay__btn:focus-visible {
+  outline: 3px solid var(--neon-yellow);
+  outline-offset: 3px;
+  box-shadow: 0 4px 0 #6b0c4a, 0 0 24px rgba(255, 210, 63, 0.55);
+}
+.mute-btn:focus-visible {
+  outline: 3px solid #fff;
+  outline-offset: 3px;
+}
+
+/* === Universal HIGH CONTRAST mode for game pages ===
+   The shared settings menu writes body.high-contrast; this CSS makes the
+   in-game HUD legible (white-on-pure-black + thick outlines). */
+body.high-contrast {
+  background: #000 !important;
+  color: #fff !important;
+}
+body.high-contrast .overlay { background: rgba(0,0,0,0.95) !important; }
+body.high-contrast .overlay__panel {
+  background: #000 !important;
+  border-color: #fff !important;
+  box-shadow: 0 0 0 3px #fff, 0 0 0 6px #000 !important;
+}
+body.high-contrast .overlay__title,
+body.high-contrast .overlay__sub,
+body.high-contrast .overlay__tip,
+body.high-contrast .overlay__controls,
+body.high-contrast .end-stats,
+body.high-contrast .hud-row,
+body.high-contrast .hud-row b,
+body.high-contrast .hud-row span,
+body.high-contrast .overlay__tag {
+  color: #fff !important;
+  -webkit-text-fill-color: #fff !important;
+  background-image: none !important;
+  text-shadow: 1px 1px 0 #000, -1px 1px 0 #000, 1px -1px 0 #000, -1px -1px 0 #000 !important;
+}
+body.high-contrast .overlay__btn {
+  background: #000 !important;
+  color: #fff !important;
+  border-color: #fff !important;
+  box-shadow: 0 4px 0 #fff !important;
+}
+body.high-contrast .overlay__btn--ghost {
+  background: transparent !important;
+  border-color: #fff !important;
+}
+body.high-contrast .hud-card {
+  background: #000 !important;
+  border-color: #fff !important;
+}
+body.high-contrast .mute-btn {
+  background: #000 !important;
+  color: #fff !important;
+  border-color: #fff !important;
+}
+body.high-contrast :focus-visible {
+  outline: 4px solid #ff0 !important;
+  outline-offset: 3px !important;
+  box-shadow: 0 0 0 2px #000 !important;
+}
+body.high-contrast .wg-grade__card,
+body.high-contrast .wg-grade {
+  background: #000 !important;
+}
+body.high-contrast .wg-grade__card {
+  border-color: #fff !important;
+  box-shadow: 0 0 0 3px #fff !important;
+}
+body.high-contrast .wg-grade__letter,
+body.high-contrast .wg-grade__title,
+body.high-contrast .wg-grade__sub,
+body.high-contrast .wg-grade__score,
+body.high-contrast .wg-grade__row-label,
+body.high-contrast .wg-feed__item {
+  color: #fff !important;
+  text-shadow: 1px 1px 0 #000 !important;
+  background: #000 !important;
+}
+body.high-contrast .wg-grade__btn {
+  background: #000 !important; color: #fff !important; border-color: #fff !important;
+}
+body.high-contrast #tutorial-tip {
+  background: #000 !important; color: #fff !important; border-color: #fff !important;
+}
+
+/* === Universal LARGE TEXT mode for game pages === */
+body.large-text .overlay__sub,
+body.large-text .overlay__controls,
+body.large-text .overlay__tip,
+body.large-text .end-stats,
+body.large-text .hud-row {
+  font-size: 1.18em !important;
+}
+body.large-text .overlay__title { font-size: 2.4rem !important; }
+
+/* === Universal COLOR-BLIND palette ===
+   Pink/magenta -> orange so red/green isn't the only state marker.
+   Hub uses class `colorblind`; games use `color-blind`. Both supported. */
+body.color-blind,
+body.colorblind {
+  --neon-pink: #ff8e3c;
+  --neon-pink-soft: #ffcfa0;
+  --magenta: #ff8e3c;
+}
+
+/* =========================================================================
+   MOBILE UX — modal scroll-lock + safe-area bottom + HUD scaling.
+   Round 3A polish. Active across every game that imports gameBase.css.
+   ========================================================================= */
+/* Scroll-lock body when any modal is open. Games (and the settings menu)
+ * should add `wg-modal-open` to <body> when opening a modal — this rule
+ * pins the page so iOS Safari can't rubber-band the canvas underneath.
+ * Games already set `body { overflow:hidden; height:100vh }` so this is
+ * effectively only the touch-action lock; the !important kills any
+ * residual scroll a 3rd-party widget might re-enable. */
+body.wg-modal-open { overflow: hidden !important; touch-action: none !important; }
+
+/* Honour the iPhone home-indicator on the bottom of overlay panels so
+ * close/restart buttons aren't clipped by the safe area. */
+.overlay__panel,
+.wg-settings-panel,
+.wg-grade__card,
+.bork-shop-modal__panel,
+.hub-modal__panel {
+  padding-bottom: max(20px, env(safe-area-inset-bottom, 20px));
+}
+
+/* Touch target floor — any inline-painted button shorter than 44px gets a
+ * minimum hit area without changing its visual chrome. We narrow the rule
+ * to `:not()` selectors that have a known small footprint so we don't blow
+ * up tiny pixel chips intentionally drawn smaller. */
+@media (pointer: coarse), (max-width: 768px) {
+  .overlay__btn,
+  .overlay__btn--ghost,
+  .hub-modal__close,
+  .wg-settings-action,
+  .wg-settings-close {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  /* HUD scales down on small screens — was hard-coded font-size, now clamps
+   * between 9px (tiny phones) and the original 0.6rem (~9.6px). */
+  #hud .hud-row { font-size: clamp(0.46rem, 2.2vw, 0.6rem); }
+  #hud .hud-row--small { font-size: clamp(0.4rem, 1.8vw, 0.48rem); }
+  #hud .hud-card { padding: 7px 10px; min-width: 0; }
+}
+
+/* Below 400px (small iPhone SE, narrow Android), shrink hud-card padding
+ * even further so it doesn't crowd the joystick area. */
+@media (max-width: 400px) {
+  #hud .hud-card { padding: 6px 8px; min-width: 0; }
+  .overlay__panel { padding: 22px 18px; }
+  .overlay__title { font-size: clamp(1.1rem, 5vw, 1.8rem); }
+  .overlay__sub { font-size: clamp(0.55rem, 2.4vw, 0.72rem); }
+  .overlay__controls { font-size: clamp(0.48rem, 2.2vw, 0.58rem); }
 }
