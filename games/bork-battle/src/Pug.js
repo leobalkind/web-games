@@ -118,8 +118,11 @@ export class Pug {
   evolveTo(newFormId) {
     this.formId = newFormId;
     this.form = FORMS[newFormId];
-    // Heal up on evolve, preserving level-up bonuses
-    this.maxHp = this.form.hp + (this.bonus ? this.bonus.hp : 0);
+    // Heal up on evolve, preserving level-up bonuses AND difficulty/perk HP scaling.
+    // (Game stamps this._hpMult during start() to capture playerHpMult * hpPctMult
+    // so evolves/level-ups don't silently strip the Glass Cannon HP penalty.)
+    const hpMult = this._hpMult || 1;
+    this.maxHp = Math.round(this.form.hp * hpMult) + (this.bonus ? this.bonus.hp : 0);
     this.hp = this.maxHp;
     this.xp = 0;
     // Replace visual

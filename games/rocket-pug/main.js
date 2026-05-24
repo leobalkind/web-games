@@ -9,6 +9,7 @@ import { createMobileControls } from '../../src/shared/mobileControls.js';
 import { showOrientationHint } from '../../src/shared/orientationHint.js';
 import { showGradeCard } from '../../src/shared/gradeCard.js';
 import { createKillFeed } from '../../src/shared/killFeed.js';
+import { drawShadow as _depthShadow } from '../../src/shared/depth3D.js';
 import { createSettingsMenu } from '../../src/shared/settingsMenu.js';
 import { getShakeMul as _shakeMul } from '../../src/shared/screenShake.js';
 
@@ -112,9 +113,7 @@ let mouse = { x: 0, y: 0 };
 let shakeT = 0, shakeAmp = 0;
 let comboT = 0, comboN = 0, comboBannerT = 0;
 let lastHitT = 0; // for player hit-flash
-// Wave 1D: 3 arenas, 3 modes, series, accuracy stats, spectator
 const ARENA_LABELS = { kitchen: 'KITCHEN', gym: 'GYM', rooftop: 'ROOFTOP' };
-const MODE_LABELS = { dm: 'DEATHMATCH', ctf: 'CAPTURE THE BREAD', koth: 'KING OF THE TOPPING' };
 let activeArena = 'kitchen', activeMode = 'dm';
 let treadmills = [], dumbbells = [], acUnits = [], trampolines = [], smashTables = [];
 let chopperT = 0, bgChefsT = 0;
@@ -122,8 +121,7 @@ let flags = [], teamScore = 0, botScore = 0;
 let kothZone = null, kothMeter = { team: 0, bots: 0 };
 let seriesRound = 1, seriesTeam = 0, seriesBots = 0;
 const SERIES_TARGET = 3;
-let shotsFired = 0, shotsHit = 0, longestStreak = 0, matchStartT = 0;
-let spectatorIdx = -1;
+let shotsFired = 0, shotsHit = 0, longestStreak = 0, matchStartT = 0, spectatorIdx = -1;
 // Round 2C polish: hit-pause window pauses physics for ~0.08s on big hits, and
 // ring shockwaves expand outward on detonation/kills (drawn under particles).
 let hitPauseT = 0;
@@ -241,23 +239,16 @@ function buildPedestal() {
   pedestal = { x: W / 2, y: H / 2, ready: false, t: 0, type: BUFF_TYPES[0] };
   pedestalCd = 8;
 }
-// Wave 1D: arena + mode props
 function buildArenaProps() {
   treadmills = []; dumbbells = []; acUnits = []; trampolines = []; smashTables = [];
   if (activeArena === 'gym') {
     treadmills.push({ x: W * 0.22, y: H * 0.3, w: 100, h: 40, dir: 1, t: 0 });
     treadmills.push({ x: W * 0.78 - 100, y: H * 0.7, w: 100, h: 40, dir: -1, t: 0 });
-    for (let i = 0; i < 6; i++) {
-      const ax = [0.15, 0.4, 0.6, 0.85, 0.35, 0.65][i];
-      const ay = [0.55, 0.18, 0.82, 0.45, 0.7, 0.25][i];
-      dumbbells.push({ x: ax * W - 18, y: ay * H - 10, w: 36, h: 20 });
-    }
+    const gp = [[0.15, 0.55], [0.4, 0.18], [0.6, 0.82], [0.85, 0.45], [0.35, 0.7], [0.65, 0.25]];
+    for (const [ax, ay] of gp) dumbbells.push({ x: ax * W - 18, y: ay * H - 10, w: 36, h: 20 });
   } else if (activeArena === 'rooftop') {
-    for (let i = 0; i < 5; i++) {
-      const ax = [0.18, 0.45, 0.75, 0.3, 0.7][i];
-      const ay = [0.25, 0.7, 0.25, 0.45, 0.7][i];
-      acUnits.push({ x: ax * W - 22, y: ay * H - 18, w: 44, h: 36 });
-    }
+    const ap = [[0.18, 0.25], [0.45, 0.7], [0.75, 0.25], [0.3, 0.45], [0.7, 0.7]];
+    for (const [ax, ay] of ap) acUnits.push({ x: ax * W - 22, y: ay * H - 18, w: 44, h: 36 });
   }
   trampolines.push({ x: W * 0.28, y: H * 0.5, r: 22, t: 0 });
   trampolines.push({ x: W * 0.72, y: H * 0.5, r: 22, t: 0 });
@@ -1485,8 +1476,6 @@ function render() {
   }
 }
 
-// Perf: cache DOM refs + prev values; only touch DOM when something changed.
-// Avoids localStorage hit (loadBest) and array allocation (filter) every frame.
 const _hudEls = {
   hp: document.getElementById('hud-hp'),
   hud: document.getElementById('hud'),

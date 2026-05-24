@@ -273,17 +273,21 @@ function addPlatformAbove() {
     safeRestT: 0,
   });
   if (!hasSpike && dailyRand() < 0.45) treats.push({ x: x + w / 2, y: lastPlatY - 24, baseX: x + w / 2, plat: plats[plats.length - 1] });
-  // Wings powerup (rare)
-  if (wingsHere) {
-    powerups.push({ x: x + w / 2, y: lastPlatY - 38, type: 'wings', plat: plats[plats.length - 1] });
-  } else if (depth > 4 && dailyRand() < 0.07) {
-    // Wave 1E: expanded powerup pool with unlocks gating
-    const pwTypes = ['jetpack', 'freeze', 'shrink'];
-    if (unlockedPowerups.shield) pwTypes.push('shield');
-    if (unlockedPowerups.doubleJumpExtra) pwTypes.push('doubleJumpExtra');
-    if (unlockedPowerups.slowMo) pwTypes.push('slowMo');
-    if (unlockedPowerups.multiplier) pwTypes.push('multiplier');
-    powerups.push({ x: x + w / 2, y: lastPlatY - 38, type: pwTypes[Math.floor(dailyRand() * pwTypes.length)], plat: plats[plats.length - 1] });
+  // Wings powerup (rare). DEATH_RUN suppresses ALL powerups at spawn time
+  // (was only filtered at pickup) so the world isn't littered with un-grabbable
+  // pickups that confuse the player about what's actually available.
+  if (gameMode !== 'death_run') {
+    if (wingsHere) {
+      powerups.push({ x: x + w / 2, y: lastPlatY - 38, type: 'wings', plat: plats[plats.length - 1] });
+    } else if (depth > 4 && dailyRand() < 0.07) {
+      // Wave 1E: expanded powerup pool with unlocks gating
+      const pwTypes = ['jetpack', 'freeze', 'shrink'];
+      if (unlockedPowerups.shield) pwTypes.push('shield');
+      if (unlockedPowerups.doubleJumpExtra) pwTypes.push('doubleJumpExtra');
+      if (unlockedPowerups.slowMo) pwTypes.push('slowMo');
+      if (unlockedPowerups.multiplier) pwTypes.push('multiplier');
+      powerups.push({ x: x + w / 2, y: lastPlatY - 38, type: pwTypes[Math.floor(dailyRand() * pwTypes.length)], plat: plats[plats.length - 1] });
+    }
   }
   // Lava blob (rare, only deep up)
   if (depth > 6 && dailyRand() < 0.08) {

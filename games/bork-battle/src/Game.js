@@ -169,7 +169,9 @@ export class Game {
     try { this.perk.apply(this.player); } catch (e) { /* */ }
     // Apply difficulty HP scaling to the PLAYER + glass-cannon HP penalty.
     const hpPctMult = this.player.bonus.hpPctMult || 1;
-    this.player.maxHp = Math.round(this.player.form.hp * this.difficulty.playerHpMult * hpPctMult)
+    // Stamp the combined HP multiplier on the pug so evolve()/upgrade reapply it.
+    this.player._hpMult = this.difficulty.playerHpMult * hpPctMult;
+    this.player.maxHp = Math.round(this.player.form.hp * this.player._hpMult)
       + (this.player.bonus.hp || 0);
     this.player.hp = this.player.maxHp;
     this.pugs.push(this.player);
@@ -2394,8 +2396,9 @@ export class Game {
 
   _chooseUpgrade(upg) {
     upg.apply(this.player.bonus);
-    // sync hp/maxHp if hp bonus changed
-    this.player.maxHp = this.player.form.hp + this.player.bonus.hp;
+    // sync hp/maxHp if hp bonus changed (preserve difficulty + perk hp multipliers)
+    const hpMult = this.player._hpMult || 1;
+    this.player.maxHp = Math.round(this.player.form.hp * hpMult) + this.player.bonus.hp;
     this.player.hp = Math.min(this.player.hp + 10, this.player.maxHp); // small heal on level
     const overlay = document.getElementById('evolve-overlay');
     overlay.hidden = true;

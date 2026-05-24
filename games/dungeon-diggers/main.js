@@ -10,7 +10,7 @@ import { showOrientationHint } from '../../src/shared/orientationHint.js';
 import { showGradeCard } from '../../src/shared/gradeCard.js';
 import { createSettingsMenu } from '../../src/shared/settingsMenu.js';
 import { getShakeMul as _shakeMul } from '../../src/shared/screenShake.js';
-import { drawShadow as _depthShadow, lightingOverlay as _depthLighting, fakeFog as _depthFog } from '../../src/shared/depth3D.js';
+import { drawShadow as _depthShadow, lightingOverlay as _depthLighting } from '../../src/shared/depth3D.js';
 
 // --- Custom plush toy icon (library has no plushie) ---------------------------
 function drawPlushToy(ctx, x, y, size) {
@@ -287,46 +287,28 @@ function reset() {
   biomeBannerT = 0; biomeBannerText = ''; cheeseBiomeEntered = false;
   beams = []; beamsLeft = MAX_BEAMS + (skillTree.startBeams || 0);
   caveInT = 30; caveInBlocks = [];
-  // Roll cracked walls: 5% of all dirt/stone tiles. Excludes loot tiles + air
-  // so crack overlays only ever render on solid wall tiles.
   crackedSet = new Set();
-  for (let r = 2; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const t = grid[r][c];
-      if ((t === 'dirt' || t === 'stone') && Math.random() < CRACK_CHANCE) {
-        crackedSet.add(r + ',' + c);
-      }
-    }
+  wallDecor = Array.from({ length: rows }, () => Array(cols).fill(null));
+  for (let r = 2; r < rows; r++) for (let c = 0; c < cols; c++) {
+    const t = grid[r][c];
+    if (t !== 'dirt' && t !== 'stone') continue;
+    if (Math.random() < CRACK_CHANCE) crackedSet.add(r + ',' + c);
+    if (Math.random() < 1 / 80) wallDecor[r][c] = 'pickaxe';
+    else if (r > 30 && Math.random() < 1 / 120) wallDecor[r][c] = 'skull';
   }
   resetCombo(); comboBannerT = 0; comboBannerText = '';
   lanternT = 0; amuletCharges = 0;
-  // Pre-place decorative support beams every ~5 rows along the side walls
-  for (let r = 5; r < rows; r += 5) {
-    supports.push({ row: r, col: 0 });
-    supports.push({ row: r, col: cols - 1 });
-  }
-  // Mining cart tracks (decorative) — every ~8 rows in dirt sections (rows 6..48)
+  for (let r = 5; r < rows; r += 5) { supports.push({ row: r, col: 0 }); supports.push({ row: r, col: cols - 1 }); }
   cartTracks = [];
   for (let r = 10; r < CHEESE_DEPTH_ROW; r += 8) cartTracks.push({ row: r });
-  // Crystal pockets in cheese caverns — sprinkle 6 clusters
   crystalPockets = [];
   for (let i = 0; i < 6; i++) {
-    const r = CHEESE_DEPTH_ROW + 4 + Math.floor(Math.random() * (rows - CHEESE_DEPTH_ROW - 8));
-    const c = Math.floor(Math.random() * cols);
-    crystalPockets.push({ row: r, col: c, n: 3 + Math.floor(Math.random() * 3), seed: Math.random() });
+    crystalPockets.push({
+      row: CHEESE_DEPTH_ROW + 4 + Math.floor(Math.random() * (rows - CHEESE_DEPTH_ROW - 8)),
+      col: Math.floor(Math.random() * cols),
+      n: 3 + Math.floor(Math.random() * 3), seed: Math.random(),
+    });
   }
-  // Wall decor — broken pickaxes (1/80) + skull remains in deep rows (>30, sparse)
-  wallDecor = Array.from({ length: rows }, () => Array(cols).fill(null));
-  for (let r = 2; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const t = grid[r][c];
-      if (t === 'dirt' || t === 'stone') {
-        if (Math.random() < 1 / 80) wallDecor[r][c] = 'pickaxe';
-        else if (r > 30 && Math.random() < 1 / 120) wallDecor[r][c] = 'skull';
-      }
-    }
-  }
-  // Surface supervisor pug (walks back and forth on row 0)
   supervisor = { x: cols * TILE * 0.3, dir: 1, t: 0 };
   // SHOPKEEPERS — 3 carved chambers at fixed depth bands so players reliably
   // encounter at least one shop on every run. Each shop sells 2 random items
@@ -380,15 +362,12 @@ function reset() {
   for (let r = 27; r < 38; r++) for (let c = 0; c < cols; c++)
     if (Math.random() < 0.04 && grid[r] && grid[r][c] === 'air')
       waterPools.push({ row: r, col: c, r: 8 + Math.random() * 6 });
-  treasureRooms.clear();
+  const lootPool = ['gem', 'biscuit', 'gold'];
   for (let baseR = 10; baseR < rows - 5; baseR += 5) {
     const tc = 1 + Math.floor(Math.random() * (cols - 3));
-    treasureRooms.add(baseR + ',' + tc);
-    const lootPool = ['gem', 'biscuit', 'gold'];
     for (let dr = 0; dr < 2; dr++) for (let dc = 0; dc < 3; dc++) {
       const r = baseR + dr, c = tc + dc;
-      if (r >= rows || c >= cols) continue;
-      grid[r][c] = lootPool[Math.floor(Math.random() * 3)];
+      if (r < rows && c < cols) grid[r][c] = lootPool[Math.floor(Math.random() * 3)];
     }
   }
   petCorpse = null; pet = null; boss = null;
@@ -420,7 +399,6 @@ let amuletCharges = 0;   // each charge auto-dodges next cave-in hit
 // Wave 1D state
 let lanternBattery = 100, stalactites = [], ancientPots = [], mushrooms = [], waterPools = [];
 let boss = null, pet = null, petCorpse = null;
-let treasureRooms = new Set();
 let achievementsT = 0, achievementName = '';
 let endlessMode = false, showLegend = false;
 let metaGems = 0, pendingMetaGems = 0;
@@ -687,47 +665,26 @@ function tryMove(dc, dr) {
     // shake more for deep / stone / cheese
     const deep = nr / rows;
     if (t === 'stone' || t === 'cheese' || deep > 0.5) shake(2 + deep * 4, 0.18);
-    // Wave 1D: special tile effects post-dig
+    // Wave 1D: special tile effects + lava hazard
     if (info.special === 'spring') {
-      // Bounce 3 tiles in current dig direction (up if no dir)
-      let bounceDr = dr || -1, bounceDc = dc || 0;
+      const bdr = dr || -1, bdc = dc || 0;
       for (let k = 0; k < 3; k++) {
-        const tr = pug.row + bounceDr, tc = pug.col + bounceDc;
-        if (tr < 0 || tr >= rows || tc < 0 || tc >= cols) break;
-        if (grid[tr][tc] !== 'air') break;
+        const tr = pug.row + bdr, tc = pug.col + bdc;
+        if (tr < 0 || tr >= rows || tc < 0 || tc >= cols || grid[tr][tc] !== 'air') break;
         pug.row = tr; pug.col = tc;
       }
-      syncXY();
-      popup(pug.x, pug.y - 20, 'BOING!', '#5ef38c');
-      sfx.tone(880, 'sine', 0.12, 0.22);
-      spawnDust(pug.x, pug.y, '#5ef38c', 8);
+      syncXY(); popup(pug.x, pug.y - 20, 'BOING!', '#5ef38c'); sfx.tone(880, 'sine', 0.12, 0.22);
     } else if (info.special === 'crack') {
-      // Drop you 5 tiles down (if open)
       let dropped = 0;
       for (let k = 0; k < 5; k++) {
-        const tr = pug.row + 1;
-        if (tr >= rows) break;
-        if (grid[tr][pug.col] !== 'air') break;
-        pug.row = tr; dropped++;
+        if (pug.row + 1 >= rows || grid[pug.row + 1][pug.col] !== 'air') break;
+        pug.row++; dropped++;
       }
-      if (dropped > 0) {
-        syncXY();
-        popup(pug.x, pug.y - 20, 'CRACK! ▼' + dropped, '#ff5a3a');
-        sfx.sweep(440, 220, 'sawtooth', 0.18, 0.22);
-        shake(5, 0.3);
-      }
-    } else if (info.special === 'sand') {
-      // Slow dig — costs extra cooldown
-      drillCd *= 2.2;
-      popup(pug.x, pug.y - 20, 'SLOG', '#c8a878');
-    }
-    // Lava hazard — dig through lava costs HP if not fire-resistant
+      if (dropped) { syncXY(); popup(pug.x, pug.y - 20, 'CRACK! ▼' + dropped, '#ff5a3a'); sfx.sweep(440, 220, 'sawtooth', 0.18, 0.22); shake(5, 0.3); }
+    } else if (info.special === 'sand') { drillCd *= 2.2; popup(pug.x, pug.y - 20, 'SLOG', '#c8a878'); }
     if (info.hazard) {
-      const dmg = maxStam * 0.15;
-      stam = Math.max(0, stam - dmg);
-      popup(pug.x, pug.y - 20, 'BURN! -15%', '#ff5a3a');
-      shake(5, 0.25);
-      sfx.tone(220, 'sawtooth', 0.15, 0.2);
+      stam = Math.max(0, stam - maxStam * 0.15);
+      popup(pug.x, pug.y - 20, 'BURN! -15%', '#ff5a3a'); shake(5, 0.25); sfx.tone(220, 'sawtooth', 0.15, 0.2);
     }
     // Downwell combo: any successful dig (loot picked OR wall broken) counts.
     // Walking through pre-existing air does NOT.
@@ -746,11 +703,10 @@ function tryMove(dc, dr) {
     sfx.tone(660, 'triangle', 0.18, 0.22);
     sfx.tone(880, 'triangle', 0.25, 0.18);
   }
-  // Wave 1D: Achievement triggers
-  if (depth === 50 && !_ach.has('DEPTH 50')) { _ach.add('DEPTH 50'); _achieve('DEPTH 50'); }
-  if (depth === 100 && !_ach.has('DEPTH 100')) { _ach.add('DEPTH 100'); _achieve('DEPTH 100'); }
-  if (combo >= 50 && !_ach.has('COMBO 50')) { _ach.add('COMBO 50'); _achieve('COMBO 50'); }
-  if (money >= 1000 && !_ach.has('GOLDEN PUG')) { _ach.add('GOLDEN PUG'); _achieve('GOLDEN PUG'); }
+  if (depth === 50) _achieve('DEPTH 50');
+  if (depth === 100) _achieve('DEPTH 100');
+  if (combo >= 50) _achieve('COMBO 50');
+  if (money >= 1000) _achieve('GOLDEN PUG');
   // surface refill — cache prev display state to avoid touching DOM each move.
   const atSurface = pug.row <= 1;
   if (atSurface) {
@@ -772,10 +728,7 @@ function tryMove(dc, dr) {
   updateHud();
 }
 let _lastUpgradesVisible = null;
-// Wave 1D: tracks last biome so we only banner on transition
 let _lastBiome = 'stone';
-// Wave 1D: in-run achievement-flag set (reset on restart via let _ach = new Set())
-let _ach = new Set();
 
 function renderUpgrades() {
   const e = document.getElementById('upg-buttons');
@@ -1640,7 +1593,7 @@ function drawMinimap() {
     if (br >= startR && br <= endR) { ctx.fillStyle = '#ff3a3a'; ctx.fillRect(x + bc * sx - 1, y + (br - startR) * sy - 1, sx + 2, sy + 2); }
   }
 }
-const _LEGEND = [['#6b3a1c','DIRT 1'],['#5a5a72','STONE 2'],['#ffd23f','CHEESE/GOLD'],['#9ec8d8','ICE'],['#ff5a3a','LAVA -hp'],['#b055ff','CRYSTAL'],['#5ef38c','SPRING +3'],['#4a3a2a','CRACK ▼5'],['#ffd9a8','SAND slow'],['#ffd23f','GEODE +5']];
+const _LEGEND = [['#6b3a1c','DIRT 1'],['#5a5a72','STONE 2'],['#ffd23f','CHEESE/GOLD'],['#9ec8d8','ICE'],['#ff5a3a','LAVA'],['#b055ff','CRYSTAL'],['#5ef38c','SPRING +3'],['#4a3a2a','CRACK ▼5'],['#ffd9a8','SAND slow'],['#ffd23f','GEODE +5']];
 function drawTileLegend() {
   const w = 130, h = _LEGEND.length * 12 + 22, x = 12, y = H / 2 - h / 2;
   ctx.fillStyle = 'rgba(0,0,0,0.8)'; ctx.fillRect(x, y, w, h);

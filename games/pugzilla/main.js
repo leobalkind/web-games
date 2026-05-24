@@ -1224,7 +1224,7 @@ function tick(dt) {
     if (h.fireCd <= 0) {
       h.fireCd = 2.2 + Math.random() * 0.7;
       const dx = pug.x - h.x, dy = pug.y - h.y;
-      const d = Math.hypot(dx, dy);
+      const d = Math.hypot(dx, dy) || 1; // guard against d=0 → NaN missile velocity
       missiles.push({ x: h.x, y: h.y, vx: (dx / d) * 200, vy: (dy / d) * 200, life: 5 });
       sfx.tone(440, 'square', 0.06, 0.18);
     }
@@ -1238,7 +1238,7 @@ function tick(dt) {
     if (j.fireCd <= 0 && Math.abs(j.x - pug.x) < 280) {
       j.fireCd = 1.4 + Math.random();
       const dx = pug.x - j.x, dy = pug.y - j.y;
-      const d = Math.hypot(dx, dy);
+      const d = Math.hypot(dx, dy) || 1; // guard against d=0 → NaN missile velocity
       missiles.push({ x: j.x, y: j.y, vx: (dx / d) * 260, vy: (dy / d) * 260, life: 4, big: true });
       sfx.tone(550, 'square', 0.05, 0.15);
     }
@@ -1262,7 +1262,7 @@ function tick(dt) {
     if (t.fireCd <= 0 && Math.hypot(t.x - pug.x, t.y - pug.y) < 400) {
       t.fireCd = 2.5 + Math.random();
       const dx = pug.x - t.x, dy = pug.y - t.y;
-      const d = Math.hypot(dx, dy);
+      const d = Math.hypot(dx, dy) || 1; // guard against d=0 → NaN missile velocity
       missiles.push({ x: t.x, y: t.y, vx: (dx / d) * 140, vy: (dy / d) * 140, life: 6 });
       sfx.tone(220, 'sawtooth', 0.08, 0.22);
     }

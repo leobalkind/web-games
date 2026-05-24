@@ -560,7 +560,13 @@ function tick(dt) {
   if (train) {
     train.x += train.vx * dt;
     if (Math.abs(pug.y - train.y) < 30 && pug.x > train.x - train.len / 2 - 40 && pug.x < train.x + train.len / 2 + 40) {
-      if (shieldT <= 0 && invuln <= 0) { damage(); damage(); crashSpin(); }
+      if (shieldT <= 0 && invuln <= 0) {
+        // Train is a heavy hit — apply HP cost directly so the i-frame from
+        // the first damage() doesn't no-op the second call.
+        damage();
+        if (pug.hp > 0) { pug.hp = Math.max(0, pug.hp - 1); if (pug.hp <= 0) end(); }
+        crashSpin();
+      }
     }
     if ((train.vx > 0 && train.x > WORLD_W + 200) || (train.vx < 0 && train.x < -200)) { train = null; trainCooldown = 35 + Math.random() * 25; }
   }
