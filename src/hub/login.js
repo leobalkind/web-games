@@ -15,6 +15,10 @@ import {
   listProfiles,
   getActive,
   setActive,
+  setActiveCloud,
+  touchCloudSync,
+  forgetCloudProfile,
+  getProfileType,
   createProfile,
   deleteProfile,
   verifyPin,
@@ -25,6 +29,7 @@ import {
   profileInitials,
   profileGamesPlayed,
 } from '../shared/profile.js';
+import * as cloudSync from '../shared/cloudSync.js';
 
 // -------- tiny helpers ------------------------------------------------------
 const $ = (id) => document.getElementById(id);
@@ -81,6 +86,7 @@ function _markLoginResolved() {
 
 function buildLoginOverlayDom() {
   if ($(LOGIN_ID)) return $(LOGIN_ID);
+  const cloudOn = cloudSync.isCloudEnabled();
   const ov = el('div', { id: LOGIN_ID, class: 'login-ov', 'aria-modal': 'true', role: 'dialog' });
   ov.innerHTML = `
     <div class="login-ov__scanlines" aria-hidden="true"></div>
@@ -93,30 +99,66 @@ function buildLoginOverlayDom() {
       <h1 class="login-ov__title">WELCOME</h1>
       <p class="login-ov__sub">PICK A PROFILE — saved locally on this device</p>
 
-      <div id="login-ov-list" class="login-ov__list" role="list"></div>
-
-      <div id="login-ov-create" class="login-ov__create" hidden>
-        <h3 class="login-ov__create-title">NEW PROFILE</h3>
-        <input id="login-ov-name" type="text" maxlength="24" placeholder="PLAYER NAME" autocomplete="off" />
-        <input id="login-ov-pin" type="password" maxlength="6" inputmode="numeric" placeholder="PIN (OPTIONAL)" autocomplete="new-password" />
-        <div class="login-ov__create-actions">
-          <button id="login-ov-create-cancel" type="button" class="login-ov__btn login-ov__btn--ghost">CANCEL</button>
-          <button id="login-ov-create-go" type="button" class="login-ov__btn login-ov__btn--primary">CREATE & PLAY</button>
+      ${cloudOn ? `
+        <div class="login-ov__tabs" role="tablist">
+          <button id="login-ov-tab-local" class="login-ov__tab is-active" role="tab" aria-selected="true" type="button">LOCAL</button>
+          <button id="login-ov-tab-cloud" class="login-ov__tab" role="tab" aria-selected="false" type="button">CLOUD ACCOUNT</button>
         </div>
-        <div id="login-ov-err" class="login-ov__err" hidden></div>
-      </div>
+        <div class="login-ov__divider" aria-hidden="true"></div>
+      ` : ''}
 
-      <button id="login-ov-new" type="button" class="login-ov__big-btn">
-        <span class="login-ov__plus">+</span> CREATE NEW PROFILE
-      </button>
+      <section id="login-ov-pane-local" class="login-ov__pane" role="tabpanel">
+        <div id="login-ov-list" class="login-ov__list" role="list"></div>
 
-      <button id="login-ov-guest" type="button" class="login-ov__guest">
-        Play as GUEST (no save sync)
-      </button>
+        <div id="login-ov-create" class="login-ov__create" hidden>
+          <h3 class="login-ov__create-title">NEW PROFILE</h3>
+          <input id="login-ov-name" type="text" maxlength="24" placeholder="PLAYER NAME" autocomplete="off" />
+          <input id="login-ov-pin" type="password" maxlength="6" inputmode="numeric" placeholder="PIN (OPTIONAL)" autocomplete="new-password" />
+          <div class="login-ov__create-actions">
+            <button id="login-ov-create-cancel" type="button" class="login-ov__btn login-ov__btn--ghost">CANCEL</button>
+            <button id="login-ov-create-go" type="button" class="login-ov__btn login-ov__btn--primary">CREATE & PLAY</button>
+          </div>
+          <div id="login-ov-err" class="login-ov__err" hidden></div>
+        </div>
+
+        <button id="login-ov-new" type="button" class="login-ov__big-btn">
+          <span class="login-ov__plus">+</span> CREATE NEW PROFILE
+        </button>
+
+        <button id="login-ov-guest" type="button" class="login-ov__guest">
+          Play as GUEST (no save sync)
+        </button>
+      </section>
+
+      ${cloudOn ? `
+      <section id="login-ov-pane-cloud" class="login-ov__pane" role="tabpanel" hidden>
+        <h3 class="login-ov__create-title">CLOUD ACCOUNT</h3>
+        <p class="login-ov__sub" style="margin:4px 0 12px;">Cross-device sync via Supabase. Email + password.</p>
+        <input id="login-ov-c-email" type="email" placeholder="EMAIL" autocomplete="email" />
+        <input id="login-ov-c-pass" type="password" placeholder="PASSWORD" autocomplete="current-password" />
+        <input id="login-ov-c-name" type="text" maxlength="24" placeholder="DISPLAY NAME (NEW ACCOUNTS ONLY)" autocomplete="off" />
+        <div class="login-ov__cloud-actions">
+          <button id="login-ov-c-signin" type="button" class="login-ov__btn login-ov__btn--primary">SIGN IN</button>
+          <button id="login-ov-c-signup" type="button" class="login-ov__btn login-ov__btn--ghost">CREATE ACCOUNT</button>
+        </div>
+        <button id="login-ov-c-forgot" type="button" class="login-ov__guest" style="margin-top:4px;">FORGOT PASSWORD</button>
+        <button id="login-ov-c-upgrade" type="button" class="login-ov__big-btn" hidden>
+          <span class="login-ov__plus">↑</span> UPGRADE LOCAL PROFILE TO CLOUD
+        </button>
+        <div id="login-ov-c-msg" class="login-ov__err" hidden></div>
+      </section>
+      ` : ''}
 
       <div class="login-ov__footnote">
-        100% LOCAL · NO ACCOUNT · NO EMAIL · NO TRACKING
+        ${cloudOn
+          ? 'LOCAL profiles stay on this device. CLOUD accounts sync across devices.'
+          : '100% LOCAL · NO ACCOUNT · NO EMAIL · NO TRACKING'}
       </div>
+      ${!cloudOn ? `
+        <div class="login-ov__hint">
+          Cloud sync available — see <span style="color:#4cc9f0;">SUPABASE_SETUP.md</span> to enable cross-device saves
+        </div>
+      ` : ''}
     </div>
   `;
   document.body.appendChild(ov);
@@ -134,22 +176,34 @@ function renderLoginList() {
   list.innerHTML = '';
   for (const p of profiles) {
     const played = profileGamesPlayed(p.id);
-    const tile = el('div', { class: 'login-ov__tile', role: 'listitem', tabindex: '0', 'data-id': p.id });
+    const isCloud = p.type === 'cloud';
+    const tile = el('div', { class: 'login-ov__tile' + (isCloud ? ' is-cloud' : ''), role: 'listitem', tabindex: '0', 'data-id': p.id });
     tile.innerHTML = `
       <div class="login-ov__avatar" style="background:${profileColor(p.id)}">
         <span class="login-ov__avatar-initials">${escapeHtml(profileInitials(p.name))}</span>
       </div>
       <div class="login-ov__tile-body">
-        <div class="login-ov__tile-name">${escapeHtml(p.name)}${p.pin ? ' <span class="login-ov__lock">LOCKED</span>' : ''}</div>
-        <div class="login-ov__tile-meta">${played} game${played === 1 ? '' : 's'} played</div>
+        <div class="login-ov__tile-name">${escapeHtml(p.name)}${isCloud ? ' <span class="login-ov__cloud">☁ CLOUD</span>' : (p.pin ? ' <span class="login-ov__lock">LOCKED</span>' : '')}</div>
+        <div class="login-ov__tile-meta">${isCloud ? escapeHtml(p.email || '') : (played + ' game' + (played === 1 ? '' : 's') + ' played')}</div>
       </div>
-      ${p.pin ? `
+      ${p.pin && !isCloud ? `
         <div class="login-ov__pin-row" hidden>
           <input class="login-ov__pin" type="password" inputmode="numeric" maxlength="6" placeholder="PIN" />
           <button class="login-ov__pin-go" type="button">GO</button>
         </div>` : ''}
     `;
     tile.addEventListener('click', () => {
+      if (isCloud) {
+        // Cloud profile tile = jump to CLOUD tab pre-filled with email,
+        // user must re-enter password (we never persist passwords).
+        const tabCloud = $('login-ov-tab-cloud');
+        if (tabCloud) tabCloud.click();
+        const emailInp = $('login-ov-c-email');
+        if (emailInp) { emailInp.value = p.email || ''; emailInp.focus(); }
+        const passInp = $('login-ov-c-pass');
+        if (passInp) passInp.focus();
+        return;
+      }
       if (p.pin) {
         // Expand PIN row
         const row = tile.querySelector('.login-ov__pin-row');
@@ -165,7 +219,7 @@ function renderLoginList() {
     tile.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); tile.click(); }
     });
-    if (p.pin) {
+    if (p.pin && !isCloud) {
       const row = tile.querySelector('.login-ov__pin-row');
       const inp = row.querySelector('.login-ov__pin');
       const go = row.querySelector('.login-ov__pin-go');
@@ -227,6 +281,137 @@ function bindLoginOverlayEvents() {
     setActive(null);
     _markLoginResolved();
   });
+
+  // ---- CLOUD tab wiring (only present when isCloudEnabled()) -----
+  if (!cloudSync.isCloudEnabled()) return;
+  const tabLocal = $('login-ov-tab-local');
+  const tabCloud = $('login-ov-tab-cloud');
+  const paneLocal = $('login-ov-pane-local');
+  const paneCloud = $('login-ov-pane-cloud');
+  function showTab(which) {
+    const isCloud = which === 'cloud';
+    tabLocal?.classList.toggle('is-active', !isCloud);
+    tabCloud?.classList.toggle('is-active', isCloud);
+    tabLocal?.setAttribute('aria-selected', String(!isCloud));
+    tabCloud?.setAttribute('aria-selected', String(isCloud));
+    if (paneLocal) paneLocal.hidden = isCloud;
+    if (paneCloud) paneCloud.hidden = !isCloud;
+    // Show "upgrade" button only when an active local profile exists.
+    const upgrade = $('login-ov-c-upgrade');
+    if (upgrade) {
+      const a = getActive();
+      upgrade.hidden = !(isCloud && a && getProfileType(a.id) === 'local');
+    }
+  }
+  tabLocal?.addEventListener('click', () => showTab('local'));
+  tabCloud?.addEventListener('click', () => showTab('cloud'));
+
+  function showCloudMsg(msg, ok) {
+    const el2 = $('login-ov-c-msg');
+    if (!el2) return;
+    el2.textContent = msg || '';
+    el2.hidden = !msg;
+    el2.style.color = ok ? '#5ef38c' : '';
+    el2.style.background = ok ? 'rgba(94,243,140,0.1)' : '';
+  }
+
+  async function applyCloudSignedIn(user) {
+    try {
+      const name = user?.user_metadata?.display_name || (user?.email || '').split('@')[0] || 'CLOUD';
+      setActiveCloud(user.id, user.email || '', name);
+      // Pull profile data and hydrate local cache (best-effort).
+      const { data, error } = await cloudSync.pullProfile(user.id);
+      if (!error && data) {
+        const prefix = 'wg:c:' + user.id + ':';
+        try {
+          for (const row of data.highScores || []) {
+            localStorage.setItem(prefix + 'hs:' + row.game_id, JSON.stringify(row.score || {}));
+          }
+          // Group achievements by game
+          const achByGame = new Map();
+          for (const row of data.achievements || []) {
+            if (!achByGame.has(row.game_id)) achByGame.set(row.game_id, []);
+            achByGame.get(row.game_id).push(row.achievement_id);
+          }
+          for (const [gid, ids] of achByGame.entries()) {
+            localStorage.setItem(prefix + 'ach:' + gid, JSON.stringify(ids));
+          }
+          // Group discoveries by game (mutation lab combos -> array of keys)
+          const discByGame = new Map();
+          for (const row of data.discoveries || []) {
+            if (!discByGame.has(row.game_id)) discByGame.set(row.game_id, []);
+            discByGame.get(row.game_id).push(row.discovery_key);
+          }
+          for (const [gid, keys] of discByGame.entries()) {
+            // Heuristic: mutation-lab stores combos under :discoveredCombos
+            if (gid === 'mutation-lab') {
+              localStorage.setItem(prefix + 'mutation-lab:discoveredCombos', JSON.stringify(keys));
+            } else {
+              localStorage.setItem(prefix + 'codex:' + gid, JSON.stringify(keys));
+            }
+          }
+          touchCloudSync(user.id);
+        } catch {}
+      }
+      _markLoginResolved();
+    } catch (e) {
+      showCloudMsg(e.message || 'Sign-in failed');
+    }
+  }
+
+  $('login-ov-c-signin')?.addEventListener('click', async () => {
+    const email = $('login-ov-c-email')?.value?.trim() || '';
+    const pass = $('login-ov-c-pass')?.value || '';
+    if (!email || !pass) { showCloudMsg('Email and password required'); return; }
+    showCloudMsg('Signing in…', true);
+    const { user, error } = await cloudSync.signIn(email, pass);
+    if (error) { showCloudMsg(error.message || 'Sign-in failed'); return; }
+    if (!user) { showCloudMsg('Sign-in returned no user'); return; }
+    await applyCloudSignedIn(user);
+  });
+  $('login-ov-c-signup')?.addEventListener('click', async () => {
+    const email = $('login-ov-c-email')?.value?.trim() || '';
+    const pass = $('login-ov-c-pass')?.value || '';
+    const name = $('login-ov-c-name')?.value?.trim() || '';
+    if (!email || !pass) { showCloudMsg('Email and password required'); return; }
+    showCloudMsg('Creating account…', true);
+    const { user, error } = await cloudSync.signUp(email, pass, name);
+    if (error) { showCloudMsg(error.message || 'Sign-up failed'); return; }
+    if (!user) { showCloudMsg('Check your inbox to confirm, then sign in.', true); return; }
+    await applyCloudSignedIn(user);
+  });
+  $('login-ov-c-forgot')?.addEventListener('click', async () => {
+    const email = $('login-ov-c-email')?.value?.trim() || '';
+    if (!email) { showCloudMsg('Enter your email first'); return; }
+    const { error } = await cloudSync.sendPasswordReset(email);
+    if (error) { showCloudMsg(error.message || 'Reset failed'); return; }
+    showCloudMsg('Password reset email sent.', true);
+  });
+  $('login-ov-c-upgrade')?.addEventListener('click', async () => {
+    const a = getActive();
+    if (!a || getProfileType(a.id) !== 'local') {
+      showCloudMsg('No local profile is active');
+      return;
+    }
+    const email = $('login-ov-c-email')?.value?.trim() || '';
+    const pass = $('login-ov-c-pass')?.value || '';
+    if (!email || !pass) { showCloudMsg('Email and password required to upgrade'); return; }
+    showCloudMsg('Creating cloud account…', true);
+    const { user, error } = await cloudSync.signUp(email, pass, a.name);
+    if (error) { showCloudMsg(error.message || 'Upgrade failed'); return; }
+    if (!user) { showCloudMsg('Confirm your email then sign in to finish upgrade.', true); return; }
+    showCloudMsg('Uploading your saves…', true);
+    await cloudSync.migrateLocalToCloud(user.id, a.id);
+    await applyCloudSignedIn(user);
+  });
+
+  // Pre-fill: if a previous cloud session is still valid, jump straight to it.
+  cloudSync.getSession().then(({ user }) => {
+    if (user && !_loginResolved) {
+      // Don't auto-resolve — just hint by switching tab so the player can click sign-in.
+      // (We prefer explicit re-entry for security since password isn't persisted.)
+    }
+  }).catch(() => {});
 }
 
 // Public: decide whether to show the overlay and do so. Idempotent.
@@ -285,6 +470,7 @@ function openDropdown(anchorEl) {
   } else {
     for (const p of profiles) {
       const isAct = active && active.id === p.id;
+      const isCloud = p.type === 'cloud';
       const it = el('button', {
         type: 'button',
         class: 'profile-dd__item' + (isAct ? ' is-active' : ''),
@@ -293,12 +479,25 @@ function openDropdown(anchorEl) {
       it.innerHTML = `
         <span class="profile-dd__dot" style="background:${profileColor(p.id)}"></span>
         <span class="profile-dd__name">${escapeHtml(p.name)}</span>
-        ${p.pin ? '<span class="profile-dd__lock">LOCKED</span>' : ''}
+        ${isCloud ? '<span class="profile-dd__lock" style="border-color:#4cc9f0;color:#4cc9f0;">☁ CLOUD</span>' : (p.pin ? '<span class="profile-dd__lock">LOCKED</span>' : '')}
         ${isAct ? '<span class="profile-dd__check">ACTIVE</span>' : ''}
       `;
       it.addEventListener('click', () => {
         closeDropdown();
         if (isAct) return;
+        if (isCloud) {
+          // Re-auth required — push back to login overlay's cloud tab.
+          forceShowLoginOverlay();
+          setTimeout(() => {
+            const tabCloud = $('login-ov-tab-cloud');
+            if (tabCloud) tabCloud.click();
+            const emailInp = $('login-ov-c-email');
+            if (emailInp) emailInp.value = p.email || '';
+            const passInp = $('login-ov-c-pass');
+            if (passInp) passInp.focus();
+          }, 80);
+          return;
+        }
         if (p.pin) {
           const entered = prompt('PIN for ' + p.name + ':');
           if (!verifyPin(p.id, entered || '')) { alert('Wrong PIN'); return; }
@@ -326,7 +525,14 @@ function openDropdown(anchorEl) {
   dd.appendChild(myData);
   const logout = el('button', { type: 'button', class: 'profile-dd__manage profile-dd__manage--danger', role: 'menuitem' },
     active ? 'Sign out → login screen' : 'Show login screen');
-  logout.addEventListener('click', () => { closeDropdown(); forceShowLoginOverlay(); });
+  logout.addEventListener('click', () => {
+    closeDropdown();
+    // If the active profile is cloud, also revoke the Supabase session.
+    if (active && active.type === 'cloud') {
+      try { cloudSync.signOut(); } catch {}
+    }
+    forceShowLoginOverlay();
+  });
   dd.appendChild(logout);
 
   document.body.appendChild(dd);
@@ -445,6 +651,8 @@ function buildMyDataDom() {
         <button id="mydata-export" type="button" class="profile-btn">EXPORT MY DATA</button>
         <button id="mydata-import" type="button" class="profile-btn profile-btn--ghost">IMPORT FROM FILE</button>
         <button id="mydata-reset" type="button" class="profile-btn profile-btn--danger">RESET ALL DATA</button>
+        <button id="mydata-pull" type="button" class="profile-btn" hidden>PULL FROM CLOUD</button>
+        <button id="mydata-push" type="button" class="profile-btn" hidden>PUSH ALL TO CLOUD</button>
       </div>
       <div id="mydata-msg" class="profile-error" hidden></div>
       <button id="mydata-close" type="button" class="hub-modal__close">DONE</button>
@@ -489,6 +697,103 @@ function buildMyDataDom() {
       reader.readAsText(file);
     });
     input.click();
+  });
+  // PULL FROM CLOUD — re-fetch from Supabase, overwrite cached copy.
+  $('mydata-pull').addEventListener('click', async () => {
+    const a = getActive();
+    if (!a || getProfileType(a.id) !== 'cloud') return;
+    const userId = a.userId || String(a.id).slice(2);
+    showMyDataMsg('Pulling from cloud…', true);
+    const { data, error } = await cloudSync.pullProfile(userId);
+    if (error || !data) { showMyDataMsg(error?.message || 'Pull failed'); return; }
+    try {
+      const prefix = 'wg:c:' + userId + ':';
+      // wipe existing cloud cache for this user
+      const toRm = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith(prefix)) toRm.push(k);
+      }
+      for (const k of toRm) localStorage.removeItem(k);
+      // write fresh
+      for (const row of data.highScores || []) {
+        localStorage.setItem(prefix + 'hs:' + row.game_id, JSON.stringify(row.score || {}));
+      }
+      const achByGame = new Map();
+      for (const row of data.achievements || []) {
+        if (!achByGame.has(row.game_id)) achByGame.set(row.game_id, []);
+        achByGame.get(row.game_id).push(row.achievement_id);
+      }
+      for (const [gid, ids] of achByGame.entries()) {
+        localStorage.setItem(prefix + 'ach:' + gid, JSON.stringify(ids));
+      }
+      const discByGame = new Map();
+      for (const row of data.discoveries || []) {
+        if (!discByGame.has(row.game_id)) discByGame.set(row.game_id, []);
+        discByGame.get(row.game_id).push(row.discovery_key);
+      }
+      for (const [gid, keys] of discByGame.entries()) {
+        if (gid === 'mutation-lab') {
+          localStorage.setItem(prefix + 'mutation-lab:discoveredCombos', JSON.stringify(keys));
+        } else {
+          localStorage.setItem(prefix + 'codex:' + gid, JSON.stringify(keys));
+        }
+      }
+      touchCloudSync(userId);
+      showMyDataMsg('Cloud data pulled.', true);
+      renderMyDataModal();
+    } catch (e) {
+      showMyDataMsg(e.message || 'Pull failed');
+    }
+  });
+  // PUSH ALL TO CLOUD — re-upload the local cache to Supabase (overwrites).
+  $('mydata-push').addEventListener('click', async () => {
+    const a = getActive();
+    if (!a || getProfileType(a.id) !== 'cloud') return;
+    const userId = a.userId || String(a.id).slice(2);
+    showMyDataMsg('Pushing to cloud…', true);
+    const prefix = 'wg:c:' + userId + ':';
+    const tasks = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k || !k.startsWith(prefix)) continue;
+      const suffix = k.slice(prefix.length);
+      const raw = localStorage.getItem(k);
+      if (raw == null) continue;
+      let m = suffix.match(/^hs:(.+)$/);
+      if (m) {
+        let parsed; try { parsed = JSON.parse(raw); } catch { continue; }
+        tasks.push(cloudSync.pushHighScore(m[1], parsed));
+        continue;
+      }
+      m = suffix.match(/^ach:(.+)$/);
+      if (m) {
+        let arr; try { arr = JSON.parse(raw); } catch { continue; }
+        if (Array.isArray(arr)) for (const aid of arr) tasks.push(cloudSync.pushAchievement(m[1], aid));
+        continue;
+      }
+      m = suffix.match(/^codex:(.+)$/);
+      if (m) {
+        let parsed; try { parsed = JSON.parse(raw); } catch { continue; }
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          for (const [dk, dv] of Object.entries(parsed)) tasks.push(cloudSync.pushDiscovery(m[1], dk, dv));
+        }
+        continue;
+      }
+      m = suffix.match(/^(.+):discoveredCombos$/);
+      if (m) {
+        let arr; try { arr = JSON.parse(raw); } catch { continue; }
+        if (Array.isArray(arr)) for (const ck of arr) tasks.push(cloudSync.pushDiscovery(m[1], ck, null));
+      }
+    }
+    try {
+      await Promise.all(tasks);
+      touchCloudSync(userId);
+      showMyDataMsg('Local data pushed to cloud.', true);
+      renderMyDataModal();
+    } catch (e) {
+      showMyDataMsg(e.message || 'Push failed');
+    }
   });
   // Reset
   $('mydata-reset').addEventListener('click', () => {
@@ -541,9 +846,11 @@ function collectGameRows() {
     const id = m[1];
     const title = card.querySelector('.card__title')?.textContent?.trim() || id;
     // Resolve key for current profile (or legacy guest)
-    let key;
     const activeId = (() => { try { return localStorage.getItem('wg:profiles:active'); } catch { return null; } })();
-    key = activeId ? `wg:p:${activeId}:hs:${id}` : `wg:hs:${id}`;
+    let key;
+    if (!activeId) key = `wg:hs:${id}`;
+    else if (String(activeId).startsWith('c_')) key = `wg:c:${String(activeId).slice(2)}:hs:${id}`;
+    else key = `wg:p:${activeId}:hs:${id}`;
     let raw = null; try { raw = localStorage.getItem(key); } catch {}
     // Fallback to legacy guest data if profile-scoped is missing but legacy
     // is present (helps freshly-created profiles inherit the migration).
@@ -561,7 +868,10 @@ function collectGameRows() {
     // Achievements (profile-scoped first, fallback legacy)
     let achN = 0;
     try {
-      const aKey = activeId ? `wg:p:${activeId}:ach:${id}` : `wg:ach:${id}`;
+      let aKey;
+      if (!activeId) aKey = `wg:ach:${id}`;
+      else if (String(activeId).startsWith('c_')) aKey = `wg:c:${String(activeId).slice(2)}:ach:${id}`;
+      else aKey = `wg:p:${activeId}:ach:${id}`;
       let aRaw = localStorage.getItem(aKey);
       if (!aRaw && activeId) aRaw = localStorage.getItem('wg:ach:' + id);
       if (aRaw) { const arr = JSON.parse(aRaw); if (Array.isArray(arr)) achN = arr.length; }
@@ -573,18 +883,30 @@ function collectGameRows() {
 
 function renderMyDataModal() {
   const a = getActive();
+  const isCloud = !!a && a.type === 'cloud';
+  // Toggle PULL/PUSH visibility for cloud profiles
+  const pull = $('mydata-pull'); if (pull) pull.hidden = !isCloud;
+  const push = $('mydata-push'); if (push) push.hidden = !isCloud;
   // Profile card
   const card = $('mydata-profile-card');
   if (card) {
     const color = a ? profileColor(a.id) : '#8a90b1';
     const initials = a ? profileInitials(a.name) : '?';
+    const cloudBadge = isCloud
+      ? `<span class="mydata-cloud-badge">☁ SYNCED${a.lastSync ? ' · ' + fmtWhen(a.lastSync) : ''}</span>`
+      : '';
+    const sub = !a
+      ? 'unsaved — no profile linked'
+      : isCloud
+        ? `${escapeHtml(a.email || '')}`
+        : `${a.pin ? 'LOCKED · ' : ''}profile id ${a.id}`;
     card.innerHTML = `
       <div class="mydata-avatar" style="background:${color}">
         <span>${escapeHtml(initials)}</span>
       </div>
       <div class="mydata-profile-body">
-        <div class="mydata-profile-name">${escapeHtml(a ? a.name : 'GUEST')}</div>
-        <div class="mydata-profile-sub">${a ? (a.pin ? 'LOCKED · ' : '') + 'profile id ' + a.id : 'unsaved — no profile linked'}</div>
+        <div class="mydata-profile-name">${escapeHtml(a ? a.name : 'GUEST')} ${cloudBadge}</div>
+        <div class="mydata-profile-sub">${sub}</div>
       </div>
     `;
   }

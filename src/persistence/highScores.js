@@ -3,13 +3,24 @@
 // start/end overlays.
 //
 // Profile-aware: if a profile is active (via src/shared/profile.js), keys are
-// scoped under `wg:p:<profileId>:hs:<gameId>`. Falls back to legacy `wg:hs:*`
-// when no profile is logged in (guest mode).
+// scoped under `wg:p:<profileId>:hs:<gameId>` for LOCAL profiles, or under
+// `wg:c:<userId>:hs:<gameId>` for CLOUD profiles. Falls back to legacy
+// `wg:hs:*` when no profile is logged in (guest mode).
+//
+// When a CLOUD profile is active and CLOUD_SYNC_ENABLED, every save is also
+// pushed up via cloudSync (fire-and-forget; queued if offline).
+
+function _activeId() {
+  try { return localStorage.getItem('wg:profiles:active'); } catch { return null; }
+}
+function _isCloud(id) { return !!id && String(id).startsWith('c_'); }
+function _cloudUserId(id) { return _isCloud(id) ? String(id).slice(2) : null; }
 
 function _key(gameId) {
-  let activeId = null;
-  try { activeId = localStorage.getItem('wg:profiles:active'); } catch {}
-  return activeId ? `wg:p:${activeId}:hs:${gameId}` : `wg:hs:${gameId}`;
+  const id = _activeId();
+  if (!id) return `wg:hs:${gameId}`;
+  if (_isCloud(id)) return `wg:c:${_cloudUserId(id)}:hs:${gameId}`;
+  return `wg:p:${id}:hs:${gameId}`;
 }
 
 export function loadBest(gameId) {
@@ -27,6 +38,14 @@ export function saveBest(gameId, payload) {
   try {
     localStorage.setItem(_key(gameId), JSON.stringify({ ...payload, ts: Date.now() }));
   } catch {}
+  // Best-effort cloud push for cloud profiles. Lazy-import keeps the cloud
+  // module out of the local-only path until the user signs in.
+  const id = _activeId();
+  if (_isCloud(id)) {
+    import('../shared/cloudSync.js').then((mod) => {
+      try { mod.pushHighScore(gameId, { ...payload, ts: Date.now() }); } catch {}
+    }).catch(() => {});
+  }
 }
 
 // Submit a run and return { isNewBest, prev, current } where current is whatever
@@ -48,8 +67,14 @@ export function submitRun(gameId, run, compare = null) {
 // a small "saved to <name>" string under its end screen.
 function _activeProfileName() {
   try {
-    const id = localStorage.getItem('wg:profiles:active');
+    const id = _activeId();
     if (!id) return null;
+    if (_isCloud(id)) {
+      const meta = localStorage.getItem('wg:profiles:cloud:' + _cloudUserId(id));
+      if (!meta) return null;
+      const obj = JSON.parse(meta);
+      return obj?.displayName || obj?.email || null;
+    }
     const raw = localStorage.getItem('wg:profiles:list');
     if (!raw) return null;
     const list = JSON.parse(raw);
@@ -81,8 +106,10 @@ function _decorateEndScreenWithProfile() {
     if (bestEl.parentNode) bestEl.parentNode.insertBefore(chip, bestEl.nextSibling);
   }
   const name = _activeProfileName();
+  const cloud = _isCloud(_activeId());
   if (name) {
-    chip.innerHTML = `<span style="color:#5ef38c;">SAVED</span> to <span style="color:#4cc9f0;">${_esc(name)}</span>`;
+    const badge = cloud ? ' <span style="color:#4cc9f0;">CLOUD</span>' : '';
+    chip.innerHTML = `<span style="color:#5ef38c;">SAVED</span> to <span style="color:#4cc9f0;">${_esc(name)}</span>${badge}`;
   } else {
     chip.innerHTML = '<span style="color:#ffd23f;">GUEST</span> · stored locally · log in to save per-profile';
   }

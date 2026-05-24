@@ -1,16 +1,24 @@
 // =============================================================================
-// LOCAL PROFILE / "ACCOUNTS" SYSTEM
+// LOCAL PROFILE / "ACCOUNTS" SYSTEM (+ optional cloud profile metadata)
 //
-// Browser-only. No backend. Multiple profiles share the same browser/device,
-// each gets its own namespace under localStorage. The "active" profile prefix
-// is auto-applied to high-score keys via highScores.js's namespace.
+// Browser-only by default. No backend required. Multiple profiles share the
+// same browser/device, each gets its own namespace under localStorage. The
+// "active" profile prefix is auto-applied to high-score keys via
+// highScores.js's namespace.
+//
+// Optional cloud profiles (when src/config.js is filled in) are stored as
+// METADATA only here (email, displayName, lastSync); the real data lives in
+// Supabase and is cached under the `wg:c:<userId>:*` namespace.
 //
 // Data shape (in localStorage):
 //   wg:profiles:list      = JSON array of profile objects { id, name, pin?, createdAt }
-//   wg:profiles:active    = profile id string
-//   wg:p:<id>:hs:<gameId> = high-score record for that profile + game
-//   wg:p:<id>:ach:<gid>   = achievements unlocked
+//   wg:profiles:active    = profile id string  ('p_xxx' for local, 'c_<userId>' for cloud)
+//   wg:profiles:cloud:<userId> = cloud profile metadata { email, displayName, lastSync }
+//   wg:p:<id>:hs:<gameId> = high-score record for a LOCAL profile + game
+//   wg:p:<id>:ach:<gid>   = achievements unlocked (LOCAL)
 //   wg:p:<id>:settings    = per-profile settings (optional)
+//   wg:c:<userId>:hs:<gameId> = cached high-score record for a CLOUD profile + game
+//   wg:c:<userId>:ach:<gid>   = cached achievement IDs for a CLOUD profile
 //
 // Anonymous / no-profile mode: keys live at the legacy unprefixed paths.
 // First time a profile is created, existing legacy data is migrated under it.
@@ -31,6 +39,8 @@
 
 const LIST_KEY = 'wg:profiles:list';
 const ACTIVE_KEY = 'wg:profiles:active';
+const CLOUD_META_PREFIX = 'wg:profiles:cloud:';
+const CLOUD_ID_PREFIX = 'c_'; // active id prefix used to distinguish cloud profiles
 
 function _readJson(key, fallback) {
   try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; }
@@ -55,8 +65,38 @@ function _hashPin(pin) {
 const listeners = new Set();
 function _emit() { for (const cb of listeners) try { cb(); } catch {} }
 
+// Returns LOCAL profiles + any CLOUD profiles previously signed in on this
+// device. Cloud profiles carry `type: 'cloud'`, local ones have no type field
+// (treated as `'local'`).
 export function listProfiles() {
-  return _readJson(LIST_KEY, []);
+  const local = _readJson(LIST_KEY, []).map((p) => ({ ...p, type: p.type || 'local' }));
+  const cloud = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (!k || !k.startsWith(CLOUD_META_PREFIX)) continue;
+    const userId = k.slice(CLOUD_META_PREFIX.length);
+    const meta = _readJson(k, null);
+    if (!meta) continue;
+    cloud.push({
+      id: CLOUD_ID_PREFIX + userId,
+      userId,
+      name: meta.displayName || meta.email || 'CLOUD USER',
+      email: meta.email || '',
+      type: 'cloud',
+      lastSync: meta.lastSync || 0,
+      createdAt: meta.createdAt || meta.lastSync || 0,
+    });
+  }
+  return [...local, ...cloud];
+}
+// Identify whether an id refers to a local or cloud profile.
+export function getProfileType(id) {
+  if (!id) return 'local';
+  return String(id).startsWith(CLOUD_ID_PREFIX) ? 'cloud' : 'local';
+}
+function _isCloudId(id) { return getProfileType(id) === 'cloud'; }
+function _userIdFromCloudId(id) {
+  return _isCloudId(id) ? String(id).slice(CLOUD_ID_PREFIX.length) : null;
 }
 export function getActive() {
   const id = localStorage.getItem(ACTIVE_KEY);
@@ -70,6 +110,49 @@ export function setActive(id) {
     const exists = listProfiles().some((p) => p.id === id);
     if (!exists) throw new Error('Profile not found: ' + id);
     localStorage.setItem(ACTIVE_KEY, id);
+  }
+  _emit();
+}
+// Register / refresh a cloud profile's metadata, then make it active.
+export function setActiveCloud(userId, email, displayName) {
+  if (!userId) throw new Error('userId required');
+  const metaKey = CLOUD_META_PREFIX + userId;
+  const existing = _readJson(metaKey, null) || {};
+  const meta = {
+    email: email || existing.email || '',
+    displayName: displayName || existing.displayName || (email || '').split('@')[0] || 'CLOUD USER',
+    createdAt: existing.createdAt || Date.now(),
+    lastSync: existing.lastSync || 0,
+  };
+  _writeJson(metaKey, meta);
+  localStorage.setItem(ACTIVE_KEY, CLOUD_ID_PREFIX + userId);
+  _emit();
+  return { id: CLOUD_ID_PREFIX + userId, userId, ...meta, type: 'cloud' };
+}
+// Update the lastSync timestamp on the cloud profile metadata.
+export function touchCloudSync(userId) {
+  if (!userId) return;
+  const metaKey = CLOUD_META_PREFIX + userId;
+  const existing = _readJson(metaKey, null);
+  if (!existing) return;
+  existing.lastSync = Date.now();
+  _writeJson(metaKey, existing);
+  _emit();
+}
+// Remove a cloud profile from local storage (does NOT delete the cloud account
+// — only the local cache + metadata).
+export function forgetCloudProfile(userId) {
+  if (!userId) return;
+  localStorage.removeItem(CLOUD_META_PREFIX + userId);
+  const prefix = 'wg:c:' + userId + ':';
+  const toDelete = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.startsWith(prefix)) toDelete.push(k);
+  }
+  for (const k of toDelete) localStorage.removeItem(k);
+  if (localStorage.getItem(ACTIVE_KEY) === CLOUD_ID_PREFIX + userId) {
+    localStorage.removeItem(ACTIVE_KEY);
   }
   _emit();
 }
@@ -125,9 +208,13 @@ export function renameProfile(id, name) {
 }
 // Returns the localStorage key used for a logical suffix, scoped to the
 // active profile if one is logged in.
+// Cloud profiles use the `wg:c:<userId>:<suffix>` namespace so their cached
+// data is clearly distinguishable from local-only profile data.
 export function profileKey(suffix) {
   const id = localStorage.getItem(ACTIVE_KEY);
-  return id ? `wg:p:${id}:${suffix}` : `wg:${suffix}`;
+  if (!id) return `wg:${suffix}`;
+  if (_isCloudId(id)) return `wg:c:${_userIdFromCloudId(id)}:${suffix}`;
+  return `wg:p:${id}:${suffix}`;
 }
 // Dump every key+value under a profile as a JSON string.
 export function exportProfile(id) {
@@ -217,11 +304,13 @@ export function profileInitials(name) {
   return (parts[0][0] + parts[1][0]).toUpperCase();
 }
 
-// Count games played (anything stored under wg:p:<id>:hs:*) for a profile.
-// Returns 0 for guest mode (no id).
+// Count games played for a profile. Works for both local and cloud profiles
+// (counts whichever namespace the id resolves to). Returns 0 for guest mode.
 export function profileGamesPlayed(id) {
   if (!id) return 0;
-  const prefix = 'wg:p:' + id + ':hs:';
+  const prefix = _isCloudId(id)
+    ? 'wg:c:' + _userIdFromCloudId(id) + ':hs:'
+    : 'wg:p:' + id + ':hs:';
   let n = 0;
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);

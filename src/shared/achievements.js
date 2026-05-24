@@ -20,6 +20,22 @@
 
 const NS = 'wg:ach:';
 
+// Profile-aware key resolution — mirrors highScores.js so achievements stay
+// scoped to the active profile (local or cloud). Returns:
+//   wg:c:<userId>:ach:<gameId>   for cloud profiles
+//   wg:p:<profileId>:ach:<gameId> for local profiles
+//   wg:ach:<gameId>              for guest mode
+function _activeId() {
+  try { return localStorage.getItem('wg:profiles:active'); } catch { return null; }
+}
+function _isCloud(id) { return !!id && String(id).startsWith('c_'); }
+function _scopedKey(gameId) {
+  const id = _activeId();
+  if (!id) return NS + gameId;
+  if (_isCloud(id)) return 'wg:c:' + String(id).slice(2) + ':ach:' + gameId;
+  return 'wg:p:' + id + ':ach:' + gameId;
+}
+
 // Single shared toast container — created once, reused across all instances.
 let _toastHost = null;
 function ensureToastHost() {
@@ -114,11 +130,13 @@ export function createAchievements(gameId, defs) {
     throw new Error('createAchievements: gameId is required');
   }
   defs = defs || {};
-  const key = NS + gameId;
-  // Lazy-load unlocked set from localStorage
+  const key = _scopedKey(gameId);
+  // Lazy-load unlocked set from localStorage. Fallback to legacy `wg:ach:*`
+  // if profile-scoped key missing (helps profiles that pre-date scoping).
   let unlocked = new Set();
   try {
-    const raw = localStorage.getItem(key);
+    let raw = localStorage.getItem(key);
+    if (!raw && key !== NS + gameId) raw = localStorage.getItem(NS + gameId);
     if (raw) {
       const arr = JSON.parse(raw);
       if (Array.isArray(arr)) unlocked = new Set(arr);
@@ -127,16 +145,22 @@ export function createAchievements(gameId, defs) {
   const persist = () => {
     try { localStorage.setItem(key, JSON.stringify([...unlocked])); } catch {}
   };
+  const pushIfCloud = (achId) => {
+    if (!_isCloud(_activeId())) return;
+    import('./cloudSync.js').then((mod) => {
+      try { mod.pushAchievement(gameId, achId); } catch {}
+    }).catch(() => {});
+  };
   return {
     unlock(id) {
       if (!id || unlocked.has(id)) return false;
       const def = defs[id];
       if (!def) {
         // Unknown achievement — still record so unknown unlocks aren't lost.
-        unlocked.add(id); persist();
+        unlocked.add(id); persist(); pushIfCloud(id);
         return false;
       }
-      unlocked.add(id); persist();
+      unlocked.add(id); persist(); pushIfCloud(id);
       showToast(def);
       return true;
     },
@@ -168,7 +192,8 @@ export function readAllProgress(gameIds) {
   for (const gid of gameIds) {
     let n = 0;
     try {
-      const raw = localStorage.getItem(NS + gid);
+      let raw = localStorage.getItem(_scopedKey(gid));
+      if (!raw) raw = localStorage.getItem(NS + gid);
       if (raw) {
         const arr = JSON.parse(raw);
         if (Array.isArray(arr)) n = arr.length;

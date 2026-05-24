@@ -1393,6 +1393,102 @@ body.login-locked #signed-in-pill { pointer-events: none; filter: blur(2px) satu
   margin-top: 8px;
 }
 
+/* Cloud sync UI */
+.login-ov__tabs {
+  display: flex;
+  gap: 4px;
+  margin: 6px 0 0;
+}
+.login-ov__tab {
+  flex: 1;
+  background: transparent;
+  border: 2px solid var(--border);
+  border-bottom: none;
+  color: var(--text-soft);
+  font-family: var(--font-display);
+  font-size: 0.55rem;
+  letter-spacing: 0.12em;
+  padding: 9px 8px;
+  cursor: pointer;
+  border-radius: 6px 6px 0 0;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.login-ov__tab:hover { color: var(--text); }
+.login-ov__tab.is-active {
+  background: rgba(76, 201, 240, 0.12);
+  border-color: var(--neon-cyan);
+  color: var(--neon-cyan);
+}
+.login-ov__divider {
+  height: 2px;
+  background: linear-gradient(to right, transparent, var(--neon-cyan), transparent);
+  margin: 0 0 12px;
+  opacity: 0.6;
+}
+.login-ov__pane[hidden] { display: none; }
+.login-ov__pane input {
+  display: block;
+  width: 100%;
+  margin: 6px 0;
+  padding: 10px 12px;
+  background: rgba(0, 0, 0, 0.55);
+  border: 2px solid var(--border);
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 0.7rem;
+  letter-spacing: 0.05em;
+  border-radius: 4px;
+  outline: none;
+}
+.login-ov__pane input:focus {
+  border-color: var(--neon-cyan);
+  box-shadow: 0 0 8px rgba(76, 201, 240, 0.3);
+}
+.login-ov__cloud-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.login-ov__cloud-actions .login-ov__btn { flex: 1; }
+.login-ov__tile.is-cloud { border-color: var(--neon-cyan); }
+.login-ov__cloud {
+  display: inline-block;
+  background: rgba(76, 201, 240, 0.18);
+  color: var(--neon-cyan);
+  border: 1px solid var(--neon-cyan);
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 0.42rem;
+  letter-spacing: 0.14em;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.login-ov__hint {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px dashed rgba(138, 144, 177, 0.5);
+  border-radius: 4px;
+  color: #8a90b1;
+  font-family: var(--font-display);
+  font-size: 0.42rem;
+  letter-spacing: 0.1em;
+  text-align: center;
+  line-height: 1.6;
+  background: rgba(0, 0, 0, 0.25);
+}
+.mydata-cloud-badge {
+  display: inline-block;
+  background: rgba(76, 201, 240, 0.18);
+  color: var(--neon-cyan);
+  border: 1px solid var(--neon-cyan);
+  padding: 1px 8px;
+  border-radius: 3px;
+  font-size: 0.42rem;
+  letter-spacing: 0.14em;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
 /* Mobile-friendly login */
 @media (max-width: 540px) {
   .login-ov__panel { padding: 22px 16px 18px; }
@@ -1404,6 +1500,8 @@ body.login-locked #signed-in-pill { pointer-events: none; filter: blur(2px) satu
   .login-ov__tile-name { font-size: 0.65rem; }
   .login-ov__big-btn { font-size: 0.7rem; padding: 12px 14px; }
   .login-ov__create input { font-size: 0.65rem; padding: 9px 10px; }
+  .login-ov__pane input { font-size: 0.65rem; padding: 9px 10px; }
+  .login-ov__tab { font-size: 0.45rem; padding: 8px 6px; }
 }
 
 /* =========================================================================

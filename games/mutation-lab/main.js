@@ -792,6 +792,17 @@ function fuse() {
   // to a creature name that's already in the codex — but the combo itself is
   // novel and counts as a discovery).
   discoveredCombos.add(key);
+  // Cloud-sync: if signed into a cloud profile, push this combo discovery up
+  // (best-effort, queues if offline). Lazy import keeps the local-only path
+  // free of Supabase code.
+  try {
+    const aid = localStorage.getItem('wg:profiles:active');
+    if (aid && String(aid).startsWith('c_')) {
+      import('../../src/shared/cloudSync.js').then((mod) => {
+        try { mod.pushDiscovery('mutation-lab', key, isNew ? result : null); } catch {}
+      }).catch(() => {});
+    }
+  } catch {}
   // ===== Per-tier completion check =====
   // After the new discovery is recorded, recount how many discoveries the
   // result's tier now has. If we just hit TIER_TARGETS for that tier AND we

@@ -11,3 +11,6 @@ dist
 
 # Build artifacts from one-off zip experiments
 *.zip
+
+# Claude Code worktree state
+.claude/
