@@ -492,12 +492,17 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
-// Tutorial tip — shows briefly when the game starts (every match)
+// Tutorial tip — shows briefly when the game starts (every match).
+// Round-2 polish: touch + desktop get their own (clearer) wording so mobile
+// players don't see useless keyboard hints on first match.
 const _startOv = document.getElementById('overlay');
 if (_startOv) {
   const _showOnHide = () => {
     if (_startOv.classList.contains('is-hidden') || _startOv.hidden) {
-      showTip('MOUSE aim · CLICK fire · SPACE BORK · E dash · Q decoy · R heal', 6500);
+      const msg = _isTouch
+        ? 'LEFT JOY move · RIGHT JOY aim+fire · BORK 🟢 · DASH · DECOY · HEAL · 🛒 SHOP'
+        : 'MOUSE aim · CLICK fire · SPACE BORK · E dash · Q decoy · R heal · B shop';
+      showTip(msg, 6500);
     }
   };
   new MutationObserver(_showOnHide).observe(_startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });

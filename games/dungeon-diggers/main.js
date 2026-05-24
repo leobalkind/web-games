@@ -190,6 +190,7 @@ function unmarkCracked(r, c) { if (crackedSet) crackedSet.delete(r + ',' + c); }
 const COMBO_WINDOW = 1.5;
 let combo = 0;
 let comboTimer = 0;     // seconds since last dig; resets combo when > COMBO_WINDOW
+let maxComboThisRun = 0; // surfaced on end-screen (Round-2 polish)
 let comboBannerT = 0;   // big banner pop on milestone
 let comboBannerText = '';
 const COMBO_MILESTONES = new Set([5, 10, 20]);
@@ -199,6 +200,7 @@ function bumpCombo(worldX, worldY) {
   if (comboTimer > COMBO_WINDOW) combo = 1;
   else combo += 1;
   comboTimer = 0;
+  if (combo > maxComboThisRun) maxComboThisRun = combo;
   if (COMBO_MILESTONES.has(combo)) {
     // Bonus loot: scale value with milestone (5→25, 10→60, 20→150)
     const valByCombo = { 5: 25, 10: 60, 20: 150 };
@@ -341,6 +343,7 @@ function reset() {
     else if (r > 30 && Math.random() < 1 / 120) wallDecor[r][c] = 'skull';
   }
   resetCombo(); comboBannerT = 0; comboBannerText = '';
+  maxComboThisRun = 0;
   lanternT = 0; amuletCharges = 0;
   for (let r = 5; r < rows; r += 5) { supports.push({ row: r, col: 0 }); supports.push({ row: r, col: cols - 1 }); }
   cartTracks = [];
@@ -679,7 +682,10 @@ function updateBeamsHud() {
 const beamBtnEl = document.getElementById('beam-btn');
 if (beamBtnEl) {
   beamBtnEl.addEventListener('click', placeBeam);
-  if ('ontouchstart' in window) beamBtnEl.style.display = 'block';
+  // Legacy floating BEAM button overlapped the mobileControls BEAM chip on
+  // touch. The mobileControls overlay owns the touch UI now — hide the
+  // legacy duplicate everywhere (the click handler stays as a safety net).
+  beamBtnEl.style.display = 'none';
 }
 // POLISH ROUND 2 — GO DEEPER quick-skip button. Skips past empty/safe layers
 // (no enemies, no walls in the column directly below) — teleports player down
@@ -2443,6 +2449,9 @@ function end() {
   sfx.sweep(330, 80, 'sawtooth', 0.5, 0.22);
   document.getElementById('end-money').textContent = '$' + money;
   document.getElementById('end-depth').textContent = depth;
+  // Round-2 polish: surface BEST COMBO on end-stats list.
+  const _ddComboEl = document.getElementById('end-combo');
+  if (_ddComboEl) _ddComboEl.textContent = '×' + (maxComboThisRun || 0);
   const _gemEl = document.getElementById('end-meta-gems');
   if (_gemEl) _gemEl.textContent = '+' + pendingMetaGems + ' gems banked (total: ' + metaGems + ')';
   const { isNewBest, current } = submitRun('dungeon-diggers', { score: money, money, depth });
@@ -2513,16 +2522,18 @@ let lastT = performance.now();
   requestAnimationFrame(loop);
 })(performance.now());
 
-// Tutorial tip — shows briefly when the game starts (every match)
+// Tutorial tip — shows briefly when the game starts (every match).
+// Touch + desktop wording diverge so on-screen buttons match the device.
 const _startOv = document.getElementById('overlay');
 if (_startOv) {
   const _showOnHide = () => {
     if (_startOv.classList.contains('is-hidden') || _startOv.hidden) {
-      showTip('WASD dig · B = beam (blocks cave-ins) · find shopkeepers — BUY safely or STEAL (he hunts you!)', 7500);
+      const msg = _isTouch
+        ? 'JOYSTICK dig · BEAM button blocks cave-ins · BUY safely from shopkeepers — STEAL = hunted'
+        : 'WASD dig · B = beam (blocks cave-ins) · find shopkeepers — BUY or STEAL (he hunts you!)';
+      showTip(msg, 7500);
     }
   };
-
-
   new MutationObserver(_showOnHide).observe(_startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });
 }
 

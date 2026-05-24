@@ -2234,12 +2234,13 @@ let lastT = performance.now();
   requestAnimationFrame(loop);
 })(performance.now());
 
-// Tutorial tip — shows briefly when the game starts (every match)
+// Tutorial tip — shows briefly when the game starts (every match).
+// Polish R2: clearer first-time UX — explains the BENCH + COMBO loop.
 const _startOv = document.getElementById('overlay');
 if (_startOv) {
   const _showOnHide = () => {
     if (_startOv.classList.contains('is-hidden') || _startOv.hidden) {
-      showTip('Tap an ingredient → tap SERVE on the right order. Tap ★ SHOP (top-right) to spend tips on permanent upgrades.', 7500);
+      showTip('Tap ingredients → tap an ORDER to serve · chain serves for COMBO bonus · ★ SHOP top-right buys permanent upgrades', 7500);
     }
   };
   new MutationObserver(_showOnHide).observe(_startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });

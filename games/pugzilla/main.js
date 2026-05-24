@@ -619,7 +619,10 @@ canvas.addEventListener('touchstart', (e) => {
 }, { passive: false });
 canvas.addEventListener('touchmove', (e) => { const t = e.touches[0]; mouse.x = t.clientX; mouse.y = t.clientY; e.preventDefault(); }, { passive: false });
 document.getElementById('bork-btn').addEventListener('click', doBork);
-if ('ontouchstart' in window) document.getElementById('bork-btn').style.display = 'block';
+// Legacy floating BORK button overlapped the universal mobileControls BORK
+// chip on touch. The mobileControls overlay owns the touch UI — hide the
+// legacy duplicate everywhere (click handler stays as a safety net).
+document.getElementById('bork-btn').style.display = 'none';
 
 function smashAt(wx, wy) {
   // SMASH BROADCAST TOWER (giant landmark) — within reach, gives big bonus
@@ -2804,6 +2807,11 @@ function end() {
   document.getElementById('end-score').textContent = score;
   document.getElementById('end-smashed').textContent = smashed;
   document.getElementById('end-eaten').textContent = eaten + formIdx * 5;
+  // Round-2 polish: surface MAX-COMBO + final-FORM in the end-stats list.
+  const _comboEl = document.getElementById('end-combo');
+  if (_comboEl) _comboEl.textContent = '×' + (comboMaxThisRun || 1);
+  const _formEl = document.getElementById('end-form');
+  if (_formEl) _formEl.textContent = (FORMS[formIdx] && FORMS[formIdx].name) || 'Pug';
   const { isNewBest, current } = submitRun('pugzilla', { score, smashed });
   const bestEl = document.getElementById('end-best');
   if (bestEl) {
@@ -3099,12 +3107,16 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
-// Tutorial tip — shows briefly when the game starts (every match)
+// Tutorial tip — shows briefly when the game starts (every match).
+// Touch + desktop get distinct wording so mobile users see joystick + button hints.
 const _startOv = document.getElementById('overlay');
 if (_startOv) {
   const _showOnHide = () => {
     if (_startOv.classList.contains('is-hidden') || _startOv.hidden) {
-      showTip('WASD walk · CLICK building to smash · SPACE = shockwave bork · 🛒 SHOP top-right (B)', 7000);
+      const msg = _isTouch
+        ? 'JOYSTICK walk · TAP buildings to smash · BORK button shockwave · 🛒 SHOP top-right'
+        : 'WASD walk · CLICK buildings · SPACE shockwave · 🛒 SHOP top-right (B)';
+      showTip(msg, 7000);
     }
   };
   new MutationObserver(_showOnHide).observe(_startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });

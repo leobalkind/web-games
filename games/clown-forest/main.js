@@ -24,7 +24,7 @@
 // State machine: MENU → PLAY → PAUSED → DEAD | ESCAPED → MENU.
 // =============================================================================
 
-import { createMobileControls } from '../../src/shared/mobileControls.js';
+import { createMobileControls, isLowPowerDevice } from '../../src/shared/mobileControls.js';
 import { createSettingsMenu, caption as wgCaption } from '../../src/shared/settingsMenu.js';
 import { submitRun, loadBest } from '../../src/persistence/highScores.js';
 import { profileKey } from '../../src/shared/profile.js';
@@ -67,6 +67,15 @@ const startAudio      = ()     => { try { audio?.start?.(); } catch {} };
 const stopAudio       = ()     => { try { audio?.stop?.(); } catch {} };
 const updateClownDist = (d)    => { try { audio?.updateClownDistance?.(d); } catch {} };
 const setHeartbeat    = (r)    => { try { audio?.setHeartbeatRate?.(r); } catch {} };
+// Round-3 additions — all no-op if audio.js fails to load.
+const playCrouch       = ()    => { try { audio?.playCrouch?.(); } catch {} };
+const playGasp         = ()    => { try { audio?.playGasp?.(); } catch {} };
+const playItemHum      = (d)   => { try { audio?.playItemHum?.(d); } catch {} };
+const playBeaconRising = ()    => { try { audio?.playBeaconRising?.(); } catch {} };
+const playDistantCar   = ()    => { try { audio?.playDistantCar?.(); } catch {} };
+const playWindWhistle  = (k)   => { try { audio?.playWindWhistle?.(k); } catch {} };
+const playRainOnShelter = (v)  => { try { audio?.playRainOnShelter?.(v); } catch {} };
+const setSurface       = (s)   => { try { audio?.setSurface?.(s); } catch {} };
 
 // ---------------------------------------------------------------------------
 // SETTINGS — gear button auto-mounts top-right. Controls help on hover/click.
@@ -86,6 +95,10 @@ const settingsHandle = createSettingsMenu({
 // ---------------------------------------------------------------------------
 const THREE = await import('three');
 const { ImprovedNoise } = await import('three/examples/jsm/math/ImprovedNoise.js');
+
+// Low-power device gating — drops particle counts, shrinks shadow map, and
+// skips canopy-sway updates on mobile / weak hardware. Cached on first call.
+const LOW_POWER = (() => { try { return isLowPowerDevice(); } catch { return false; } })();
 
 // =============================================================================
 // CONSTANTS — tweak knobs.
@@ -784,7 +797,9 @@ const FLASH_BASE_DISTANCE  = 30;
 const FLASH_BASE_ANGLE     = Math.PI / 7.5; // ~24° cone (was 30°)
 const flashlight = new THREE.SpotLight(FLASH_BASE_COLOR_HEX, FLASH_BASE_INTENSITY, FLASH_BASE_DISTANCE, FLASH_BASE_ANGLE, 0.32, 1.2);
 flashlight.castShadow = true;
-flashlight.shadow.mapSize.set(512, 512);
+// Smaller shadow map on low-power devices saves both texture memory and the
+// per-frame depth-pass cost (256x256 still reads as "moving torch shadows").
+flashlight.shadow.mapSize.set(LOW_POWER ? 256 : 512, LOW_POWER ? 256 : 512);
 flashlight.shadow.camera.near = 0.5;
 flashlight.shadow.camera.far = 28;
 flashlight.shadow.bias = -0.0008;
@@ -1788,6 +1803,12 @@ const treeExposure = new Float32Array(treeData.length);
   }
 }
 
+// Pre-cached: liveTrees is just `treeData` (every entry), so the canopy loop
+// can share the same exposure table without an O(N²) indexOf lookup per tick.
+// Mobile / low-power devices skip the canopy update entirely (trunks still
+// sway so the silhouette breathes).
+const _liveTreeExposure = treeExposure;
+
 function tickWind(dt, time) {
   windState.frameCounter++;
   // Gust scheduling — random gusts every 30-60s, lasting 3s, audio cue once.
@@ -1795,8 +1816,13 @@ function tickWind(dt, time) {
     windState.gustEndAt = time + 3;
     windState.nextGustAt = time + 30 + Math.random() * 30;
     try { audio?.playWindGust?.(); } catch {}
+    try { audio?.playWindWhistle?.(0.85); } catch {}
   }
   const inGust = time < windState.gustEndAt;
+  // Ease whistle gain back down when the gust ends.
+  if (!inGust && time < windState.gustEndAt + 6) {
+    try { audio?.playWindWhistle?.(0); } catch {}
+  }
   // Ease the amplitude toward target so gusts don't pop in/out.
   const targetAmp = inGust ? WIND_GUST_AMP : WIND_BASE_AMP;
   windState.currentAmp += (targetAmp - windState.currentAmp) * Math.min(1, dt * 2.0);
@@ -1807,10 +1833,18 @@ function tickWind(dt, time) {
   const { _m, _q, _e, _s, _p } = windState;
   const amp = windState.currentAmp;
   const rate = WIND_BASE_RATE + (inGust ? 1.4 : 0);
+  // Per-player cull radius (squared). Trees outside this radius keep their
+  // last-baked matrix — the player can't see them through the fog (FOG_FAR=45
+  // < TREE_CULL_DIST=60) so the sway is invisible.
+  const cullSq = TREE_CULL_DIST * TREE_CULL_DIST;
+  const px = player.pos.x, pz = player.pos.z;
 
   // Trunks — small lean only (very subtle; trunks shouldn't rubber-band).
+  let trunkDirty = false;
   for (let i = 0; i < treeData.length; i++) {
     const t = treeData[i];
+    const ddx = t.x - px, ddz = t.z - pz;
+    if (ddx * ddx + ddz * ddz > cullSq) continue;
     const exposure = treeExposure[i];
     const phase = t.swayPhase ?? (i * 0.317);
     const lean = Math.sin(time * rate + phase) * amp * exposure * 0.35;
@@ -1820,14 +1854,21 @@ function tickWind(dt, time) {
     _p.set(t.x, groundY(t.x, t.z), t.z);
     _m.compose(_p, _q, _s);
     trunkMesh.setMatrixAt(i, _m);
+    trunkDirty = true;
   }
-  trunkMesh.instanceMatrix.needsUpdate = true;
+  if (trunkDirty) trunkMesh.instanceMatrix.needsUpdate = true;
 
   // Canopies sway more visibly than trunks (foliage catches the wind).
+  // Mobile: skip — the cost is double trunks since we re-walk every tree, and
+  // the visual delta is small under fog.
+  if (LOW_POWER) return;
+  // liveTrees === treeData, so use the original index directly (no indexOf).
+  let canopyDirty = false;
   for (let i = 0; i < liveTrees.length; i++) {
     const t = liveTrees[i];
-    const idx = treeData.indexOf(t); // sparse but small N; OK at 20Hz
-    const exposure = idx >= 0 ? treeExposure[idx] : 1.0;
+    const ddx = t.x - px, ddz = t.z - pz;
+    if (ddx * ddx + ddz * ddz > cullSq) continue;
+    const exposure = _liveTreeExposure[i]; // i === original treeData index
     const phase = t.swayPhase ?? (i * 0.413);
     const lean = Math.sin(time * rate + phase + 0.7) * amp * exposure;
     _e.set(0, t.rot, lean);
@@ -1837,16 +1878,19 @@ function tickWind(dt, time) {
     _p.set(t.x, groundY(t.x, t.z) + 10 * t.scale, t.z);
     _m.compose(_p, _q, _s);
     canopyMesh.setMatrixAt(i, _m);
+    canopyDirty = true;
   }
-  canopyMesh.instanceMatrix.needsUpdate = true;
+  if (canopyDirty) canopyMesh.instanceMatrix.needsUpdate = true;
 }
 
 // ---------------------------------------------------------------------------
 // FALLING LEAVES — 80 leaf billboards that drift down from above the player.
 // Each leaf has its own gentle sway. When they reach the ground (or drift too
 // far) they recycle above the player so the effect is omnipresent.
+// Mobile / low-power: halve the count (40 leaves) — the per-frame cost is per
+// leaf and the visual delta over a thick fog is small.
 // ---------------------------------------------------------------------------
-const LEAF_COUNT = 80;
+const LEAF_COUNT = LOW_POWER ? 40 : 80;
 const LEAF_SPAWN_HEIGHT = 14;
 const LEAF_DESPAWN_HEIGHT = -0.3;
 function makeLeafTexture() {
@@ -1945,8 +1989,9 @@ function tickLeaves(dt, time) {
 // DUST MOTES — 200 small point sprites that drift slowly. They only become
 // visible when the flashlight beam is roughly pointing at them (cheap dot-
 // product check), which sells the "torch lighting up the dust" feel.
+// Mobile / low-power: halve to 100 — the recycle loop runs every frame.
 // ---------------------------------------------------------------------------
-const DUST_COUNT = 200;
+const DUST_COUNT = LOW_POWER ? 100 : 200;
 const dustGeom = new THREE.BufferGeometry();
 const dustPositions = new Float32Array(DUST_COUNT * 3);
 const dustVelocities = new Float32Array(DUST_COUNT * 3);
@@ -2005,8 +2050,10 @@ function tickDust(dt) {
 // RAIN — rare event (10% chance per run, 2-4 min duration). Vertical line
 // particles falling around the player. Density ramps in/out so it doesn't
 // pop. Audio: tries audio.playRainOn / playRainOff but tolerates absence.
+// Mobile / low-power: 300 lines (still reads as rain; halves the per-frame
+// position-buffer rewrite cost).
 // ---------------------------------------------------------------------------
-const RAIN_LINE_COUNT = 600;
+const RAIN_LINE_COUNT = LOW_POWER ? 300 : 600;
 const rainGeom = new THREE.BufferGeometry();
 const rainPositions = new Float32Array(RAIN_LINE_COUNT * 6); // pairs of XYZ per line
 for (let i = 0; i < RAIN_LINE_COUNT; i++) {
@@ -2349,6 +2396,9 @@ function spawnBeacon() {
   else if (side === 2) { bx = (Math.random() - 0.5) * edge * 0.5; bz = -edge; }
   else { bx = (Math.random() - 0.5) * edge * 0.5; bz = edge; }
   beaconPos = { x: bx, z: bz };
+  // Schedule the industrial-siren rising 30s after the beacon lights up —
+  // gives the player time to orient before the audio reveal.
+  setTimeout(() => { if (beaconPos) playBeaconRising(); }, 30000);
   // Tall thin pillar with emissive red top.
   const beaconGeom = new THREE.CylinderGeometry(0.25, 0.5, 9, 6);
   const beaconMat = new THREE.MeshStandardMaterial({
@@ -3162,6 +3212,10 @@ const HEART_POINTS = 64;
 const heartBuf = new Array(HEART_POINTS).fill(HEART_H / 2);
 let heartPhase = 0;
 let heartRate = 0.9; // Hz (~54 bpm at rest; ramps up near clown)
+// Module-scope scratch — avoids allocating a HEART_POINTS-sized array on
+// every tickHeartRate() call. Each entry is a string like "12.4,18.3" and the
+// final SVG `points` attribute is the array joined with spaces.
+const _heartPtScratch = new Array(HEART_POINTS);
 function tickHeartRate(dt, clownDist) {
   // Closer clown => faster + more chaotic. Mirrors the audio heartbeat rate
   // already pushed via setHeartbeat() from tickClown.
@@ -3183,13 +3237,14 @@ function tickHeartRate(dt, clownDist) {
   else                     spike = (Math.random() - 0.5) * 1.6;             // jitter
   heartBuf[HEART_POINTS - 1] = HEART_H / 2 - spike * (0.7 + proximity * 0.6);
 
-  // Repaint polyline as a single concatenated string.
-  let pts = '';
+  // Repaint polyline — reuse module-scope scratch and Array.join (avoids the
+  // O(N) string-concat allocation churn the previous implementation produced).
   for (let i = 0; i < HEART_POINTS; i++) {
     const x = (i / (HEART_POINTS - 1)) * HEART_W;
-    pts += x.toFixed(1) + ',' + Math.max(2, Math.min(HEART_H - 2, heartBuf[i])).toFixed(1) + ' ';
+    const y = Math.max(2, Math.min(HEART_H - 2, heartBuf[i]));
+    _heartPtScratch[i] = x.toFixed(1) + ',' + y.toFixed(1);
   }
-  if (heartLine) heartLine.setAttribute('points', pts);
+  if (heartLine) heartLine.setAttribute('points', _heartPtScratch.join(' '));
   // Heart "icon pulse" period (CSS var) matches the beat rate.
   if (heartBox) {
     heartBox.style.setProperty('--heart-period', (1 / heartRate).toFixed(2) + 's');
@@ -3353,9 +3408,13 @@ function startGame() {
   resetItemsForRun();
   // Reset cassette tapes + load persisted tally for the start-screen flag.
   resetTapesForRun();
-  // Remove existing beacon if any.
+  // Remove existing beacon if any. Dispose both geometry + material to avoid
+  // leaking GPU resources across many restart cycles.
   if (beacon) {
-    scene.remove(beacon); beacon.geometry.dispose(); beacon = null;
+    scene.remove(beacon);
+    try { beacon.geometry.dispose(); } catch {}
+    try { beacon.material.dispose(); } catch {}
+    beacon = null;
   }
   if (beaconLight) { scene.remove(beaconLight); beaconLight = null; }
   beaconPos = null;
@@ -3751,8 +3810,9 @@ if (confirmNoBtn)  confirmNoBtn.addEventListener('click', () => closeConfirm(fal
 // MAIN LOOP
 // =============================================================================
 let prevTs = performance.now();
+let _rafId = 0;
 function loop(now_) {
-  requestAnimationFrame(loop);
+  _rafId = requestAnimationFrame(loop);
   const dt = Math.min(0.05, (now_ - prevTs) / 1000);
   prevTs = now_;
   if (gameState === 'play') {
@@ -3760,6 +3820,25 @@ function loop(now_) {
   }
   renderer.render(scene, camera);
 }
+
+// Cancel the RAF + flush audio when the page is hidden (tabbed-away /
+// navigated to the hub). The hub doesn't tear down the iframe but pausing the
+// loop avoids draining battery + freezes our audio context. resumed on focus.
+function _suspendLoop() {
+  if (_rafId) { cancelAnimationFrame(_rafId); _rafId = 0; }
+  try { audio?.stop?.(); } catch {}
+}
+function _resumeLoop() {
+  if (_rafId) return;
+  prevTs = performance.now();
+  _rafId = requestAnimationFrame(loop);
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) _suspendLoop();
+  else _resumeLoop();
+});
+window.addEventListener('pagehide', _suspendLoop);
+window.addEventListener('pageshow', _resumeLoop);
 
 function now() { return performance.now() / 1000; }
 
@@ -3777,7 +3856,12 @@ function tickPlay(dt) {
   const isMoving = inputMag > 0.05;
 
   // Crouch — held with C key (or LISTEN mode forces a crouch-like stance).
+  const wasCrouching = player.isCrouching;
   player.isCrouching = keys.has('c') || player.isListening;
+  // Audio: joint-creak on the down-transition (only when actually pressing
+  // crouch, not just because the player started listening — listening is a
+  // partial-crouch and shouldn't trigger the creak).
+  if (!wasCrouching && player.isCrouching && keys.has('c')) playCrouch();
   // Sprint — Shift held + stamina + not crouching + not exhausted.
   const sprintRequested = keys.has('shift');
   const exhausted = now() < player.exhaustedUntil;
@@ -3795,6 +3879,9 @@ function tickPlay(dt) {
     if (player.stamina <= 0 && player.exhaustedUntil < now()) {
       player.exhaustedUntil = now() + STAMINA_EXHAUST_TIME;
       showSubtitle('EXHAUSTED', 1.5);
+      // Heavy breath on the exhaustion transition (we only land here once per
+      // stamina-empty event because exhaustedUntil now > now()).
+      playGasp();
     }
   } else {
     player.stamina = Math.min(STAMINA_MAX, player.stamina + dt * STAMINA_REGEN);
@@ -3862,9 +3949,12 @@ function tickPlay(dt) {
   // (and is called from the keydown / mobile button handlers).
   let nearestInteract = null;
   let nearestInteractD = 1e9;
+  // Closest item distance (for the hum) — only items still on the ground.
+  let nearestItemDist = 999;
   for (const it of items) {
     if (it.picked) continue;
     const d = Math.hypot(it.x - player.pos.x, it.z - player.pos.z);
+    if (d < nearestItemDist) nearestItemDist = d;
     if (d < ITEM_PICKUP_DIST) {
       // Pick the nearest interactable as the prompt target.
       if (d < nearestInteractD) { nearestInteract = it; nearestInteractD = d; }
@@ -3879,10 +3969,42 @@ function tickPlay(dt) {
       it.sprite.scale.setScalar(1.4);
     }
   }
+  // Item hum: faint positional tone within 3m — audio.js eases gain itself.
+  if (nearestItemDist < 3) playItemHum(nearestItemDist);
+  else                     playItemHum(99);
   // Update the pending-interact prompt only when the target changes.
   if (nearestInteract !== player.pendingInteract) {
     player.pendingInteract = nearestInteract;
     updateInteractPrompt();
+  }
+
+  // ---- Footstep surface detection — sample once per tick, push to audio ---
+  // Cheap: distToPath returns negative if we're ON a path (so surface=path).
+  // Distance to nearest landmark < 4m is "grass-y open clearing".
+  {
+    let surface = 'dirt';
+    try {
+      if (distToPath(player.pos.x, player.pos.z) < 0) surface = 'path';
+      else if (distToLandmark(player.pos.x, player.pos.z) < 6) surface = 'grass';
+    } catch {}
+    setSurface(surface);
+  }
+
+  // ---- Rain on shelter — within 12m of the cabin during active rain ------
+  if (rainState.intensity > 0.2) {
+    let cabin = null;
+    try {
+      const ws = (typeof window !== 'undefined') ? window.world : world;
+      if (ws?.landmarks) cabin = ws.landmarks.find((l) => l.name === 'cabin');
+    } catch {}
+    if (cabin) {
+      const cd = Math.hypot(cabin.x - player.pos.x, cabin.z - player.pos.z);
+      const k = Math.max(0, 1 - cd / 12) * rainState.intensity;
+      if (k > 0.05) playRainOnShelter(k);
+      else          playRainOnShelter(0);
+    }
+  } else {
+    playRainOnShelter(0);
   }
 
   // ---- Cassette tapes: glow when near + pickup (lore, persistent) ----
@@ -4108,6 +4230,13 @@ function maybeTriggerRandomEvent() {
     nextRandomEventAt = now() + 20 + Math.random() * 20; return;
   }
   nextRandomEventAt = now() + RANDOM_EVENT_MIN_GAP + Math.random() * (RANDOM_EVENT_MAX_GAP - RANDOM_EVENT_MIN_GAP);
+  // Roll a 5th outcome (~10% chance) for the distant-car-horn ambient cue.
+  // Throttled in audio.js so back-to-back rolls don't pile up.
+  if (Math.random() < 0.10) {
+    playDistantCar();
+    try { wgCaption?.('DISTANT CAR HORN', 1500); } catch {}
+    return;
+  }
   const which = Math.floor(Math.random() * 4);
   if (which === 0) randomEventNearMiss();
   else if (which === 1) randomEventCircle();

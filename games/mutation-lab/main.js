@@ -2834,12 +2834,13 @@ document.getElementById('start-btn').addEventListener('click', () => {
   try { music.setIntensity(0.3); music.play(); } catch {}
 });
 
-// Tutorial tip — shows briefly when the game starts (every match)
+// Tutorial tip — shows briefly when the game starts (every match).
+// Polish R2: clearer ordering + mentions tier/rarity for first-time pacing.
 const _startOv = document.getElementById('overlay');
 if (_startOv) {
   const _showOnHide = () => {
     if (_startOv.classList.contains('is-hidden') || _startOv.hidden) {
-      showTip(`Tap 3 ingredients → ⚗ FUSE. Each unique combo only works ONCE — get creative! ${TOTAL_COMBOS} combos exist. 📖 CODEX tracks all species.`, 7500);
+      showTip(`Tap 3 ingredients → tap ⚗ FUSE. Each combo works ONCE — find all ${TOTAL_COMBOS}! Higher TIER ingredients = rarer species. 📖 CODEX tracks every discovery.`, 7500);
     }
   };
   new MutationObserver(_showOnHide).observe(_startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });

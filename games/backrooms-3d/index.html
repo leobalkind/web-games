@@ -22,13 +22,18 @@
   <div id="vignette" aria-hidden="true"></div>
   <!-- Jumpscare flash layer (red strobe + white burst on monster catch). -->
   <div id="flash" aria-hidden="true"></div>
+  <!-- Level-transition flash (white pulse on level change). -->
+  <div id="flash-level" aria-hidden="true"></div>
+  <!-- Win cutscene flash (white → black fade). -->
+  <div id="flash-win" aria-hidden="true"></div>
 
-  <button id="mute-btn" class="mute-btn" aria-label="Toggle mute">🔊</button>
+  <button id="mute-btn" class="mute-btn" aria-label="Toggle mute">&#128266;</button>
 
   <!-- =====================================================================
-       HUD: sanity bar (bottom-left), depth/level (bottom-right). DOM-based
-       so screen readers + the shared settings menu's "large text" toggle
-       apply uniformly with every other game.
+       HUD: sanity bar (bottom-left), depth/level + heartbeat (bottom-right).
+       Hidden status pill (top-center) when hiding in a closet.
+       Interact prompt (mid-bottom) when an item is in front of the player.
+       Level banner (mid-screen) on level transitions.
        ===================================================================== -->
   <div id="hud" hidden>
     <div class="hud3-row hud3-row--vital">
@@ -39,8 +44,24 @@
     </div>
     <div class="hud3-row hud3-row--stats">
       <div class="hud3-stat"><b>DEPTH</b><span id="hud-depth">0</span></div>
-      <div class="hud3-stat"><b>LEVEL</b><span id="hud-level">0</span></div>
+      <div class="hud3-stat"><b>LEVEL</b><span id="hud-level">1</span></div>
+      <div class="hud3-stat hud3-stat--name"><b id="hud-level-name">THE LOBBY</b></div>
+      <div class="hud3-heart-wrap">
+        <div id="hud-heart" aria-hidden="true">&#9829;</div>
+      </div>
     </div>
+  </div>
+
+  <!-- Hide-mode status pill — shown when inside a closet. -->
+  <div id="hide-status" hidden>HIDDEN</div>
+
+  <!-- Interact prompt — short label when something is reachable in front. -->
+  <div id="interact-prompt" hidden>[E] OPEN</div>
+
+  <!-- Level transition banner. -->
+  <div id="level-banner" aria-hidden="true">
+    <div class="lvl-num">LEVEL 1</div>
+    <div class="lvl-name">THE LOBBY</div>
   </div>
 
   <!-- =====================================================================
@@ -55,22 +76,23 @@
       <h1 class="overlay__title">WELCOME TO THE BACKROOMS</h1>
       <p class="overlay__sub">
         You noclipped into a place that was never meant for humans.
-        Endless yellow hallways. Buzzing fluorescent lights. Something is in here with you.
+        Four levels descend into something darker. Find the EXIT to escape.
       </p>
       <ul class="overlay__controls">
-        <li><b>WASD</b> walk · <b>MOUSE</b> look · <b>ESC</b> pause</li>
-        <li>On mobile: <b>JOYSTICK</b> walk · <b>DRAG</b> look</li>
+        <li><b>WASD</b> walk · <b>SHIFT</b> sprint · <b>MOUSE</b> look · <b>E</b> use · <b>ESC</b> pause</li>
+        <li>On mobile: <b>JOYSTICK</b> walk · <b>DRAG</b> look · <b>SPRINT</b> / <b>USE</b> buttons</li>
+        <li>Hide in <b>closets</b>. Flip <b>switches</b>. Find the red <b>EXIT</b>.</li>
       </ul>
       <p class="overlay__sub" style="color:var(--neon-yellow);font-size:0.55rem;">
-        Best depth: <span id="start-best">—</span>
+        Best depth: <span id="start-best">&mdash;</span>
       </p>
       <button id="start-btn" class="overlay__btn">[ CLICK TO ENTER ]</button>
-      <a class="overlay__back" href="../../index.html">← BACK TO HUB</a>
+      <a class="overlay__back" href="../../index.html">&larr; BACK TO HUB</a>
     </div>
   </div>
 
   <!-- =====================================================================
-       End overlay: shown when the monster catches the player OR sanity ≤ 0.
+       End overlay: shown when the monster catches the player OR sanity <= 0.
        Quotes back the depth walked + best score for replay-loop hook.
        ===================================================================== -->
   <div id="end-overlay" class="overlay" hidden>
@@ -79,12 +101,31 @@
       <p class="overlay__sub" id="end-sub">The smile reached you.</p>
       <ul class="end-stats">
         <li>Rooms walked: <b id="end-depth">0</b></li>
-        <li>Deepest level: <b id="end-level">0</b></li>
-        <li id="end-best">Best depth: <b>—</b></li>
+        <li>Deepest level: <b id="end-level">1</b></li>
+        <li id="end-best">Best depth: <b>&mdash;</b></li>
       </ul>
       <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:14px;">
         <button id="end-restart" class="overlay__btn">REENTER</button>
-        <a class="overlay__btn overlay__btn--ghost" href="../../index.html">← HUB</a>
+        <a class="overlay__btn overlay__btn--ghost" href="../../index.html">&larr; HUB</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- =====================================================================
+       Win overlay: shown when the player reaches Level 4 + finds the EXIT.
+       ===================================================================== -->
+  <div id="win-overlay" class="overlay" hidden>
+    <div class="overlay__panel overlay__panel--win">
+      <div class="overlay__tag" style="border-color:#ffd23f;color:#fff8a0;">ESCAPED</div>
+      <h2 class="overlay__title" id="win-title">YOU ESCAPED</h2>
+      <p class="overlay__sub">You crossed all four levels and walked into the light. The yellow walls did not keep you.</p>
+      <ul class="end-stats">
+        <li>Rooms walked: <b id="win-depth">0</b></li>
+        <li>Time: <b id="win-time">00:00</b></li>
+      </ul>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:14px;">
+        <button id="win-restart" class="overlay__btn">REENTER</button>
+        <a class="overlay__btn overlay__btn--ghost" href="../../index.html">&larr; HUB</a>
       </div>
     </div>
   </div>
@@ -102,7 +143,7 @@
       <div style="display:flex;flex-direction:column;gap:10px;align-items:stretch;max-width:240px;margin:0 auto;">
         <button id="pause-resume" class="overlay__btn">RESUME</button>
         <button id="pause-restart" class="overlay__btn overlay__btn--ghost">RESTART</button>
-        <a class="overlay__btn overlay__btn--ghost" href="../../index.html">← QUIT TO HUB</a>
+        <a class="overlay__btn overlay__btn--ghost" href="../../index.html">&larr; QUIT TO HUB</a>
       </div>
     </div>
   </div>

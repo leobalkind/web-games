@@ -58,6 +58,7 @@ let fireSpawnT = 6;   // seconds until next fireball spawn
 let lastPlat = null;  // platform reference last landed on (so re-landing same plat doesn't count)
 let comboJumps = 0;   // consecutive distinct-platform landings without resting
 let comboRestT = 0;   // seconds spent stationary on the SAME platform (resets combo after 0.7s)
+let maxComboThisRun = 0; // surfaced on end-screen (Round-2 polish)
 // === Geometry Dash biome-shift checkpoints (every 500m) ===
 // Round 2: 5 palettes — cave-grey, magma-orange, ABYSS (deep blue), hellscape-red, voidspace.
 const BIOMES = [
@@ -187,7 +188,7 @@ function reset() {
   paused = false; resumeCountdownT = 0;
   pugBobT = 0; pugSquashT = 0; pugStretchT = 0; lastWasOnGround = false;
   runStartT = performance.now(); runPowerupsGrabbed = 0; biomeStartDamage = false;
-  lastPlat = null; comboJumps = 0; comboRestT = 0;
+  lastPlat = null; comboJumps = 0; comboRestT = 0; maxComboThisRun = 0;
   biomeIdx = 0; nextBiomeAtHeight = 500; biomeShiftT = 0; biomeShiftTarget = 0;
   nextMilestone = 5;
   hitFlashT = 0; shakeT = 0; shakeMag = 0; caveOffset = 0;
@@ -385,7 +386,10 @@ canvas.addEventListener('touchstart', (e) => { touchX = e.touches[0].clientX; e.
 canvas.addEventListener('touchmove', (e) => { touchX = e.touches[0].clientX; e.preventDefault(); }, { passive: false });
 canvas.addEventListener('touchend', () => touchX = null);
 document.getElementById('jump-btn').addEventListener('click', jump);
-if ('ontouchstart' in window) document.getElementById('jump-btn').style.display = 'block';
+// Legacy floating JUMP button overlapped the platformer-layout JUMP control
+// from the universal mobileControls. Hide the legacy duplicate everywhere —
+// the click handler is kept as a safety net.
+document.getElementById('jump-btn').style.display = 'none';
 // Universal mobile controls — platformer layout (L/R buttons + JUMP). Synth
 // keys feed the keys Set and also trigger the keydown listener above which
 // auto-calls jump() on space, so JUMP works without extra wiring.
@@ -404,6 +408,8 @@ function jump() {
 function refillJumps() { pug.jumpsLeft = wingsT > 0 ? 3 : 2; }
 // Icy Tower-style combo thresholds — popup + score bonus at 5/10/20/30/...
 function checkComboThreshold() {
+  // Track lifetime-best combo for end-screen surfacing (Round-2 polish).
+  if (comboJumps > maxComboThisRun) maxComboThisRun = comboJumps;
   // Trigger at 5, 10, 20, then every 10 above
   const hit =
     comboJumps === 5 || comboJumps === 10 || comboJumps === 20 ||
@@ -1921,6 +1927,11 @@ function die(success) {
   if (maxHeight > bestAltitudeM) { bestAltitudeM = maxHeight; saveBestAlt(); }
   document.getElementById('end-height').textContent = maxHeight + 'm';
   document.getElementById('end-treats').textContent = treatsGot;
+  // Round-2 polish: surface BEST COMBO + reached BIOME on end-stats list.
+  const _comboEl = document.getElementById('end-combo');
+  if (_comboEl) _comboEl.textContent = '×' + (maxComboThisRun || 0);
+  const _biomeEl = document.getElementById('end-biome');
+  if (_biomeEl) _biomeEl.textContent = (BIOMES[biomeIdx] && BIOMES[biomeIdx].name) || 'Cave';
   const _endTitle = document.getElementById('end-title');
   if (_endTitle) _endTitle.textContent = success ? '★ VICTORY! ★' : (gameMode === 'death_run' ? 'DEATH RUN OVER' : (gameMode === 'time_attack' ? `TIME: ${timeAttackT.toFixed(1)}s` : 'CRISPY'));
   const _endSub = document.getElementById('end-sub');
@@ -2036,12 +2047,16 @@ let lastT = performance.now();
   requestAnimationFrame(loop);
 })(performance.now());
 
-// Tutorial tip — shows briefly when the game starts (every match)
+// Tutorial tip — shows briefly when the game starts (every match).
+// Touch + desktop wording split — tilt vs A/D and tap vs SPACE.
 const _startOv = document.getElementById('overlay');
 if (_startOv) {
   const _showOnHide = () => {
     if (_startOv.classList.contains('is-hidden') || _startOv.hidden) {
-      showTip('A/D move · SPACE jump · avoid SPIKES on platforms · grab WINGS for triple-jump', 6500);
+      const msg = _isTouch
+        ? 'JOYSTICK move · TAP screen to jump · avoid 🔺 SPIKES · grab 🪽 WINGS for triple-jump'
+        : 'A/D move · SPACE jump · avoid 🔺 SPIKES on platforms · grab 🪽 WINGS for triple-jump';
+      showTip(msg, 6500);
     }
   };
   new MutationObserver(_showOnHide).observe(_startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });

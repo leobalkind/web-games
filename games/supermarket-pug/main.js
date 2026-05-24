@@ -579,7 +579,10 @@ window.addEventListener('keydown', (e) => {
 });
 window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 document.getElementById('cart-btn').addEventListener('click', toggleCart);
-if ('ontouchstart' in window) document.getElementById('cart-btn').style.display = 'block';
+// The legacy floating cart-btn (right:20px;bottom:140px) overlapped with the
+// universal mobile CART button on touch. The mobileControls overlay now owns
+// the touch UI, so hide the legacy duplicate everywhere.
+document.getElementById('cart-btn').style.display = 'none';
 // Universal mobile controls — joystick + GRAB/RAM/CART buttons
 createMobileControls({
   layout: 'wasd-only',
@@ -2483,12 +2486,16 @@ const _objVisLoop = () => {
 };
 _objVisLoop();
 
-// Tutorial tip — shows briefly when the game starts (every match)
+// Tutorial tip — shows briefly when the game starts (every match).
+// Touch + desktop wording diverge so the buttons / keys match the device.
 const _startOv = document.getElementById('overlay');
 if (_startOv) {
   const _showOnHide = () => {
     if (_startOv.classList.contains('is-hidden') || _startOv.hidden) {
-      showTip('WASD move · E grab · SPACE ram · C cart · 💰 BRIBE top-right (B) · EXIT bottom-right', 7000);
+      const firstTip = _isTouch
+        ? 'JOYSTICK move · GRAB / RAM / CART buttons · 💰 BRIBE top-right · 🚪 EXIT bottom-right'
+        : 'WASD move · E grab · SPACE ram · C cart · 💰 BRIBE top-right (B) · 🚪 EXIT bottom-right';
+      showTip(firstTip, 7000);
       // Follow-up bubble after 7.5s — explains the SECTIONS + GUARD types.
       // Only fires once per session (sessionStorage flag).
       setTimeout(() => {

@@ -29,6 +29,24 @@ export function createAudio() {
   // Persistent state
   let bed = null, bedGain = null, clownBreath = null;
   let mStalk = null, mHunt = null, mChase = null;
+  // Heartbeat persistent loop — sub-thump tied to setHeartbeatRate, fades when
+  // player is far from clown (target ~0 instead of a constant low loop).
+  let heart = null;
+  // Item-hum persistent oscillator — drives a faint positional tone whose
+  // gain rises as player nears an item (within 3m).
+  let itemHum = null;
+  // Rain-on-shelter loop — layered low tone that fades up when the player is
+  // within 12m of the cabin while it's raining.
+  let shelterRain = null;
+  // Wind whistle — set of tones layered over the bed during a gust.
+  let windWhistle = null;
+  // Beacon rising siren — long one-shot, tracked so a second call no-ops.
+  let beaconRising = null;
+  // Distant car horn — throttled so back-to-back random calls don't pile up.
+  let _lastDistantCarAt = -1e9;
+  // Surface palette for footsteps — 'dirt' (default), 'grass' (softer high
+  // band), 'path' (slightly brighter + thinner). setSurface() updates this.
+  let currentSurface = 'dirt';
 
   const rnd = Math.random, mx = Math.max, mn = Math.min;
   const now = () => ctx ? ctx.currentTime : 0;
@@ -109,6 +127,7 @@ export function createAudio() {
     ex(masterGain.gain, 0.0001, now() + 0.5);
     setTimeout(() => {
       stopBed(); stopClownBreath(); stopAllMusic();
+      stopHeart(); stopItemHum(); stopShelterRain(); stopWindWhistle();
       try { masterGain.disconnect(); } catch {}
     }, 550);
     if (unsubSettings) { try { unsubSettings(); } catch {} unsubSettings = null; }
@@ -492,13 +511,27 @@ export function createAudio() {
   }
 
   // ---- 17. FOOTSTEP (player) — speed shapes brightness + amplitude --------
+  // Surface palette modulates filter centre + Q + amplitude:
+  //   dirt  (default) — 600+s*800 Hz bandpass, baseline
+  //   grass — lower centre + lower amplitude (softer step on grass)
+  //   path  — slightly brighter + tighter band (drier tile-tap)
   function playFootstep(speed) {
     if (!started || !ctx) return;
     const s = c01(speed), t = now();
     const src = nz(0.9 + (rnd() - 0.5) * 0.1);
-    pipe(src, flt('bandpass', 600 + s * 800, 1.4),
-         env(t, 0.005, 0.12 + 0.18 * s, 0.09 + 0.05 * (1 - s)), busSfx);
+    let centre = 600 + s * 800, Q = 1.4, ampScale = 1.0;
+    if (currentSurface === 'grass')      { centre = 380 + s * 540; Q = 1.1; ampScale = 0.62; }
+    else if (currentSurface === 'path')  { centre = 820 + s * 980; Q = 2.0; ampScale = 1.10; }
+    const pk = (0.12 + 0.18 * s) * ampScale;
+    pipe(src, flt('bandpass', centre, Q),
+         env(t, 0.005, pk, 0.09 + 0.05 * (1 - s)), busSfx);
     src.start(t, rnd() * 3, 0.16);
+  }
+  // setSurface — caller picks 'dirt' (default) / 'grass' / 'path' to change
+  // the footstep tone palette. Ignored when audio is not started.
+  function setSurface(surface) {
+    if (surface !== 'dirt' && surface !== 'grass' && surface !== 'path') return;
+    currentSurface = surface;
   }
 
   // ---- 18. FLASHLIGHT CLICK -----------------------------------------------
@@ -560,9 +593,276 @@ export function createAudio() {
     cl.start(t0, rnd() * 3, 0.4);
   }
 
+  // ---- 22. CROUCH — subtle joint creak ------------------------------------
+  // Two short pitched-down clicks layered through a tight bandpass — reads as
+  // tendon/cloth tension when transitioning into crouch.
+  function playCrouch() {
+    if (!started || !ctx) return;
+    const t = now();
+    const out = gn(0.2); out.connect(busSfx);
+    // Click 1: 280Hz sine dropping
+    const o1 = osc('sine', 280);
+    o1.frequency.exponentialRampToValueAtTime(160, t + 0.18);
+    pipe(o1, flt('bandpass', 240, 4), env(t, 0.01, 0.18, 0.2), out);
+    o1.start(t); o1.stop(t + 0.22);
+    // Click 2: short fabric rustle
+    const ns = nz(0.7);
+    pipe(ns, flt('bandpass', 1200, 3), env(t + 0.04, 0.005, 0.08, 0.18), out);
+    ns.start(t + 0.04, rnd() * 3, 0.20);
+  }
+
+  // ---- 23. GASP — exhausted breath (stamina = 0) --------------------------
+  // Sharp inhale + drawn-out exhale through a low-band noise. Layered with a
+  // bit of throat-tone (sine ~180Hz) for human weight.
+  function playGasp() {
+    if (!started || !ctx) return;
+    const t = now();
+    const out = gn(0.4); out.connect(busSfx);
+    // Inhale (sharp, brief, brighter)
+    const inh = nz(0.9);
+    pipe(inh, flt('bandpass', 900, 1.2), env(t, 0.05, 0.35, 0.25), out);
+    inh.start(t, rnd() * 3, 0.32);
+    // Exhale (slower, lower, longer)
+    const exh = nz(0.7);
+    pipe(exh, flt('bandpass', 500, 1.4), env(t + 0.35, 0.15, 0.32, 0.55), out);
+    exh.start(t + 0.35, rnd() * 3, 0.72);
+    // Throat tone — gives the gasp a body
+    const o = osc('sine', 180);
+    o.frequency.linearRampToValueAtTime(140, t + 0.6);
+    pipe(o, gn(0.18), env(t + 0.05, 0.08, 0.18, 0.6), out);
+    o.start(t + 0.05); o.stop(t + 0.7);
+  }
+
+  // ---- 24. ITEM HUM (positional, modulated by distance) -------------------
+  // Persistent low/high two-osc tone that swells as the player nears an item
+  // (within 3m).  Caller passes the distance each frame; we ease the gain.
+  // Lazily created on first call.
+  function playItemHum(dist) {
+    if (!started || !ctx) return;
+    if (!itemHum) {
+      const g = gn(0); g.connect(busSfx);
+      const a = osc('sine', 220);
+      const b = osc('sine', 327);
+      const tremolo = osc('sine', 4);
+      const tg = gn(0.04);
+      pipe(tremolo, tg, g.gain);
+      pipe(a, gn(0.18), g);
+      pipe(b, gn(0.12), g);
+      a.start(); b.start(); tremolo.start();
+      itemHum = { g, a, b, tremolo, tg };
+    }
+    // 3m falloff: at 0m gain ~0.18, at 3m+ gain 0.
+    const d = mx(0, dist || 0);
+    const k = mx(0, 1 - d / 3);
+    gl(itemHum.g.gain, 0.18 * k, 0.18);
+  }
+  function stopItemHum() {
+    if (!itemHum) return;
+    stop_(itemHum.a); stop_(itemHum.b); stop_(itemHum.tremolo);
+    itemHum = null;
+  }
+
+  // ---- 25. BEACON RISING (30s industrial siren ramp) ----------------------
+  // Long-form one-shot. Cumulative siren that climbs over 30s and falls back.
+  // Caller schedules at items==5 + 30s. Second invocation no-ops while one is
+  // already in flight (prevents stacking).
+  function playBeaconRising() {
+    if (!started || !ctx) return;
+    if (beaconRising) return;
+    const t0 = now();
+    const out = gn(0.0); out.connect(busSfx);
+    pipe(out, gn(0.4), reverbIn);
+    // Slow siren ramp 220Hz -> 660Hz over 24s, then fall 660 -> 200 in 6s.
+    const siren = osc('sawtooth', 220);
+    siren.frequency.linearRampToValueAtTime(660, t0 + 24);
+    siren.frequency.linearRampToValueAtTime(200, t0 + 30);
+    pipe(siren, flt('bandpass', 700, 1.8), gn(0.35), out);
+    // Sub-rumble grows underneath.
+    const sub = osc('sine', 55);
+    pipe(sub, gn(0.22), out);
+    [siren, sub].forEach((o) => o.start(t0));
+    // Envelope: fade in over 4s, hold, fade out over 5s.
+    gl(out.gain, 0.45, 4);
+    setTimeout(() => { if (started) gl(out.gain, 0, 5); }, 25000);
+    setTimeout(() => {
+      stop_(siren); stop_(sub);
+      try { out.disconnect(); } catch {}
+      beaconRising = null;
+    }, 31000);
+    beaconRising = { out, siren, sub };
+  }
+
+  // ---- 26. DISTANT CAR HORN (rare ambient cue) ----------------------------
+  // Two short honks of a faded car horn. Highly attenuated + heavy reverb so it
+  // reads as "very far away — civilisation exists somewhere". Throttled to
+  // once-per-30s to avoid pile-up if called from a tight loop.
+  function playDistantCar() {
+    if (!started || !ctx) return;
+    const t = now();
+    if (t - _lastDistantCarAt < 30) return;
+    _lastDistantCarAt = t;
+    const out = gn(0.12); out.connect(busSfx);
+    pipe(out, gn(0.85), reverbIn);
+    // Two-tone car horn (slight pitch beating).
+    const honk = (s, dur) => {
+      const a = osc('square', 220);
+      const b = osc('square', 277);
+      const lp = flt('lowpass', 1200, 0.8);
+      pipe(a, gn(0.5), lp); pipe(b, gn(0.4), lp);
+      pipe(lp, env(s, 0.02, 0.5, dur - 0.02), out);
+      [a, b].forEach((o) => { o.start(s); o.stop(s + dur + 0.05); });
+    };
+    honk(t, 0.45);
+    honk(t + 0.55, 0.6);
+  }
+
+  // ---- 27. WIND WHISTLE (during gusts) ------------------------------------
+  // Two detuned filtered tones layered over the bed. Intensity (0..1) drives
+  // gain and the high-band frequency. Always lazy-create; second call eases
+  // the running gain toward the new target.
+  function playWindWhistle(intensity) {
+    if (!started || !ctx) return;
+    const k = c01(intensity);
+    if (!windWhistle) {
+      const g = gn(0); g.connect(busAmbient);
+      const a = osc('sine', 880);
+      const b = osc('sine', 1310);
+      // Add a noise band so it reads as airflow, not a synth lead.
+      const ns = nz(0.8); ns.loop = true;
+      const bp = flt('bandpass', 2100, 12);
+      pipe(ns, bp, gn(0.07), g);
+      pipe(a, gn(0.06), g);
+      pipe(b, gn(0.04), g);
+      a.start(); b.start(); ns.start();
+      windWhistle = { g, a, b, ns };
+    }
+    gl(windWhistle.g.gain, 0.12 * k, 0.6);
+  }
+  function stopWindWhistle() {
+    if (!windWhistle) return;
+    stop_(windWhistle.a); stop_(windWhistle.b); stop_(windWhistle.ns);
+    windWhistle = null;
+  }
+
+  // ---- 28. RAIN ON SHELTER (near cabin during rain) -----------------------
+  // Layered low-rumble + soft pitter; tells the player they're under shelter.
+  // Caller passes a normalised volume 0..1 (typically 1 - dist/12).  Lazy-init.
+  function playRainOnShelter(volume) {
+    if (!started || !ctx) return;
+    const k = c01(volume);
+    if (!shelterRain) {
+      const g = gn(0); g.connect(busAmbient);
+      const drum = nz(0.5); drum.loop = true;
+      const lp = flt('lowpass', 400, 1.0);
+      pipe(drum, lp, gn(0.35), g);
+      const patter = nz(0.9); patter.loop = true;
+      const bp = flt('bandpass', 1800, 2);
+      pipe(patter, bp, gn(0.18), g);
+      drum.start(); patter.start();
+      shelterRain = { g, drum, patter };
+    }
+    gl(shelterRain.g.gain, 0.18 * k, 0.5);
+  }
+  function stopShelterRain() {
+    if (!shelterRain) return;
+    stop_(shelterRain.drum); stop_(shelterRain.patter);
+    shelterRain = null;
+  }
+
+  // ---- 29. RAIN ON / OFF (overall ambient) -------------------------------
+  // Background rain ambience that fades up/down. Called by main.js's rain
+  // system at rain-start / rain-end. Reuses the shelter rain primitives for
+  // the patter layer but adds a wider noise bed so it reads as "outdoors in
+  // the rain" without the shelter low-pass dampening.
+  let rainBed = null;
+  function playRainOn() {
+    if (!started || !ctx) return;
+    if (!rainBed) {
+      const g = gn(0); g.connect(busAmbient);
+      const wide = nz(0.7); wide.loop = true;
+      const hp = flt('highpass', 600, 0.6);
+      pipe(wide, hp, gn(0.22), g);
+      const fall = nz(0.9); fall.loop = true;
+      const bp = flt('bandpass', 2400, 1.8);
+      pipe(fall, bp, gn(0.12), g);
+      wide.start(); fall.start();
+      rainBed = { g, wide, fall };
+    }
+    gl(rainBed.g.gain, 0.22, 3);
+  }
+  function playRainOff() {
+    if (!rainBed) return;
+    gl(rainBed.g.gain, 0, 3);
+    const ref = rainBed; rainBed = null;
+    setTimeout(() => {
+      stop_(ref.wide); stop_(ref.fall);
+      try { ref.g.disconnect(); } catch {}
+    }, 3500);
+  }
+
+  // ---- 30. HEARTBEAT (positional, fades to zero when far from clown) ------
+  // Persistent low sub-thump scheduler. setHeartbeatRate(rate) updates the
+  // beats-per-second + the breath-band gain envelope. When the rate is set to
+  // a low value (player far from clown), the gain fades to ~0 so the loop is
+  // silent, not "constantly low".
+  function _ensureHeart() {
+    if (heart) return heart;
+    const g = gn(0); g.connect(busSfx);
+    heart = { g, rateHz: 0.0, timer: null, gainTarget: 0 };
+    const tick = () => {
+      if (!heart) return;
+      // Schedule a single thump if gain is high enough to be audible.
+      if (heart.gainTarget > 0.02 && started && ctx) {
+        const t = now();
+        const o = osc('sine', 58);
+        const e = env(t, 0.01, 0.22 * heart.gainTarget, 0.18);
+        pipe(o, e, g);
+        o.start(t); o.stop(t + 0.22);
+      }
+      // Reschedule based on current rate; clamp so 0 rate => long pause.
+      const interval = heart.rateHz > 0.05 ? 1000 / heart.rateHz : 1500;
+      heart.timer = setTimeout(tick, interval);
+    };
+    tick();
+    return heart;
+  }
+  function setHeartbeatRate(rate) {
+    if (!started || !ctx) return;
+    _ensureHeart();
+    // rate 0..2 Hz. Player FAR => low rate => gain target near 0.
+    // Player NEAR => higher rate => gain target near 1.
+    const r = mx(0, mn(2, rate || 0));
+    heart.rateHz = r;
+    // gain target follows rate: <0.5 Hz silent (was the old "low loop").
+    heart.gainTarget = r < 0.5 ? 0 : mn(1, (r - 0.5) / 1.0);
+    // Ease the heartbeat-bus gain too so the silent state really is silent.
+    gl(heart.g.gain, heart.gainTarget, 0.6);
+  }
+  function stopHeart() {
+    if (!heart) return;
+    if (heart.timer) clearTimeout(heart.timer);
+    try { heart.g.disconnect(); } catch {}
+    heart = null;
+  }
+
+  // ---- 31. UPDATE CLOWN DISTANCE (drives breath) --------------------------
+  // Caller passes the live clown<->player distance each frame. We use it to
+  // drive the existing clown-breath gain (lazy-creating on first nearby call).
+  function updateClownDistance(dist) {
+    if (!started || !ctx) return;
+    const d = mx(0, dist || 0);
+    // Above 15m breath is inaudible — don't even create the loop.
+    if (d > 15) {
+      if (clownBreath) gl(clownBreath.g.gain, 0, 0.3);
+      return;
+    }
+    // Create the breath if needed and ramp gain toward distance-derived level.
+    playClownBreath(d);
+  }
+
   return {
     start, stop,
-    playFootstep,
+    playFootstep, setSurface,
     playFlashlightClick, playFlashlightFlicker,
     playForestAmbience, playWindGust, playTwigSnap, playLeafSwirl, playOwl,
     playClownLaugh, playClownStep, playClownBreath, playKnifeDrag,
@@ -570,5 +870,11 @@ export function createAudio() {
     playStalkMusic, playHuntMusic, playChaseMusic, stopAllMusic,
     playJumpscare, playKill, playWin,
     playItemPickup, playBeaconActivated,
+    // Round-3 additions
+    playCrouch, playGasp,
+    playItemHum, playBeaconRising,
+    playDistantCar, playWindWhistle,
+    playRainOn, playRainOff, playRainOnShelter,
+    setHeartbeatRate, updateClownDistance,
   };
 }

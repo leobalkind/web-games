@@ -420,12 +420,16 @@ setInterval(() => {
   _speedTog.setDisabled(game.phase !== 'night' || !game.running);
 }, 500);
 
-// Tutorial tip — shows briefly when the game starts (every match)
+// Tutorial tip — shows briefly when the game starts (every match).
+// Touch + desktop get distinct wording so mobile users see joystick hints.
 const _startOv = document.getElementById('overlay');
 if (_startOv) {
   const _showOnHide = () => {
     if (_startOv.classList.contains('is-hidden') || _startOv.hidden) {
-      showTip('WASD move · CLICK shoot · B build · R repair-all · TAB stats', 6000);
+      const msg = _isTouch
+        ? 'LEFT JOY move · RIGHT JOY aim+fire · BUILD 🟢 · 🛒 SHOP top-right'
+        : 'WASD move · CLICK shoot · B build · R repair-all · TAB stats · T speed';
+      showTip(msg, 6000);
     }
   };
   new MutationObserver(_showOnHide).observe(_startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });

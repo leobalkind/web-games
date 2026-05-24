@@ -92,6 +92,7 @@ let powerups, skidMarks, nitroT, shieldT, magnetT;
 let intact = 100;
 let intactFlashT = 0; // brief red pulse on damage
 let combo = 0, comboT = 0, toxicPuddles = [], spikeStrips = [], achievementsSeen = new Set();
+let maxComboThisRun = 0; // surfaced on end-screen (Round-2 polish)
 // Crazy Taxi stunt system: continuous-drift timer + near-miss tracking.
 // driftHoldT counts up while skidding (continuous slide); once it crosses
 // 1.5s a "DRIFT +50" pops and a fresh cycle begins. nearMissCooldown is per-
@@ -210,7 +211,7 @@ function reset() {
   for (let i = 0; i < 8; i++) spawnPowerup();
   skidMarks = [];
   nitroT = 0; shieldT = 0; magnetT = 0;
-  combo = 0; comboT = 0;
+  combo = 0; comboT = 0; maxComboThisRun = 0;
   driftHoldT = 0; driftAwardedT = 0;
   nearMissBank = new WeakMap();
   stuntMult = 1; stuntMultT = 0;
@@ -973,6 +974,7 @@ function tick(dt) {
     deliveries++;
     // Combo: deliveries within 12s chain
     if (comboT > 0) combo = Math.min(99, combo + 1); else combo = 1;
+    if (combo > maxComboThisRun) maxComboThisRun = combo;
     comboT = 12;
     let baseBonus = 18 + Math.floor(combo * 0.5);
     // Delivery type modifiers
@@ -2646,6 +2648,9 @@ function end() {
   document.getElementById('end-sub').textContent = pug.hp <= 0 ? 'The horde got the pizza too.' : 'Time ran out. The customer is upset.';
   document.getElementById('end-del').textContent = deliveries;
   document.getElementById('end-tip').textContent = '$' + (deliveries * 12);
+  // Round-2 polish: surface BEST COMBO on end-stats list.
+  const _comboEl = document.getElementById('end-combo');
+  if (_comboEl) _comboEl.textContent = '×' + (maxComboThisRun || 0);
   const { isNewBest, current } = submitRun('delivery-pugs', { score: deliveries });
   const bestEl = document.getElementById('end-best');
   if (bestEl) {
@@ -2828,12 +2833,16 @@ let lastT = performance.now();
   requestAnimationFrame(loop);
 })(performance.now());
 
-// Tutorial tip — shows briefly when the game starts (every match)
+// Tutorial tip — shows briefly when the game starts (every match).
+// Touch + desktop split — joystick + boost button on mobile.
 const _startOv = document.getElementById('overlay');
 if (_startOv) {
   const _showOnHide = () => {
     if (_startOv.classList.contains('is-hidden') || _startOv.hidden) {
-      showTip('WASD drive · SHIFT boost · don\'t crash! INTACT% bar drains on hits — 100% intact = 1.5× payout', 7500);
+      const msg = _isTouch
+        ? 'JOYSTICK drive · ⚡ BOOST button · don\'t crash! 100% intact = 1.5× payout'
+        : 'WASD drive · SHIFT boost · don\'t crash! INTACT% drops on hits — 100% intact = 1.5× payout';
+      showTip(msg, 7500);
     }
   };
   new MutationObserver(_showOnHide).observe(_startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });

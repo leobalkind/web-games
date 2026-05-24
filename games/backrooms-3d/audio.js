@@ -469,6 +469,170 @@ export function createAudio() {
     src.start(t, rnd() * 3, 0.6);
   }
 
+  // ---- 10. Door slam (distant) --------------------------------------------
+  // Two-stage: a sharp wood-thud transient + low-mid resonant decay through
+  // the reverb tail so it reads as "somebody just slammed a door three rooms over".
+  function playDoorSlam(vol) {
+    if (!started || !ctx || !reverbIn) return;
+    const t = now();
+    const amp = clamp01(vol || 0.6);
+    // Layer 1: noise transient through low-pass — the wood "thud".
+    const src = mkNoise(0.8 + rnd() * 0.3);
+    const lp = mkFilter('lowpass', 280);
+    const g1 = mkEnv(t, 0.005, 0.6 * amp, 0.18);
+    const pan1 = mkPan((rnd() - 0.5) * 1.4); // hard pan random L/R
+    if (pan1) pipe(src, lp, g1, pan1, reverbIn);
+    else pipe(src, lp, g1, reverbIn);
+    src.start(t, rnd() * 3, 0.25);
+    // Layer 2: resonant low thump — the door frame ringing.
+    const o = mkOsc('sine', 70 + rnd() * 30);
+    o.frequency.exponentialRampToValueAtTime(40, t + 0.4);
+    const g2 = mkEnv(t, 0.01, 0.35 * amp, 0.55);
+    const pan2 = mkPan(pan1 ? pan1.pan.value * 0.8 : 0);
+    if (pan2) pipe(o, g2, pan2, reverbIn);
+    else pipe(o, g2, reverbIn);
+    o.start(t); o.stop(t + 0.6);
+  }
+
+  // ---- 11. Distant cry ----------------------------------------------------
+  // A short formant-y wail at 320Hz through heavy reverb — "someone crying
+  // somewhere in the building".
+  function playDistantCry() {
+    if (!started || !ctx || !reverbIn) return;
+    const t = now();
+    const base = 280 + rnd() * 120;
+    const o = mkOsc('triangle', base);
+    // Slow vibrato + pitch droop.
+    const vib = mkOsc('sine', 5.5);
+    pipe(vib, mkGain(base * 0.015), o.frequency);
+    o.frequency.exponentialRampToValueAtTime(base * 0.7, t + 1.8);
+    const bp = mkFilter('bandpass', base * 2.3, 4);
+    const g = mkGain(1e-4);
+    expTo(g.gain, 0.04, t + 0.3);
+    expTo(g.gain, 0.0001, t + 2.0);
+    const pan = mkPan((rnd() - 0.5) * 1.5);
+    if (pan) pipe(o, bp, g, pan, reverbIn);
+    else pipe(o, bp, g, reverbIn);
+    o.start(t); o.stop(t + 2.1);
+    vib.start(t); vib.stop(t + 2.1);
+  }
+
+  // ---- 12. Whisper voice --------------------------------------------------
+  // Bandpassed noise modulated by a slow LFO — sounds like a sibilant whisper
+  // through carpet. Panned softly via reverb.
+  function playWhisper() {
+    if (!started || !ctx || !reverbIn) return;
+    const t = now();
+    const src = mkNoise(0.6);
+    const bp = mkFilter('bandpass', 1800 + rnd() * 400, 3.5);
+    const lp = mkFilter('lowpass', 2400);
+    const g = mkGain(1e-4);
+    // Two-stage envelope: rise → ssss → drop.
+    expTo(g.gain, 0.07, t + 0.15);
+    expTo(g.gain, 0.04, t + 0.6);
+    expTo(g.gain, 0.0001, t + 1.2);
+    const pan = mkPan((rnd() - 0.5) * 1.6);
+    if (pan) pipe(src, bp, lp, g, pan, reverbIn);
+    else pipe(src, bp, lp, g, reverbIn);
+    src.start(t, rnd() * 3, 1.3);
+  }
+
+  // ---- 13. Level transition sting -----------------------------------------
+  // A dramatic descending pad — six oscillators detuned by level index.
+  // Higher levels get a darker chord (lower fundamentals).
+  function playLevelSting(level) {
+    if (!started || !ctx) return;
+    const t = now();
+    const lvl = mx(0, mn(3, level | 0));
+    // Base frequency drops by octaves per level: L0=220, L1=165, L2=110, L3=82.
+    const baseTable = [220, 165, 110, 82];
+    const base = baseTable[lvl];
+    const fifths = [base, base * 1.5, base * 2, base * 3, base * 4, base * 6];
+    const out = mkGain(0.5);
+    out.connect(busSfx);
+    for (let i = 0; i < fifths.length; i++) {
+      const o = mkOsc(i < 3 ? 'sawtooth' : 'sine', fifths[i] * (1 + (rnd() - 0.5) * 0.005));
+      const g = mkGain(1e-4);
+      expTo(g.gain, 0.06 / (1 + i * 0.25), t + 0.4);
+      expTo(g.gain, 0.0001, t + 3.0);
+      pipe(o, g, out);
+      o.start(t); o.stop(t + 3.1);
+    }
+    // Add a deep impact at the start.
+    const sub = mkOsc('sine', base * 0.5);
+    const subG = mkEnv(t, 0.005, 0.6, 1.2);
+    pipe(sub, subG, out);
+    sub.start(t); sub.stop(t + 1.3);
+    // Light noise risers per level.
+    const ns = mkNoise(1);
+    const nsBp = mkFilter('bandpass', 4000, 2);
+    const nsG = mkGain(1e-4);
+    expTo(nsG.gain, 0.06, t + 0.5);
+    expTo(nsG.gain, 0.0001, t + 1.8);
+    pipe(ns, nsBp, nsG, out);
+    ns.start(t, rnd() * 3, 1.9);
+  }
+
+  // ---- 14. Win chord -------------------------------------------------------
+  // Bright major-7th — the catharsis. C4–E4–G4–B4 with light vibrato.
+  function playWinChord() {
+    if (!started || !ctx) return;
+    const t = now();
+    const out = mkGain(0.5);
+    out.connect(busSfx);
+    const notes = [261.6, 329.6, 392.0, 493.9, 523.3];
+    for (let i = 0; i < notes.length; i++) {
+      const o = mkOsc(i < 3 ? 'sine' : 'triangle', notes[i]);
+      const g = mkGain(1e-4);
+      expTo(g.gain, 0.07 - i * 0.005, t + 0.4 + i * 0.05);
+      expTo(g.gain, 0.0001, t + 3.5);
+      pipe(o, g, out);
+      o.start(t + i * 0.04); o.stop(t + 3.6);
+    }
+  }
+
+  // ---- 15. Switch click ---------------------------------------------------
+  function playSwitchClick() {
+    if (!started || !ctx) return;
+    const t = now();
+    const src = mkNoise(1.6);
+    const bp = mkFilter('bandpass', 3200, 6);
+    const g = mkEnv(t, 0.001, 0.12, 0.04);
+    pipe(src, bp, g, busSfx);
+    src.start(t, rnd() * 3, 0.05);
+  }
+
+  // ---- 16. Steam (continuous hiss for the Pipes level) --------------------
+  let steamGain = null, steamSrc = null;
+  function ensureSteam() {
+    if (steamSrc) return;
+    const src = mkNoise(1.1); src.loop = true;
+    const bp = mkFilter('bandpass', 5400, 1.2);
+    const hp = mkFilter('highpass', 3000);
+    steamGain = mkGain(0);
+    pipe(src, bp, hp, steamGain, busMusic);
+    src.start();
+    steamSrc = src;
+  }
+  function playSteam(volume) {
+    if (!started || !ctx) return;
+    ensureSteam();
+    glide(steamGain.gain, clamp01(volume) * 0.05, 0.4);
+  }
+
+  // ---- 17. Drip (one-shot water drop, pipes level) ------------------------
+  function playDrip() {
+    if (!started || !ctx || !reverbIn) return;
+    const t = now();
+    const o = mkOsc('sine', 1100 + rnd() * 400);
+    o.frequency.exponentialRampToValueAtTime(220, t + 0.18);
+    const g = mkEnv(t, 0.003, 0.06, 0.18);
+    const pan = mkPan((rnd() - 0.5) * 1.5);
+    if (pan) pipe(o, g, pan, reverbIn);
+    else pipe(o, g, reverbIn);
+    o.start(t); o.stop(t + 0.22);
+  }
+
   // ---- Returned controller -------------------------------------------------
   return {
     start, stop,
@@ -482,5 +646,14 @@ export function createAudio() {
     playBreathing,
     playReverbHorror,
     updateDistance,
+    // v2 polish-round-2 additions:
+    playDoorSlam,
+    playDistantCry,
+    playWhisper,
+    playLevelSting,
+    playWinChord,
+    playSwitchClick,
+    playSteam,
+    playDrip,
   };
 }

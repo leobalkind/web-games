@@ -2326,6 +2326,11 @@ function end(won) {
   document.getElementById('end-waves').textContent = waveIdx;
   const score = waveIdx * 100 + lives * 20 + (isEndless ? (waveIdx - 15) * 150 : 0);
   document.getElementById('end-score').textContent = score;
+  // Round-2 polish: surface KILLS + TOWERS-PLACED on end-stats list.
+  const _killsEl = document.getElementById('end-kills');
+  if (_killsEl) _killsEl.textContent = _totalKills || 0;
+  const _towersEl = document.getElementById('end-towers');
+  if (_towersEl) _towersEl.textContent = (towers || []).length;
   // Award stars in endless mode too (1 per 5 extra waves)
   if (isEndless) try { awardTalentStars(Math.floor((waveIdx - 15) / 5)); } catch {}
   const { isNewBest, current } = submitRun('pug-td', { score, waves: waveIdx, won });
@@ -2385,8 +2390,8 @@ function start() {
   mapParticles = [];
   generateDecor();
   miniBossBannerT = 0; miniBossBannerText = '';
-  // Show start tip + place-mode key hint
-  try { showTip('Tip: SYNERGY! Place FROST+CANNON adjacent → DEEP FREEZE bonus. Endless mode after wave 15. P=place-mode.', 6500); } catch {}
+  // Synergy hint shows in start() via the MutationObserver below; no extra
+  // showTip here (would just immediately overwrite itself — wasted DOM work).
   document.getElementById('overlay').hidden = true; document.getElementById('overlay').classList.add('is-hidden');
   document.getElementById('end-overlay').hidden = true; document.getElementById('end-overlay').classList.add('is-hidden');
   document.getElementById('hud').hidden = false;
@@ -2450,12 +2455,16 @@ let lastT = performance.now();
 // Floating 1x/2x/3x speed toggle (top-right) — multiplies the tick dt
 createSpeedToggle({ onChange: (m) => { __speedMult = m; } });
 
-// Tutorial tip — shows briefly when the game starts (every match)
+// Tutorial tip — shows briefly when the game starts (every match).
+// Round-2: clearer wording on synergy + endless + sell + call-wave.
 const _startOv = document.getElementById('overlay');
 if (_startOv) {
   const _showOnHide = () => {
     if (_startOv.classList.contains('is-hidden') || _startOv.hidden) {
-      showTip('Place towers → tap to upgrade. At Lv2 CHOOSE A PATH (permanent!). Mini-bosses on waves 5/10/15.', 7500);
+      const msg = _isTouch
+        ? 'TAP a slot → choose tower · TAP placed tower to UPGRADE/SELL · ⏩ Call next wave early for bonus $'
+        : 'Place towers (P toggle place-mode) → tap to upgrade. Lv2 picks a PATH. Bosses on waves 5/10/15.';
+      showTip(msg, 7500);
     }
   };
   new MutationObserver(_showOnHide).observe(_startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });

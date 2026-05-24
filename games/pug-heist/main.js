@@ -606,7 +606,10 @@ let touchAim = null;
 const _throwBtn = document.getElementById('throw-btn');
 if (_throwBtn) {
   _throwBtn.addEventListener('click', doThrow);
-  if ('ontouchstart' in window) _throwBtn.style.display = 'block';
+  // Legacy floating THROW button overlapped the universal mobileControls THROW
+  // chip on touch. The mobileControls overlay owns the touch UI, so hide the
+  // legacy duplicate everywhere (click handler kept as a safety net).
+  _throwBtn.style.display = 'none';
 }
 canvas.addEventListener('touchstart', (e) => { touchAim = e.touches[0]; e.preventDefault(); }, { passive: false });
 canvas.addEventListener('touchmove', (e) => { touchAim = e.touches[0]; e.preventDefault(); }, { passive: false });
@@ -1327,6 +1330,9 @@ function caught() {
   document.getElementById('end-sub').textContent = `${g.desc}. Final haul: $${totalLootValue}.`;
   document.getElementById('end-floor').textContent = floor;
   document.getElementById('end-loot').textContent = lootStolen;
+  // Round-2 polish: surface the dollar total alongside the item count.
+  const _haulEl = document.getElementById('end-haul');
+  if (_haulEl) _haulEl.textContent = '$' + (totalLootValue || 0);
   const score = floor * 100 + totalLootValue;
   const { isNewBest, current } = submitRun('pug-heist', { score, floor, value: totalLootValue });
   const bestEl = document.getElementById('end-best');
@@ -3023,12 +3029,16 @@ document.getElementById('brief-go').addEventListener('click', () => {
   genFloor(floor);
 });
 
-// Tutorial tip — shows briefly when the game starts (every match)
+// Tutorial tip — shows briefly when the game starts (every match).
+// Touch + desktop get distinct wording so mobile users see button hints.
 const _startOv = document.getElementById('overlay');
 if (_startOv) {
   const _showOnHide = () => {
     if (_startOv.classList.contains('is-hidden') || _startOv.hidden) {
-      showTip('WASD sneak · Q smoke · G tongue · T decoy · X throw vase · F crack safe · spend $$ between floors!', 6500);
+      const msg = _isTouch
+        ? 'JOYSTICK sneak · BARK/SMOKE/TONGUE/DECOY/VASE buttons · 🛒 SHOP between floors'
+        : 'WASD sneak · Q smoke · G tongue · T decoy · X vase · F crack safe · R restart floor';
+      showTip(msg, 6500);
     }
   };
   new MutationObserver(_showOnHide).observe(_startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });

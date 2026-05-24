@@ -525,7 +525,10 @@ canvas.addEventListener('touchstart', (e) => { const t = e.touches[0]; mouse.x =
 canvas.addEventListener('touchmove', (e) => { const t = e.touches[0]; mouse.x = t.clientX; mouse.y = t.clientY; e.preventDefault(); }, { passive: false });
 canvas.addEventListener('touchend', () => firing = false);
 document.getElementById('jet-btn').addEventListener('click', doJet);
-if ('ontouchstart' in window) document.getElementById('jet-btn').style.display = 'block';
+// Legacy floating JET button overlapped the mobileControls JET chip on touch.
+// The mobileControls overlay owns the touch UI — hide the legacy duplicate
+// everywhere (the click handler stays as a safety net).
+document.getElementById('jet-btn').style.display = 'none';
 // Universal mobile controls — aim-fire layout. Joystick moves, drag-anywhere
 // forwards mousemove to the canvas (so existing `firing`/`mouse` logic reads
 // from canvas-relative mouse events). FIRE button triggers held-mouse-down.
@@ -2438,12 +2441,16 @@ let lastT = performance.now();
   requestAnimationFrame(loop);
 })(performance.now());
 
-// Tutorial tip — shows briefly when the game starts (every match)
+// Tutorial tip — shows briefly when the game starts (every match).
+// Touch + desktop wording diverge — joystick/burst button vs WASD/SPACE.
 const _startOv = document.getElementById('overlay');
 if (_startOv) {
   const _showOnHide = () => {
     if (_startOv.classList.contains('is-hidden') || _startOv.hidden) {
-      showTip('WASD move · MOUSE aim · CLICK fire · SPACE = jetpack burst', 6000);
+      const msg = _isTouch
+        ? 'LEFT JOY move · RIGHT JOY aim+fire · 🚀 BURST button · last pug standing wins!'
+        : 'WASD move · MOUSE aim · CLICK fire · SPACE jetpack burst · last pug wins';
+      showTip(msg, 6000);
     }
   };
   new MutationObserver(_showOnHide).observe(_startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });
