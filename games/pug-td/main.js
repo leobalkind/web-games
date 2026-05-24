@@ -1,6 +1,7 @@
 // PUG TOWER DEFENSE — grid path, 6 tower classes, 15 scaling waves.
 import { submitRun, loadBest } from '../../src/persistence/highScores.js';
 import { createSfx } from '../../src/shared/miniSfx.js';
+import { createMusicTrack } from '../../src/shared/musicTrack.js';
 import { showTip } from '../../src/shared/tutorialTip.js';
 import { drawIcon, iconSvg } from '../../src/shared/icons.js';
 import { drawPug } from '../../src/shared/pugSprite.js';
@@ -19,6 +20,8 @@ showOrientationHint({ gameId: 'pug-td' });
 const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
 const sfx = createSfx({ storageKey: 'td:muted' });
+// Catchy arcade — escalates during waves, calms between.
+const music = createMusicTrack({ mood: 'arcade', tempo: 120, key: 'D', scale: 'minor' });
 sfx.applyButton(document.getElementById('mute-btn'));
 const _isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 createSettingsMenu({ gameId: 'pug-td', getControlsHelp: () => (_isTouch
@@ -156,7 +159,18 @@ const MAPS = {
   },
 };
 let currentMap = MAPS.classic;
-function isPath(c, r) { return currentMap.path.some((p) => p[0] === c && p[1] === r); }
+// Perf: precompute a Set of "c,r" keys so isPath() is O(1) instead of O(N).
+// Per-frame this used to do GRID_W*GRID_H * path.length comparisons during render.
+let _pathSet = null;
+function _rebuildPathSet() {
+  _pathSet = new Set();
+  for (const p of currentMap.path) _pathSet.add(p[0] + ',' + p[1]);
+}
+_rebuildPathSet();
+function isPath(c, r) {
+  if (!_pathSet) _rebuildPathSet();
+  return _pathSet.has(c + ',' + r);
+}
 
 // =========================================================================
 // PER-MAP BIOMES — each map gets a distinct visual theme: ground color, path
@@ -232,13 +246,17 @@ function tickAmbient(dt) {
     _ambientSpawnT -= 0.06;
     spawnAmbientParticle();
   }
-  for (const p of mapParticles) {
+  // Perf: prune in-place via reverse-iter splice — avoids per-frame realloc.
+  for (let i = mapParticles.length - 1; i >= 0; i--) {
+    const p = mapParticles[i];
     p.t += dt;
     p.x += p.vx * dt;
     p.y += p.vy * dt;
     if (p.type === 'leaf') p.spin += dt * 2;
+    if (p.t >= p.life || p.x < -30 || p.x > W + 30 || p.y < -30 || p.y > H + 30) {
+      mapParticles.splice(i, 1);
+    }
   }
-  mapParticles = mapParticles.filter((p) => p.t < p.life && p.x > -30 && p.x < W + 30 && p.y > -30 && p.y < H + 30);
 }
 
 // === Biome decor rendering ===
@@ -550,7 +568,7 @@ const TOWER_PATHS = {
     B: { id: 'SHATTER', label: 'SHATTER', blurb: '×2 dmg vs slowed enemies', badge: '#4cc9f0', glyph: '✧', dmgMul: 1.0, rangeMul: 1.0, rateMul: 1.0, shatter: true },
   },
   buff: {
-    A: { id: 'COMMANDER', label: 'COMMAND', blurb: '+60% buff aura',         badge: '#ffd23f', glyph: '⚔', dmgMul: 1.0, rangeMul: 1.1, rateMul: 1.0, buffBoost: 1.6 },
+    A: { id: 'COMMANDER', label: 'COMMAND', blurb: '+80% buff · +30% range',  badge: '#ffd23f', glyph: '⚔', dmgMul: 1.0, rangeMul: 1.3, rateMul: 1.0, buffBoost: 1.8 },
     B: { id: 'BANK',      label: 'BANK',    blurb: '+$1/sec passive income', badge: '#5ef38c', glyph: '$', dmgMul: 1.0, rangeMul: 1.0, rateMul: 1.0, incomeSec: 1 },
   },
   bone: {
@@ -577,8 +595,8 @@ const ENEMIES = {
 };
 
 const WAVES = [
-  { squirrel: 8 },
-  { squirrel: 12, cat: 2 },
+  { squirrel: 6 },
+  { squirrel: 10, cat: 2 },
   { squirrel: 14, cat: 4 },
   { cat: 10, bird: 4 },
   { squirrel: 20, tank: 1 },
@@ -955,7 +973,7 @@ function tick(dt) {
       inWave = false;
       betweenWaveT = 5;
       // bonus
-      const bonus = 20 + waveIdx * 5;
+      const bonus = 25 + waveIdx * 6;
       money += bonus;
       // Wave-complete pop near the vault — bigger celebratory ring + golden burst.
       const vlast = currentMap.path[currentMap.path.length - 1];
@@ -1019,7 +1037,8 @@ function tick(dt) {
       e.y += (dy / d) * sp * dt;
     }
   }
-  enemies = enemies.filter((e) => e.alive);
+  // Perf: prune in-place via reverse-iter splice — avoids per-frame realloc.
+  for (let i = enemies.length - 1; i >= 0; i--) if (!enemies[i].alive) enemies.splice(i, 1);
 
   // Towers fire
   for (const tw of towers) {
@@ -1264,20 +1283,25 @@ function tick(dt) {
     p.x += (dx / d) * p.speed * dt;
     p.y += (dy / d) * p.speed * dt;
   }
-  projectiles = projectiles.filter((p) => !p.dead);
+  // Perf: prune in-place via reverse-iter splice — avoids per-frame realloc.
+  for (let i = projectiles.length - 1; i >= 0; i--) if (projectiles[i].dead) projectiles.splice(i, 1);
   // Particles
-  for (const p of particles) {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
     p.t += dt;
     if (!p.ring) { p.x += (p.vx || 0) * dt; p.y += (p.vy || 0) * dt; p.vx *= 0.94; p.vy *= 0.94; }
+    if (p.t >= p.life) particles.splice(i, 1);
   }
-  particles = particles.filter((p) => p.t < p.life);
+  if (particles.length > 250) particles.splice(0, particles.length - 250);
   // Floating score popups (drift upward + slight horizontal, fade)
-  for (const p of popups) {
+  for (let i = popups.length - 1; i >= 0; i--) {
+    const p = popups[i];
     p.t += dt;
     p.y -= 28 * dt;
     if (p.vx) { p.x += p.vx * dt; p.vx *= 1 - dt * 2; }
+    if (p.t >= p.life) popups.splice(i, 1);
   }
-  popups = popups.filter((p) => p.t < p.life);
+  if (popups.length > 30) popups.splice(0, popups.length - 30);
   // Shake decay + banner + vault flash
   if (shakeT > 0) shakeT = Math.max(0, shakeT - dt);
   if (waveBannerT > 0) waveBannerT = Math.max(0, waveBannerT - dt);
@@ -1533,20 +1557,43 @@ function render() {
   }
 }
 
+// Perf: cache DOM refs + prev values; only touch DOM when something changed.
+const _tdHud = {
+  money: document.getElementById('hud-money'),
+  lives: document.getElementById('hud-lives'),
+  card: document.querySelector('#hud .hud-card'),
+  wave: document.getElementById('hud-wave'),
+  enemies: document.getElementById('hud-enemies'),
+  best: document.getElementById('hud-best'),
+};
+let _tdHudPrev = { money: NaN, lives: NaN, critical: null, wave: '', enemies: -1, best: -1 };
+let _tdBestCache = -1, _tdBestCacheT = 0;
 function updateHud() {
-  document.getElementById('hud-money').textContent = '$' + money;
-  const livesEl = document.getElementById('hud-lives');
-  livesEl.textContent = lives;
-  // Critical lives — pulse the HUD card red
-  const hudCard = document.querySelector('#hud .hud-card');
-  if (hudCard) {
-    if (lives > 0 && lives <= 3) hudCard.classList.add('td-hud-critical');
-    else hudCard.classList.remove('td-hud-critical');
+  if (money !== _tdHudPrev.money) { _tdHud.money.textContent = '$' + money; _tdHudPrev.money = money; }
+  if (lives !== _tdHudPrev.lives) { _tdHud.lives.textContent = lives; _tdHudPrev.lives = lives; }
+  if (_tdHud.card) {
+    const crit = lives > 0 && lives <= 3;
+    if (crit !== _tdHudPrev.critical) {
+      _tdHud.card.classList.toggle('td-hud-critical', crit);
+      _tdHudPrev.critical = crit;
+    }
   }
-  document.getElementById('hud-wave').textContent = `${waveIdx}/${WAVES.length}`;
-  document.getElementById('hud-enemies').textContent = enemies.length;
-  const best = loadBest('pug-td');
-  document.getElementById('hud-best').textContent = best ? best.score : 0;
+  const w = `${waveIdx}/${WAVES.length}`;
+  if (w !== _tdHudPrev.wave) { _tdHud.wave.textContent = w; _tdHudPrev.wave = w; }
+  if (enemies.length !== _tdHudPrev.enemies) {
+    _tdHud.enemies.textContent = enemies.length;
+    _tdHudPrev.enemies = enemies.length;
+  }
+  const now = performance.now();
+  if (now - _tdBestCacheT > 2000) {
+    const best = loadBest('pug-td');
+    _tdBestCache = best ? best.score : 0;
+    _tdBestCacheT = now;
+  }
+  if (_tdBestCache !== _tdHudPrev.best) {
+    _tdHud.best.textContent = _tdBestCache;
+    _tdHudPrev.best = _tdBestCache;
+  }
 }
 
 function end(won) {
@@ -1594,6 +1641,7 @@ document.getElementById('start-btn').addEventListener('click', start);
 document.getElementById('end-restart').addEventListener('click', start);
 function start() {
   currentMap = MAPS[chosenMapId] || MAPS.classic;
+  _rebuildPathSet();
   reset(); running = true; runId++;
   // Regenerate biome decor + clear ambient particles per match
   mapParticles = [];
@@ -1606,7 +1654,27 @@ function start() {
   buildBar();
   updateHud();
   sfx.resume();
+  try { music.setIntensity(0.3); music.play(); } catch {}
 }
+// Wave-driven music intensity sampler.
+setInterval(() => {
+  if (!running) return;
+  try {
+    // Base intensity rises slowly through campaign + spikes during active waves.
+    const progress = Math.min(1, (waveIdx || 0) / 15);
+    const i = (inWave ? 0.85 : 0.35) + progress * 0.15;
+    music.setIntensity(Math.min(1, i));
+  } catch {}
+}, 500);
+(function _wireTdMusicEnd() {
+  const endOv = document.getElementById('end-overlay');
+  if (!endOv) return;
+  const upd = () => {
+    const visible = !endOv.hidden && !endOv.classList.contains('is-hidden');
+    if (visible) try { music.stop(); } catch {}
+  };
+  new MutationObserver(upd).observe(endOv, { attributes: true, attributeFilter: ['hidden','class'] });
+})();
 // Kingdom-Rush-style "Call next wave early" button — visible only during the
 // calm period between waves. Clicking it triggers the next wave and grants
 // bonus money equal to the remaining timer (same formula startWave() already

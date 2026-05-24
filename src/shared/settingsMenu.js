@@ -516,6 +516,8 @@ export function createSettingsMenu({ gameId, getControlsHelp = () => '' } = {}) 
     });
     _detachTrap = _trapFocus(panel, _opener);
     announce('Settings opened');
+    // Modal-open woosh chime (respects master mute + music gain via miniSfx).
+    try { import('./miniSfx.js').then((m) => m.playUI && m.playUI('open')).catch(() => {}); } catch {}
   };
   const close = () => {
     if (!modal.classList.contains('is-open')) return;
@@ -524,6 +526,7 @@ export function createSettingsMenu({ gameId, getControlsHelp = () => '' } = {}) 
     if (_detachTrap) { _detachTrap(); _detachTrap = null; }
     _opener = null;
     announce('Settings closed');
+    try { import('./miniSfx.js').then((m) => m.playUI && m.playUI('close')).catch(() => {}); } catch {}
   };
   modal.querySelector('.wg-settings-close').addEventListener('click', () => close());
   modal.addEventListener('click', (e) => { if (e.target === modal) close(); });

@@ -3,6 +3,7 @@
 // missiles. Shockwave bork knocks back everything. Eat 5 vehicles to evolve.
 import { submitRun, loadBest } from '../../src/persistence/highScores.js';
 import { createSfx } from '../../src/shared/miniSfx.js';
+import { createMusicTrack } from '../../src/shared/musicTrack.js';
 import { showTip } from '../../src/shared/tutorialTip.js';
 import { drawIcon } from '../../src/shared/icons.js';
 import { drawPug } from '../../src/shared/pugSprite.js';
@@ -109,6 +110,8 @@ function checkSkinUnlocks(runScore) {
 const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
 const sfx = createSfx({ storageKey: 'pugzilla:muted' });
+// Light arcade backing — keep SFX dominant, music at low intensity.
+const music = createMusicTrack({ mood: 'arcade', tempo: 130, key: 'A', scale: 'minor' });
 sfx.applyButton(document.getElementById('mute-btn'));
 const _isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 createSettingsMenu({ gameId: 'pugzilla', getControlsHelp: () => _isTouch
@@ -302,7 +305,7 @@ function spawnHelicopter() {
     x: side < 0 ? -40 : WORLD_W + 40,
     y: rand(80, WORLD_H - 80),
     vx: -side * 60,
-    fireCd: 2,
+    fireCd: 3,
     hp: 2,
   });
 }
@@ -984,7 +987,7 @@ function tick(dt) {
     h.x += h.vx * dt;
     h.fireCd -= dt;
     if (h.fireCd <= 0) {
-      h.fireCd = 1.8 + Math.random() * 0.6;
+      h.fireCd = 2.2 + Math.random() * 0.7;
       const dx = pug.x - h.x, dy = pug.y - h.y;
       const d = Math.hypot(dx, dy);
       missiles.push({ x: h.x, y: h.y, vx: (dx / d) * 200, vy: (dy / d) * 200, life: 5 });
@@ -1042,16 +1045,23 @@ function tick(dt) {
       if (p.t >= p.life) particles.splice(i, 1);
     }
   }
+  // Cap particles to avoid runaway pyrotechnics from chained explosions.
+  if (particles.length > 250) particles.splice(0, particles.length - 250);
   // Juice tick
   if (shakeT > 0) { shakeT -= dt; if (shakeT <= 0) shakeMag = 0; }
   if (hitFlashT > 0) hitFlashT = Math.max(0, hitFlashT - dt);
-  for (const p of popups) {
+  // Perf: prune popups in-place via reverse-iter splice.
+  for (let i = popups.length - 1; i >= 0; i--) {
+    const p = popups[i];
     p.t += dt; p.y -= 32 * dt;
     if (p.vx) { p.x += p.vx * dt; p.vx *= 1 - dt * 2; }
+    if (p.t >= 1.2) popups.splice(i, 1);
   }
-  popups = popups.filter((p) => p.t < 1.2);
-  for (const s of smokeColumns) s.t += dt;
-  smokeColumns = smokeColumns.filter((s) => s.t < s.life);
+  if (popups.length > 30) popups.splice(0, popups.length - 30);
+  for (let i = smokeColumns.length - 1; i >= 0; i--) {
+    const s = smokeColumns[i]; s.t += dt;
+    if (s.t >= s.life) smokeColumns.splice(i, 1);
+  }
   // Distant choppers drift
   for (const d of distantChoppers) {
     d.x += d.vx * dt;
@@ -1441,17 +1451,42 @@ function drawNewsTicker() {
   ctx.restore();
 }
 
+// Perf: cache DOM refs + prev values; only touch DOM when something changed.
+const _pzHud = {
+  score: document.getElementById('hud-score'),
+  form: document.getElementById('hud-form'),
+  hp: document.getElementById('hud-hp'),
+  hpParent: document.getElementById('hud-hp')?.parentElement,
+  smashed: document.getElementById('hud-smashed'),
+  eaten: document.getElementById('hud-eaten'),
+  cd: document.getElementById('hud-cd'),
+  best: document.getElementById('hud-best'),
+};
+let _pzHudPrev = { score: -1, form: '', hp: -1, hpLow: null, smashed: -1, eaten: '', cd: '', best: -1 };
+let _pzBestCache = -1, _pzBestCacheT = 0;
 function updateHud() {
-  document.getElementById('hud-score').textContent = score;
-  document.getElementById('hud-form').textContent = form().name;
-  const hpEl = document.getElementById('hud-hp');
-  hpEl.textContent = Math.max(0, Math.ceil(hp));
-  hpEl.parentElement.classList.toggle('is-low', hp < 30);
-  document.getElementById('hud-smashed').textContent = smashed;
-  document.getElementById('hud-eaten').textContent = formIdx >= FORMS.length - 1 ? 'MAX' : `${eaten}/5`;
-  document.getElementById('hud-cd').textContent = borkCd > 0 ? borkCd.toFixed(1) + 's' : 'READY';
-  const best = loadBest('pugzilla');
-  document.getElementById('hud-best').textContent = best ? best.score : 0;
+  if (score !== _pzHudPrev.score) { _pzHud.score.textContent = score; _pzHudPrev.score = score; }
+  const fn = form().name;
+  if (fn !== _pzHudPrev.form) { _pzHud.form.textContent = fn; _pzHudPrev.form = fn; }
+  const hv = Math.max(0, Math.ceil(hp));
+  if (hv !== _pzHudPrev.hp) { _pzHud.hp.textContent = hv; _pzHudPrev.hp = hv; }
+  const hLow = hp < 30;
+  if (hLow !== _pzHudPrev.hpLow && _pzHud.hpParent) {
+    _pzHud.hpParent.classList.toggle('is-low', hLow);
+    _pzHudPrev.hpLow = hLow;
+  }
+  if (smashed !== _pzHudPrev.smashed) { _pzHud.smashed.textContent = smashed; _pzHudPrev.smashed = smashed; }
+  const eat = formIdx >= FORMS.length - 1 ? 'MAX' : `${eaten}/5`;
+  if (eat !== _pzHudPrev.eaten) { _pzHud.eaten.textContent = eat; _pzHudPrev.eaten = eat; }
+  const cd = borkCd > 0 ? borkCd.toFixed(1) + 's' : 'READY';
+  if (cd !== _pzHudPrev.cd) { _pzHud.cd.textContent = cd; _pzHudPrev.cd = cd; }
+  const now = performance.now();
+  if (now - _pzBestCacheT > 2000) {
+    const best = loadBest('pugzilla');
+    _pzBestCache = best ? best.score : 0;
+    _pzBestCacheT = now;
+  }
+  if (_pzBestCache !== _pzHudPrev.best) { _pzHud.best.textContent = _pzBestCache; _pzHudPrev.best = _pzBestCache; }
 }
 
 function end() {
@@ -1534,7 +1569,17 @@ function start() {
   document.getElementById('end-overlay').hidden = true; document.getElementById('end-overlay').classList.add('is-hidden');
   document.getElementById('hud').hidden = false;
   sfx.resume();
+  try { music.setIntensity(0.25); music.play(); } catch {}
 }
+(function _wirePugzillaMusicEnd() {
+  const endOv = document.getElementById('end-overlay');
+  if (!endOv) return;
+  const upd = () => {
+    const visible = !endOv.hidden && !endOv.classList.contains('is-hidden');
+    if (visible) try { music.stop(); } catch {}
+  };
+  new MutationObserver(upd).observe(endOv, { attributes: true, attributeFilter: ['hidden','class'] });
+})();
 let lastT = performance.now();
 (function loop(now) {
   const dt = Math.min((now - lastT) / 1000, 0.05);
@@ -1688,12 +1733,21 @@ function renderShopChips() {
     _pzShopChips.appendChild(c);
   }
 }
-// Update shop button visibility + cost label
+// Update shop button visibility + cost label.
+// Perf: cache prev values so we only touch the DOM when something actually changed.
+let _prevShopDisplay = null, _prevShopScore = -1, _prevChipsDisplay = null;
 function updateShopBtn() {
   if (!_pzShopBtn) return;
-  _pzShopBtn.style.display = running ? 'block' : 'none';
-  _pzShopBtn.textContent = `🛒 SHOP · $${score}`;
-  if (_pzShopChips) _pzShopChips.style.display = running ? 'flex' : 'none';
+  const disp = running ? 'block' : 'none';
+  if (_prevShopDisplay !== disp) { _pzShopBtn.style.display = disp; _prevShopDisplay = disp; }
+  if (running && score !== _prevShopScore) {
+    _pzShopBtn.textContent = `🛒 SHOP · $${score}`;
+    _prevShopScore = score;
+  }
+  if (_pzShopChips) {
+    const cd = running ? 'flex' : 'none';
+    if (_prevChipsDisplay !== cd) { _pzShopChips.style.display = cd; _prevChipsDisplay = cd; }
+  }
 }
 // Poll the shop-btn label via rAF (avoids monkey-patching updateHud).
 function _shopBtnLoop() {

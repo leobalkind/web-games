@@ -3,6 +3,7 @@
 // Fart boost = 1.5s speed burst but increases sound radius (humans turn to you).
 import { submitRun, loadBest } from '../../src/persistence/highScores.js';
 import { createSfx } from '../../src/shared/miniSfx.js';
+import { createMusicTrack } from '../../src/shared/musicTrack.js';
 import { showTip } from '../../src/shared/tutorialTip.js';
 import { drawIcon, iconSvg } from '../../src/shared/icons.js';
 import { drawPug } from '../../src/shared/pugSprite.js';
@@ -13,6 +14,8 @@ import { createSettingsMenu } from '../../src/shared/settingsMenu.js';
 const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
 const sfx = createSfx({ storageKey: 'heist:muted' });
+// Tense stealth pulse — intensity spikes when any guard is alerted.
+const music = createMusicTrack({ mood: 'tense', tempo: 130, key: 'A', scale: 'minor' });
 sfx.applyButton(document.getElementById('mute-btn'));
 const _isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 createSettingsMenu({ gameId: 'pug-heist', getControlsHelp: () => _isTouch
@@ -65,7 +68,7 @@ let floorStartTime = 0;
 const HEIST_SHOP = [
   { id: 'quietPaws',  cost: 150, name: 'QUIETER PAWS', icon: '🐾', desc: 'Sound radius halved (humans react slower)' },
   { id: 'eagleEye',   cost: 200, name: 'EAGLE EYE',    icon: '👁️', desc: 'See humans through walls (HUD dots)' },
-  { id: 'pockets',    cost: 120, name: 'POCKETS+',     icon: '🎒', desc: '+2 throw vases per floor' },
+  { id: 'pockets',    cost: 100, name: 'POCKETS+',     icon: '🎒', desc: '+2 throw vases per floor' },
   { id: 'luckyCharm', cost: 250, name: 'LUCKY CHARM',  icon: '🍀', desc: '25% chance loot drops 2x value' },
 ];
 let runUpgrades = {}; // id -> true when owned
@@ -199,9 +202,9 @@ function genFloor(level) {
       }
     }
   }
-  // Humans - 2 + level/2
+  // Humans - 2 + level/2 (floor 1 = 1 human for a softer intro)
   humans = [];
-  const humanCount = 1 + Math.floor(level / 2) + 1;
+  const humanCount = level === 1 ? 1 : 1 + Math.floor(level / 2) + 1;
   for (let i = 0; i < humanCount; i++) {
     for (let tries = 0; tries < 50; tries++) {
       const x = W / 2 + (Math.random() - 0.5) * W * 0.5;
@@ -708,12 +711,13 @@ function tick(dt) {
       vases.splice(i, 1);
     }
   }
-  // Noise rings expand visually
-  for (const n of noiseRings) {
+  // Noise rings expand visually — Perf: in-place prune.
+  for (let i = noiseRings.length - 1; i >= 0; i--) {
+    const n = noiseRings[i];
     n.t += dt;
     n.r = (n.t / n.life) * 120;
+    if (n.t >= n.life) noiseRings.splice(i, 1);
   }
-  noiseRings = noiseRings.filter((n) => n.t < n.life);
   // TV flicker
   for (const tv of tvs) {
     tv.flickerT -= dt;
@@ -746,20 +750,24 @@ function tick(dt) {
     s.t += dt;
     if (s.t >= s.life) smokeBombs.splice(i, 1);
   }
-  // Particles
-  for (const p of particles) {
+  // Particles — Perf: prune in-place via reverse-iter splice.
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
     p.t += dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.95; p.vy *= 0.95;
+    if (p.t >= p.life) particles.splice(i, 1);
   }
-  particles = particles.filter((p) => p.t < p.life);
+  if (particles.length > 200) particles.splice(0, particles.length - 200);
   // Juice tick
   if (shakeT > 0) { shakeT -= dt; if (shakeT <= 0) shakeMag = 0; }
   if (hitFlashT > 0) hitFlashT = Math.max(0, hitFlashT - dt);
-  for (const p of popups) {
+  for (let i = popups.length - 1; i >= 0; i--) {
+    const p = popups[i];
     p.t += dt;
     p.y -= 28 * dt;
     if (p.vx) { p.x += p.vx * dt; p.vx *= 1 - dt * 2; }
+    if (p.t >= 1.2) popups.splice(i, 1);
   }
-  popups = popups.filter((p) => p.t < 1.2);
+  if (popups.length > 30) popups.splice(0, popups.length - 30);
   // Light flicker tick
   for (const l of lights) {
     l.flickerT -= dt;
@@ -1428,21 +1436,44 @@ function drawFurniture(f) {
   }
 }
 
+// Perf: cache DOM refs + prev values; only touch DOM when something changed.
+const _hsHud = {
+  loot: document.getElementById('hud-loot'),
+  floor: document.getElementById('hud-floor'),
+  bark: document.getElementById('hud-bark'),
+  fart: document.getElementById('hud-fart'),
+  best: document.getElementById('hud-best'),
+  card: document.querySelector('#hud .hud-card'),
+};
+let _hsHudPrev = { loot: '', floor: -1, bark: '', fart: '', best: -1, alert: null };
+let _hsBestCache = -1, _hsBestCacheT = 0;
 function updateHud() {
-  const t = loot.filter((l) => l.taken).length;
-  document.getElementById('hud-loot').textContent = `${t}/${loot.length}`;
-  document.getElementById('hud-floor').textContent = floor;
-  document.getElementById('hud-bark').textContent = barkCd > 0 ? barkCd.toFixed(1) + 's' : 'READY';
-  document.getElementById('hud-fart').textContent = fartCd > 0 ? fartCd.toFixed(1) + 's' : 'READY';
-  const best = loadBest('pug-heist');
-  document.getElementById('hud-best').textContent = best ? best.floor : 0;
+  // Count taken loot in-place — avoids per-frame filter allocation.
+  let takenCount = 0;
+  for (const l of loot) if (l.taken) takenCount++;
+  const lt = `${takenCount}/${loot.length}`;
+  if (lt !== _hsHudPrev.loot) { _hsHud.loot.textContent = lt; _hsHudPrev.loot = lt; }
+  if (floor !== _hsHudPrev.floor) { _hsHud.floor.textContent = floor; _hsHudPrev.floor = floor; }
+  const bk = barkCd > 0 ? barkCd.toFixed(1) + 's' : 'READY';
+  if (bk !== _hsHudPrev.bark) { _hsHud.bark.textContent = bk; _hsHudPrev.bark = bk; }
+  const ft = fartCd > 0 ? fartCd.toFixed(1) + 's' : 'READY';
+  if (ft !== _hsHudPrev.fart) { _hsHud.fart.textContent = ft; _hsHudPrev.fart = ft; }
+  const now = performance.now();
+  if (now - _hsBestCacheT > 2000) {
+    const best = loadBest('pug-heist');
+    _hsBestCache = best ? best.floor : 0;
+    _hsBestCacheT = now;
+  }
+  if (_hsBestCache !== _hsHudPrev.best) { _hsHud.best.textContent = _hsBestCache; _hsHudPrev.best = _hsBestCache; }
   // Alert pulse: any human with vision suspicion or alerted
   let suspicious = false;
   for (const h of humans) {
     if (h.alertT > 0 || (h._closeT || 0) > 0.6) { suspicious = true; break; }
   }
-  const card = document.querySelector('#hud .hud-card');
-  if (card) card.classList.toggle('is-alert', suspicious);
+  if (suspicious !== _hsHudPrev.alert && _hsHud.card) {
+    _hsHud.card.classList.toggle('is-alert', suspicious);
+    _hsHudPrev.alert = suspicious;
+  }
 }
 
 function drawGadgetHud() {
@@ -1532,7 +1563,35 @@ function start() {
   document.getElementById('end-overlay').hidden = true; document.getElementById('end-overlay').classList.add('is-hidden');
   document.getElementById('hud').hidden = false;
   sfx.resume();
+  try { music.setIntensity(0.3); music.play(); } catch {}
 }
+// Music dynamics — sample guard-alert state in the main loop and adjust intensity.
+let _heistMusicAt = 0;
+function _heistUpdateMusic(now) {
+  if (now - _heistMusicAt < 400) return;
+  _heistMusicAt = now;
+  try {
+    let alerted = 0;
+    // humans[] holds guards/patrols; count any actively alerted ones.
+    if (typeof humans !== 'undefined' && Array.isArray(humans)) {
+      for (const h of humans) if (h && h.alertT > 0) alerted++;
+    }
+    const i = alertedThisFloor ? 1.0 : Math.min(0.8, 0.3 + alerted * 0.18);
+    music.setIntensity(i);
+  } catch {}
+}
+// Hook into main loop without rewriting it: schedule a periodic sampler.
+setInterval(() => { if (running) _heistUpdateMusic(performance.now()); }, 350);
+// Stop music on end-overlay show.
+(function _wireHeistMusicEnd() {
+  const endOv = document.getElementById('end-overlay');
+  if (!endOv) return;
+  const upd = () => {
+    const visible = !endOv.hidden && !endOv.classList.contains('is-hidden');
+    if (visible) try { music.stop(); } catch {}
+  };
+  new MutationObserver(upd).observe(endOv, { attributes: true, attributeFilter: ['hidden','class'] });
+})();
 let lastT = performance.now();
 (function loop(now) {
   const dt = Math.min((now - lastT) / 1000, 0.05);

@@ -59,7 +59,7 @@ export class Bot extends Pug {
     let mode = 'wander';
     if (lowHp && this.vibe !== 'aggressive') mode = 'flee';
     else if (this.vibe === 'greedy' && nearestTreat && treatDist < 400) mode = 'seekTreat';
-    else if (nearestEnemy && nearestDist < 380) mode = 'fight';
+    else if (nearestEnemy && nearestDist < 320) mode = 'fight';
     else if (nearestTreat && treatDist < 250) mode = 'seekTreat';
 
     // Pick target by mode
@@ -108,7 +108,7 @@ export class Bot extends Pug {
 
     // Decide whether to fire — only when fighting and roughly aimed
     let fireRequest = null;
-    if (mode === 'fight' && nearestEnemy && nearestDist < 360) {
+    if (mode === 'fight' && nearestEnemy && nearestDist < 300) {
       this.cooldownFire -= dt;
       if (this.cooldownFire <= 0) {
         // lead target slightly

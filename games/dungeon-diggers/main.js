@@ -1,6 +1,7 @@
 // PUG DUNGEON DIGGERS — dig through tiles, find treasure, upgrade.
 import { submitRun, loadBest } from '../../src/persistence/highScores.js';
 import { createSfx } from '../../src/shared/miniSfx.js';
+import { createMusicTrack } from '../../src/shared/musicTrack.js';
 import { showTip } from '../../src/shared/tutorialTip.js';
 import { drawIcon } from '../../src/shared/icons.js';
 import { drawPug } from '../../src/shared/pugSprite.js';
@@ -45,6 +46,8 @@ function drawPlushToy(ctx, x, y, size) {
 const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
 const sfx = createSfx({ storageKey: 'diggers:muted' });
+// Catchy arcade bass + lead — escalates briefly during combo streaks.
+const music = createMusicTrack({ mood: 'arcade', tempo: 140, key: 'G', scale: 'minor' });
 sfx.applyButton(document.getElementById('mute-btn'));
 const _isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 createSettingsMenu({ gameId: 'dungeon-diggers', getControlsHelp: () => _isTouch
@@ -573,8 +576,9 @@ function tryMove(dc, dr) {
     sfx.tone(660, 'triangle', 0.18, 0.22);
     sfx.tone(880, 'triangle', 0.25, 0.18);
   }
-  // surface refill
-  if (pug.row <= 1) {
+  // surface refill — cache prev display state to avoid touching DOM each move.
+  const atSurface = pug.row <= 1;
+  if (atSurface) {
     money += bag * 0; // already counted on pickup
     if (lastPickup > 0) {
       surfaceCelebT = 1.6;
@@ -583,13 +587,16 @@ function tryMove(dc, dr) {
     }
     bag = 0;
     stam = maxStam;
-    document.getElementById('upgrades').style.display = 'block';
-  } else {
-    document.getElementById('upgrades').style.display = 'none';
+  }
+  if (_lastUpgradesVisible !== atSurface) {
+    const upg = document.getElementById('upgrades');
+    if (upg) upg.style.display = atSurface ? 'block' : 'none';
+    _lastUpgradesVisible = atSurface;
   }
   if (stam <= 0 && running) { running = false; end(); }
   updateHud();
 }
+let _lastUpgradesVisible = null;
 
 function renderUpgrades() {
   const e = document.getElementById('upg-buttons');
@@ -1272,22 +1279,62 @@ function render() {
   ctx.fillText('DEPTH', W - 14, 72);
 }
 
-function updateHud() {
-  document.getElementById('hud-money').textContent = '$' + money;
-  document.getElementById('hud-depth').textContent = depth;
-  document.getElementById('hud-stam').textContent = Math.floor(stam);
-  document.getElementById('hud-bag').textContent = `${bag}/${maxBag}`;
-  const hud = document.getElementById('hud');
-  if (stam / maxStam < 0.25 && stam > 0) {
-    const pulse = 0.6 + 0.4 * Math.sin(performance.now() * 0.014);
-    hud.style.filter = `drop-shadow(0 0 ${6 + pulse * 8}px rgba(255,58,58,${0.4 + pulse * 0.4}))`;
-  } else {
-    hud.style.filter = '';
+// Perf: cache DOM refs + prev values; only touch DOM when something changed.
+// renderUpgrades() is intentionally NOT called per-frame anymore — it's only
+// called on money mutation (mining loot, purchase). Disable/enable state needs
+// to update though, so we patch it directly when money changes.
+const _ddHud = {
+  money: document.getElementById('hud-money'),
+  depth: document.getElementById('hud-depth'),
+  stam: document.getElementById('hud-stam'),
+  bag: document.getElementById('hud-bag'),
+  hud: document.getElementById('hud'),
+  best: document.getElementById('hud-best'),
+};
+let _ddHudPrev = { money: -1, depth: -1, stam: -1, bag: '', pulse: false, best: '' };
+let _ddBestCache = '', _ddBestCacheT = 0;
+function _refreshUpgradeButtons() {
+  // Cheap pass over existing buttons — toggle disabled/opacity based on money.
+  const e = document.getElementById('upg-buttons');
+  if (!e) return;
+  const btns = e.children;
+  for (let i = 0; i < UPGRADES.length && i < btns.length; i++) {
+    const u = UPGRADES[i];
+    const lvl = upgrades[u.id];
+    const next = u.cost * (lvl + 1);
+    const btn = btns[i];
+    if (lvl >= u.max) { btn.disabled = true; btn.style.opacity = 0.4; }
+    else if (money < next) { btn.disabled = true; btn.style.opacity = 0.5; }
+    else { btn.disabled = false; btn.style.opacity = 1; }
   }
-  const best = loadBest('dungeon-diggers');
-  const bestMoney = best && (best.money != null ? best.money : best.score);
-  document.getElementById('hud-best').textContent = bestMoney != null ? '$' + bestMoney : '$0';
-  renderUpgrades();
+}
+function updateHud() {
+  if (money !== _ddHudPrev.money) {
+    _ddHud.money.textContent = '$' + money;
+    _ddHudPrev.money = money;
+    _refreshUpgradeButtons();
+  }
+  if (depth !== _ddHudPrev.depth) { _ddHud.depth.textContent = depth; _ddHudPrev.depth = depth; }
+  const sv = Math.floor(stam);
+  if (sv !== _ddHudPrev.stam) { _ddHud.stam.textContent = sv; _ddHudPrev.stam = sv; }
+  const bg = `${bag}/${maxBag}`;
+  if (bg !== _ddHudPrev.bag) { _ddHud.bag.textContent = bg; _ddHudPrev.bag = bg; }
+  const pulseOn = stam / maxStam < 0.25 && stam > 0;
+  if (pulseOn) {
+    const pulse = 0.6 + 0.4 * Math.sin(performance.now() * 0.014);
+    _ddHud.hud.style.filter = `drop-shadow(0 0 ${6 + pulse * 8}px rgba(255,58,58,${0.4 + pulse * 0.4}))`;
+  } else if (_ddHudPrev.pulse) {
+    _ddHud.hud.style.filter = '';
+  }
+  _ddHudPrev.pulse = pulseOn;
+  const now = performance.now();
+  if (now - _ddBestCacheT > 2000) {
+    const best = loadBest('dungeon-diggers');
+    const bestMoney = best && (best.money != null ? best.money : best.score);
+    _ddBestCache = bestMoney != null ? '$' + bestMoney : '$0';
+    _ddBestCacheT = now;
+  }
+  if (_ddBestCache !== _ddHudPrev.best) { _ddHud.best.textContent = _ddBestCache; _ddHudPrev.best = _ddBestCache; }
 }
 
 function end() {
@@ -1343,7 +1390,22 @@ function start() {
   document.getElementById('hud').hidden = false;
   updateHud();
   sfx.resume();
+  try { music.setIntensity(0.4); music.play(); } catch {}
 }
+// Combo-driven music intensity sampler.
+setInterval(() => {
+  if (!running) return;
+  try { music.setIntensity(Math.min(1, 0.4 + (combo || 0) * 0.08)); } catch {}
+}, 400);
+(function _wireDiggersMusicEnd() {
+  const endOv = document.getElementById('end-overlay');
+  if (!endOv) return;
+  const upd = () => {
+    const visible = !endOv.hidden && !endOv.classList.contains('is-hidden');
+    if (visible) try { music.stop(); } catch {}
+  };
+  new MutationObserver(upd).observe(endOv, { attributes: true, attributeFilter: ['hidden','class'] });
+})();
 let lastT = performance.now();
 (function loop(now) {
   const dt = Math.min((now - lastT) / 1000, 0.05);

@@ -350,14 +350,25 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
-// Keep button label fresh (shows current money) + toggle visibility with game state
+// Keep button label fresh (shows current money) + toggle visibility with game state.
+// Perf: cache prev values so we only touch the DOM when something actually changed.
+const _evolveOv = document.getElementById('evolve-overlay');
+let _prevShopHidden = null, _prevShopMoney = -1;
 function _shopBtnLoop() {
   if (shopBtn) {
-    // Hide during evolve menu / user pause / shop modal already open
-    const evolveOpen = !document.getElementById('evolve-overlay')?.hidden;
+    const evolveOpen = _evolveOv ? !_evolveOv.hidden : false;
     const visible = !!(game?.running && game?.player?.alive && !paused && !shopOpen && !evolveOpen);
-    shopBtn.hidden = !visible;
-    if (visible) shopBtn.textContent = `🛒 SHOP $${Math.floor(game.player.money || 0)}`;
+    if (_prevShopHidden !== !visible) {
+      shopBtn.hidden = !visible;
+      _prevShopHidden = !visible;
+    }
+    if (visible) {
+      const m = Math.floor(game.player.money || 0);
+      if (m !== _prevShopMoney) {
+        shopBtn.textContent = `🛒 SHOP $${m}`;
+        _prevShopMoney = m;
+      }
+    }
   }
   requestAnimationFrame(_shopBtnLoop);
 }

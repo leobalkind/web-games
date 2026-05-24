@@ -3,6 +3,7 @@
 // Double-jump. Treats give score.
 import { submitRun, loadBest } from '../../src/persistence/highScores.js';
 import { createSfx } from '../../src/shared/miniSfx.js';
+import { createMusicTrack } from '../../src/shared/musicTrack.js';
 import { showTip } from '../../src/shared/tutorialTip.js';
 import { drawIcon } from '../../src/shared/icons.js';
 import { drawPug } from '../../src/shared/pugSprite.js';
@@ -13,6 +14,8 @@ import { getShakeMul as _shakeMul } from '../../src/shared/screenShake.js';
 const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
 const sfx = createSfx({ storageKey: 'lava:muted' });
+// Frantic arcade — tempo ramps with altitude.
+const music = createMusicTrack({ mood: 'arcade', tempo: 160, key: 'C', scale: 'minor' });
 sfx.applyButton(document.getElementById('mute-btn'));
 const _isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 createSettingsMenu({ gameId: 'floor-lava', getControlsHelp: () => _isTouch
@@ -387,7 +390,7 @@ function tick(dt) {
     batSpawnT -= dt;
     if (batSpawnT <= 0) {
       // Spawn around 1.0..2.4s apart, scaling tighter with height.
-      batSpawnT = Math.max(1.0, 3.5 - (height - 500) * 0.0015);
+      batSpawnT = Math.max(1.2, 3.8 - (height - 500) * 0.0014);
       const fromLeft = Math.random() < 0.5;
       const speed = 80 + Math.random() * 60 + Math.min(60, height * 0.04);
       bats.push({
@@ -402,7 +405,7 @@ function tick(dt) {
   if (height >= 1000) {
     fireSpawnT -= dt;
     if (fireSpawnT <= 0) {
-      fireSpawnT = Math.max(0.8, 4.0 - (height - 1000) * 0.001);
+      fireSpawnT = Math.max(1.0, 4.5 - (height - 1000) * 0.001);
       const fromLeft = Math.random() < 0.5;
       const spd = 220 + Math.random() * 100 + Math.min(120, (height - 1000) * 0.06);
       // Fireballs arc slightly toward pug — small vertical drift only so they
@@ -506,7 +509,7 @@ function tick(dt) {
       nextBiomeAtHeight += 500;
     }
   }
-  const lavaSpeed = (freezeT > 0 ? 0 : 50 + height * 0.4);
+  const lavaSpeed = (freezeT > 0 ? 0 : 40 + height * 0.38);
   lavaY -= lavaSpeed * dt;
   // Camera: when pug is above middle, scroll world down
   if (pug.y < H * 0.4) {
@@ -1061,11 +1064,24 @@ function render() {
   ctx.restore();
 }
 
+// Perf: cache DOM refs + prev values; only touch DOM when something changed.
+const _flHud = {
+  height: document.getElementById('hud-height'),
+  score: document.getElementById('hud-score'),
+  best: document.getElementById('hud-best'),
+};
+let _flHudPrev = { height: -1, score: -1, best: '' };
+let _flBestCache = '', _flBestCacheT = 0;
 function updateHud() {
-  document.getElementById('hud-height').textContent = height + 'm';
-  document.getElementById('hud-score').textContent = score;
-  const best = loadBest('floor-lava');
-  document.getElementById('hud-best').textContent = (best ? best.height : 0) + 'm';
+  if (height !== _flHudPrev.height) { _flHud.height.textContent = height + 'm'; _flHudPrev.height = height; }
+  if (score !== _flHudPrev.score) { _flHud.score.textContent = score; _flHudPrev.score = score; }
+  const now = performance.now();
+  if (now - _flBestCacheT > 2000) {
+    const best = loadBest('floor-lava');
+    _flBestCache = (best ? best.height : 0) + 'm';
+    _flBestCacheT = now;
+  }
+  if (_flBestCache !== _flHudPrev.best) { _flHud.best.textContent = _flBestCache; _flHudPrev.best = _flBestCache; }
 }
 
 function die() {
@@ -1095,7 +1111,22 @@ function start() {
   document.getElementById('end-overlay').hidden = true; document.getElementById('end-overlay').classList.add('is-hidden');
   document.getElementById('hud').hidden = false;
   sfx.resume();
+  try { music.setIntensity(0.3); music.play(); } catch {}
 }
+// Altitude-driven music sampler — more frantic the higher you climb.
+setInterval(() => {
+  if (!running) return;
+  try { music.setIntensity(Math.min(1, 0.3 + (maxHeight || 0) / 1400)); } catch {}
+}, 600);
+(function _wireLavaMusicEnd() {
+  const endOv = document.getElementById('end-overlay');
+  if (!endOv) return;
+  const upd = () => {
+    const visible = !endOv.hidden && !endOv.classList.contains('is-hidden');
+    if (visible) try { music.stop(); } catch {}
+  };
+  new MutationObserver(upd).observe(endOv, { attributes: true, attributeFilter: ['hidden','class'] });
+})();
 let lastT = performance.now();
 (function loop(now) {
   const dt = Math.min((now - lastT) / 1000, 0.05);

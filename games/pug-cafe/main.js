@@ -1,6 +1,7 @@
 // PUG CAFÉ PANIC — order management with chaotic pug staff.
 import { submitRun, loadBest } from '../../src/persistence/highScores.js';
 import { createSfx } from '../../src/shared/miniSfx.js';
+import { createMusicTrack } from '../../src/shared/musicTrack.js';
 import { showTip } from '../../src/shared/tutorialTip.js';
 import { iconSvg } from '../../src/shared/icons.js';
 import { drawPug } from '../../src/shared/pugSprite.js';
@@ -19,6 +20,19 @@ function _ingIcon(ing) {
 
 const sfx = createSfx({ storageKey: 'cafe:muted' });
 sfx.applyButton(document.getElementById('mute-btn'));
+// Chill kitchen music — gentle major pad, intensifies briefly during rushes.
+const music = createMusicTrack({ mood: 'chill', tempo: 110, key: 'C', scale: 'major' });
+// Kitchen sizzle ambience — soft highpassed noise burst every ~6-9s while running.
+// Fills the long quiet stretches between order events without competing with music.
+let _sizzleT = 0;
+function _kitchenAmbience(dt) {
+  if (!running) return;
+  _sizzleT -= dt;
+  if (_sizzleT <= 0) {
+    _sizzleT = 6 + Math.random() * 4;
+    try { sfx.noise(0.35, 0.05, 4200); } catch {}
+  }
+}
 const _isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 createSettingsMenu({ gameId: 'pug-cafe', getControlsHelp: () => (_isTouch
   ? 'TAP an ingredient → TAP SERVE on right order. Tap ★ SHOP (top-right) for upgrades. ⚡ SPEED TOGGLE top-right. Saved to your profile.'
@@ -573,15 +587,15 @@ let orders, bench, money, served, lives, spawnT, eventT, running;
 let comboT = 0, comboCount = 0; // serve combo within window
 // Shop upgrades — purchased flags reset per run. autoCookT counts down to next autocook trigger.
 const SHOP_DEFS = [
-  { id: 'autoCook',  name: 'AUTO-COOK',         cost: 300, icon: '🤖', desc: 'Auto-completes 1 ingredient in oldest order every 5s' },
-  { id: 'extraBench',name: 'EXTRA BENCH',       cost: 400, icon: '🪑', desc: 'Bench capacity +2' },
-  { id: 'fastServe', name: 'FAST SERVE',        cost: 350, icon: '⚡', desc: 'Skip serve animation (instant)' },
-  { id: 'patient',   name: 'PATIENT CUSTOMERS', cost: 500, icon: '⏰', desc: 'Order timeouts +50%' },
+  { id: 'autoCook',  name: 'AUTO-COOK',         cost: 250, icon: '🤖', desc: 'Auto-completes 1 ingredient in oldest order every 5s' },
+  { id: 'extraBench',name: 'EXTRA BENCH',       cost: 350, icon: '🪑', desc: 'Bench capacity +2' },
+  { id: 'fastServe', name: 'FAST SERVE',        cost: 300, icon: '⚡', desc: 'Skip serve animation (instant)' },
+  { id: 'patient',   name: 'PATIENT CUSTOMERS', cost: 450, icon: '⏰', desc: 'Order timeouts +50%' },
 ];
 let upgrades = {}; // id -> true when owned
 let autoCookT = 0;
 function reset() {
-  orders = []; bench = []; money = 0; served = 0; lives = 3;
+  orders = []; bench = []; money = 0; served = 0; lives = 4;
   spawnT = 1.5; eventT = 5;
   comboT = 0; comboCount = 0;
   upgrades = {}; autoCookT = 5;
@@ -602,7 +616,7 @@ const ORDER_COLORS = [
 ];
 function spawnOrder() {
   const r = RECIPES[Math.floor(Math.random() * RECIPES.length)];
-  const maxT = upgrades.patient ? 33 : 22;
+  const maxT = upgrades.patient ? 36 : 24;
   // Pick a color. ~30% chance to match the *previous* order's color so chains
   // form often enough to feel rewarding without trivialising the bonus.
   let col;
@@ -893,8 +907,11 @@ function serve(idx) {
   updateHud();
 }
 
+// Perf: reusable Set for the bench-supply check (avoids per-frame array slice).
+let _freshUsedIdx = null;
 function tick(dt) {
   if (!running) return;
+  _kitchenAmbience(dt);
   spawnT -= dt;
   if (spawnT <= 0) { spawnOrder(); spawnT = Math.max(1.6, 4 - served * 0.05); }
   for (let i = orders.length - 1; i >= 0; i--) {
@@ -907,12 +924,18 @@ function tick(dt) {
     // alarm chime + lost life.
     if (o.freshnessT == null) {
       // Check whether bench supplies the recipe (multi-count safe).
-      const benchCopy = bench.slice();
+      // Perf: avoid array slice per order per frame. Track index usage in a
+      // reusable bit-array (Set of indices already "consumed").
+      if (!_freshUsedIdx) _freshUsedIdx = new Set();
+      _freshUsedIdx.clear();
       let ok = true;
       for (const n of o.recipe.items) {
-        const idx = benchCopy.indexOf(n);
-        if (idx === -1) { ok = false; break; }
-        benchCopy.splice(idx, 1);
+        let found = -1;
+        for (let bi = 0; bi < bench.length; bi++) {
+          if (bench[bi] === n && !_freshUsedIdx.has(bi)) { found = bi; break; }
+        }
+        if (found === -1) { ok = false; break; }
+        _freshUsedIdx.add(found);
       }
       if (ok) {
         o.freshnessT = 0;
@@ -1038,14 +1061,37 @@ function showEvent(text) {
   setTimeout(() => div.remove(), 3000);
 }
 
+// Perf: cache DOM refs + prev values; only touch DOM when something changed.
+const _cfHud = {
+  money: document.getElementById('hud-money'),
+  served: document.getElementById('hud-served'),
+  lives: document.getElementById('hud-lives'),
+  best: document.getElementById('hud-best'),
+  card: document.querySelector('#hud .hud-card'),
+};
+let _cfHudPrev = { money: -1, served: -1, lives: -1, best: '', critical: null };
+let _cfBestCache = '', _cfBestCacheT = 0;
 function updateHud() {
-  document.getElementById('hud-money').textContent = '$' + money;
-  document.getElementById('hud-served').textContent = served;
-  document.getElementById('hud-lives').textContent = '❤️'.repeat(lives) + '🖤'.repeat(3 - lives);
-  const best = loadBest('pug-cafe');
-  document.getElementById('hud-best').textContent = best ? '$' + best.money : '$0';
-  const hudCard = document.querySelector('#hud .hud-card');
-  if (hudCard) hudCard.classList.toggle('is-critical', lives <= 1);
+  if (money !== _cfHudPrev.money) { _cfHud.money.textContent = '$' + money; _cfHudPrev.money = money; }
+  if (served !== _cfHudPrev.served) { _cfHud.served.textContent = served; _cfHudPrev.served = served; }
+  if (lives !== _cfHudPrev.lives) {
+    _cfHud.lives.textContent = '❤️'.repeat(lives) + '🖤'.repeat(4 - lives);
+    _cfHudPrev.lives = lives;
+  }
+  const now = performance.now();
+  if (now - _cfBestCacheT > 2000) {
+    const best = loadBest('pug-cafe');
+    _cfBestCache = best ? '$' + best.money : '$0';
+    _cfBestCacheT = now;
+  }
+  if (_cfBestCache !== _cfHudPrev.best) { _cfHud.best.textContent = _cfBestCache; _cfHudPrev.best = _cfBestCache; }
+  if (_cfHud.card) {
+    const crit = lives <= 1;
+    if (crit !== _cfHudPrev.critical) {
+      _cfHud.card.classList.toggle('is-critical', crit);
+      _cfHudPrev.critical = crit;
+    }
+  }
 }
 
 function end() {
@@ -1131,7 +1177,18 @@ function start() {
   renderKitchen(); renderBench(); renderOrders();
   updateHud();
   sfx.resume();
+  try { music.setIntensity(0.3); music.play(); } catch {}
 }
+// Stop music whenever the end overlay reveals (end-of-day card).
+(function _wireMusicEnd() {
+  const endOv = document.getElementById('end-overlay');
+  if (!endOv) return;
+  const upd = () => {
+    const visible = !endOv.hidden && !endOv.classList.contains('is-hidden');
+    if (visible) try { music.stop(); } catch {}
+  };
+  new MutationObserver(upd).observe(endOv, { attributes: true, attributeFilter: ['hidden','class'] });
+})();
 
 // Floating 1x/2x/3x speed toggle (top-right) + served-customer kill-feed.
 // Declared BEFORE the rAF loop so `__cafeFeed` is defined when serve() runs.

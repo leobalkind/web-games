@@ -1009,7 +1009,26 @@ export function closeMyDataModal() {
 // 4) BOOTSTRAP — wire to onChange so chip stays fresh
 // =============================================================================
 
-onChange(() => { syncProfileChip(); if ($(MYDATA_ID) && !$(MYDATA_ID).hidden) renderMyDataModal(); });
+// Audio feedback for profile changes — bright success chime.
+// Lazy-import miniSfx so login.js stays standalone-loadable on cold start.
+let _lastProfileSnapshot = null;
+onChange(() => {
+  syncProfileChip();
+  if ($(MYDATA_ID) && !$(MYDATA_ID).hidden) renderMyDataModal();
+  try {
+    const a = getActive();
+    const snap = a ? a.id : null;
+    if (_lastProfileSnapshot !== snap) {
+      _lastProfileSnapshot = snap;
+      // Don't play on the very first sync after page-load.
+      if (document.body && document.body.dataset.hubBooted === '1') {
+        import('../shared/miniSfx.js').then((m) => m.playUI && m.playUI('success')).catch(() => {});
+      }
+    }
+  } catch {}
+});
+// Mark booted on next tick so the initial syncProfileChip doesn't trigger sfx.
+requestAnimationFrame(() => { try { document.body.dataset.hubBooted = '1'; } catch {} });
 
 export function initHubAccounts() {
   // Build chip / pill first so they exist before the login overlay logic runs

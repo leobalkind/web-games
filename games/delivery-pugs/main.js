@@ -4,6 +4,7 @@
 // shopping cart, tiny tank — different stats).
 import { submitRun, loadBest } from '../../src/persistence/highScores.js';
 import { createSfx } from '../../src/shared/miniSfx.js';
+import { createMusicTrack } from '../../src/shared/musicTrack.js';
 import { showTip } from '../../src/shared/tutorialTip.js';
 import { drawIcon } from '../../src/shared/icons.js';
 import { drawPug } from '../../src/shared/pugSprite.js';
@@ -20,6 +21,18 @@ const __deliveryFeed = createKillFeed({ maxLines: 5, lifespan: 4500 });
 const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
 const sfx = createSfx({ storageKey: 'delivery:muted' });
+// Synthwave arcade groove — accelerates during night/storm runs.
+const music = createMusicTrack({ mood: 'arcade', tempo: 130, key: 'E', scale: 'minor' });
+// City hum ambience — low filtered noise burst every ~7s (cars passing).
+let _cityHumT = 0;
+function _cityAmbience(dt) {
+  if (!running) return;
+  _cityHumT -= dt;
+  if (_cityHumT <= 0) {
+    _cityHumT = 7 + Math.random() * 5;
+    try { sfx.noise(0.5, 0.04, 320); } catch {}
+  }
+}
 sfx.applyButton(document.getElementById('mute-btn'));
 const _isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 createSettingsMenu({ gameId: 'delivery-pugs', getControlsHelp: () => _isTouch
@@ -158,7 +171,7 @@ function reset() {
   for (let i = 0; i < 2; i++) spawnRaccoon();
   for (let i = 0; i < 5; i++) toxicPuddles.push({ x: rand(80, WORLD_W - 80), y: rand(80, WORLD_H - 80), r: 36 });
   for (let i = 0; i < 4; i++) spikeStrips.push({ x: rand(80, WORLD_W - 80), y: rand(80, WORLD_H - 80), w: 80 });
-  time = 30; deliveries = 0; fuel = 100;
+  time = 35; deliveries = 0; fuel = 100;
   intact = 100; intactFlashT = 0;
   cam = { x: pug.x, y: pug.y };
   shakeT = 0; shakeMag = 0; hitFlashT = 0;
@@ -386,6 +399,7 @@ showOrientationHint({ gameId: 'delivery-pugs' });
 
 function tick(dt) {
   if (!running) return;
+  _cityAmbience(dt);
   time -= dt;
   if (time <= 0) return end();
   // Weather system — every ~25s pick a new condition for 15-25s
@@ -422,8 +436,12 @@ function tick(dt) {
     if (Math.random() < dt * 8) {
       cf.sparks.push({ x: cf.x + (Math.random() - 0.5) * 6, y: cf.y - 4, vx: (Math.random() - 0.5) * 30, vy: -20 - Math.random() * 30, t: 0, life: 0.7 });
     }
-    for (const s of cf.sparks) { s.t += dt; s.x += s.vx * dt; s.y += s.vy * dt; s.vy += 30 * dt; }
-    cf.sparks = cf.sparks.filter((s) => s.t < s.life);
+    // Perf: prune in-place via reverse-iter splice
+    for (let i = cf.sparks.length - 1; i >= 0; i--) {
+      const s = cf.sparks[i];
+      s.t += dt; s.x += s.vx * dt; s.y += s.vy * dt; s.vy += 30 * dt;
+      if (s.t >= s.life) cf.sparks.splice(i, 1);
+    }
   }
   // --- Billboards scroll ---
   for (const b of billboards) b.scrollT += dt;
@@ -496,16 +514,28 @@ function tick(dt) {
   magnetT = Math.max(0, magnetT - dt);
   comboT = Math.max(0, comboT - dt);
   if (comboT <= 0) combo = 0;
-  for (const t of toasts) t.t += dt;
-  toasts = toasts.filter((t) => t.t < 2.5);
+  // Perf: prune in-place via reverse-iter splice — avoids per-frame array realloc.
+  for (let i = toasts.length - 1; i >= 0; i--) {
+    const t = toasts[i]; t.t += dt;
+    if (t.t >= 2.5) toasts.splice(i, 1);
+  }
   // Juice timers + ambient
   if (shakeT > 0) { shakeT -= dt; if (shakeT <= 0) shakeMag = 0; }
   if (hitFlashT > 0) hitFlashT = Math.max(0, hitFlashT - dt);
   if (intactFlashT > 0) intactFlashT = Math.max(0, intactFlashT - dt);
-  for (const p of popups) { p.t += dt; p.y -= 28 * dt; if (p.vx) { p.x += p.vx * dt; p.vx *= 0.88; } }
-  popups = popups.filter((p) => p.t < 1.2);
-  for (const p of burst) { p.t += dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.92; p.vy *= 0.92; }
-  burst = burst.filter((p) => p.t < p.life);
+  for (let i = popups.length - 1; i >= 0; i--) {
+    const p = popups[i];
+    p.t += dt; p.y -= 28 * dt;
+    if (p.vx) { p.x += p.vx * dt; p.vx *= 0.88; }
+    if (p.t >= 1.2) popups.splice(i, 1);
+  }
+  if (popups.length > 30) popups.splice(0, popups.length - 30);
+  for (let i = burst.length - 1; i >= 0; i--) {
+    const p = burst[i];
+    p.t += dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.92; p.vy *= 0.92;
+    if (p.t >= p.life) burst.splice(i, 1);
+  }
+  if (burst.length > 200) burst.splice(0, burst.length - 200);
   for (const s of smog) {
     s.x += s.vx * dt; s.y += s.vy * dt;
     if (s.x + s.r < 0) { s.x = W + s.r; s.y = Math.random() * H; }
@@ -517,8 +547,12 @@ function tick(dt) {
     const back = pug.ang + Math.PI;
     exhaust.push({ x: pug.x + Math.cos(back) * 16, y: pug.y + Math.sin(back) * 16, vx: Math.cos(back) * 20 + (Math.random() - 0.5) * 20, vy: Math.sin(back) * 20 + (Math.random() - 0.5) * 20, t: 0, life: nitroT > 0 ? 0.6 : 0.4, r: 4 + Math.random() * 3, hot: nitroT > 0 });
   }
-  for (const e of exhaust) { e.t += dt; e.x += e.vx * dt; e.y += e.vy * dt; e.vx *= 0.92; e.vy *= 0.92; e.r += 12 * dt; }
-  exhaust = exhaust.filter((e) => e.t < e.life);
+  // Perf: prune in-place via reverse-iter splice — avoids per-frame array realloc.
+  for (let i = exhaust.length - 1; i >= 0; i--) {
+    const e = exhaust[i];
+    e.t += dt; e.x += e.vx * dt; e.y += e.vy * dt; e.vx *= 0.92; e.vy *= 0.92; e.r += 12 * dt;
+    if (e.t >= e.life) exhaust.splice(i, 1);
+  }
   if (exhaust.length > 80) exhaust.splice(0, exhaust.length - 80);
   // Toxic puddle damage
   for (const p of toxicPuddles) {
@@ -560,14 +594,19 @@ function tick(dt) {
     // Round 2C: tire smoke puffs during drift (denser when actually drifting)
     if (Math.random() < (drifting ? 0.55 : 0.3)) spawnTireSmoke(pug.x, pug.y);
   }
-  for (const s of skidMarks) s.t += dt;
-  skidMarks = skidMarks.filter((s) => s.t < 3);
+  // Perf: prune in-place via reverse-iter splice — avoids per-frame array realloc.
+  for (let i = skidMarks.length - 1; i >= 0; i--) {
+    const s = skidMarks[i]; s.t += dt;
+    if (s.t >= 3) skidMarks.splice(i, 1);
+  }
   // Round 2C: tire smoke decay
-  for (const ts of tireSmoke) {
+  for (let i = tireSmoke.length - 1; i >= 0; i--) {
+    const ts = tireSmoke[i];
     ts.t += dt; ts.x += ts.vx * dt; ts.y += ts.vy * dt;
     ts.vx *= 0.93; ts.vy *= 0.93; ts.r += 18 * dt;
+    if (ts.t >= ts.life) tireSmoke.splice(i, 1);
   }
-  tireSmoke = tireSmoke.filter((ts) => ts.t < ts.life);
+  if (tireSmoke.length > 100) tireSmoke.splice(0, tireSmoke.length - 100);
   if (weatherFlashT > 0) weatherFlashT = Math.max(0, weatherFlashT - dt);
   // Crazy Taxi DRIFT bonus — sustained skid >1.5s pops "DRIFT +50".
   // Counts both true drift AND nitro-skid (matches the skid-mark trigger
@@ -800,9 +839,9 @@ function damage() {
   addBurst(pug.x, pug.y, '#cacacf', 8);
   // CARGO FRAGILITY — every collision drops intact% by 10. Bottom at 0.
   // Flash the bar so the player sees the hit cost them payout, not just HP.
-  intact = Math.max(0, intact - 10);
+  intact = Math.max(0, intact - 8);
   intactFlashT = 0.4;
-  addPopup(pug.x, pug.y - 12, '-10% INTACT', '#ff8e3c');
+  addPopup(pug.x, pug.y - 12, '-8% INTACT', '#ff8e3c');
   if (pug.hp <= 0) end();
 }
 
@@ -1535,17 +1574,43 @@ function end() {
   } catch (e) { /* */ }
 }
 
+// Perf: cache DOM refs + prev values; only touch DOM when something changed.
+const _dpHud = {
+  del: document.getElementById('hud-del'),
+  time: document.getElementById('hud-time'),
+  timeParent: document.getElementById('hud-time')?.parentElement,
+  fuel: document.getElementById('hud-fuel'),
+  fuelParent: document.getElementById('hud-fuel')?.parentElement,
+  vehicle: document.getElementById('hud-vehicle'),
+  best: document.getElementById('hud-best'),
+};
+let _dpHudPrev = { del: -1, time: -1, timeLow: null, fuel: -1, fuelLow: null, vehicle: '', best: -1 };
+let _dpBestCache = -1, _dpBestCacheT = 0;
 function updateHud() {
-  document.getElementById('hud-del').textContent = deliveries;
-  const timeEl = document.getElementById('hud-time');
-  timeEl.textContent = Math.ceil(time);
-  timeEl.parentElement.classList.toggle('is-low', time < 8);
-  const fuelEl = document.getElementById('hud-fuel');
-  fuelEl.textContent = Math.floor(fuel);
-  fuelEl.parentElement.classList.toggle('is-low', fuel < 25);
-  document.getElementById('hud-vehicle').textContent = vehicle.name.toUpperCase();
-  const best = loadBest('delivery-pugs');
-  document.getElementById('hud-best').textContent = best ? best.score : 0;
+  if (deliveries !== _dpHudPrev.del) { _dpHud.del.textContent = deliveries; _dpHudPrev.del = deliveries; }
+  const t = Math.ceil(time);
+  if (t !== _dpHudPrev.time) { _dpHud.time.textContent = t; _dpHudPrev.time = t; }
+  const tLow = time < 8;
+  if (tLow !== _dpHudPrev.timeLow && _dpHud.timeParent) {
+    _dpHud.timeParent.classList.toggle('is-low', tLow);
+    _dpHudPrev.timeLow = tLow;
+  }
+  const f = Math.floor(fuel);
+  if (f !== _dpHudPrev.fuel) { _dpHud.fuel.textContent = f; _dpHudPrev.fuel = f; }
+  const fLow = fuel < 25;
+  if (fLow !== _dpHudPrev.fuelLow && _dpHud.fuelParent) {
+    _dpHud.fuelParent.classList.toggle('is-low', fLow);
+    _dpHudPrev.fuelLow = fLow;
+  }
+  const vn = vehicle.name.toUpperCase();
+  if (vn !== _dpHudPrev.vehicle) { _dpHud.vehicle.textContent = vn; _dpHudPrev.vehicle = vn; }
+  const now = performance.now();
+  if (now - _dpBestCacheT > 2000) {
+    const best = loadBest('delivery-pugs');
+    _dpBestCache = best ? best.score : 0;
+    _dpBestCacheT = now;
+  }
+  if (_dpBestCache !== _dpHudPrev.best) { _dpHud.best.textContent = _dpBestCache; _dpHudPrev.best = _dpBestCache; }
 }
 
 document.getElementById('start-btn').addEventListener('click', start);
@@ -1559,7 +1624,28 @@ function start() {
   document.getElementById('end-overlay').hidden = true; document.getElementById('end-overlay').classList.add('is-hidden');
   document.getElementById('hud').hidden = false;
   sfx.resume();
+  try { music.setIntensity(0.4); music.play(); } catch {}
 }
+// Weather-driven music intensity sampler.
+setInterval(() => {
+  if (!running) return;
+  try {
+    let i = 0.4;
+    if (weather === 'rain') i = 0.7;
+    else if (weather === 'fog') i = 0.55;
+    else if (weather === 'night') i = 0.85;
+    music.setIntensity(i);
+  } catch {}
+}, 500);
+(function _wireDeliveryMusicEnd() {
+  const endOv = document.getElementById('end-overlay');
+  if (!endOv) return;
+  const upd = () => {
+    const visible = !endOv.hidden && !endOv.classList.contains('is-hidden');
+    if (visible) try { music.stop(); } catch {}
+  };
+  new MutationObserver(upd).observe(endOv, { attributes: true, attributeFilter: ['hidden','class'] });
+})();
 let lastT = performance.now();
 (function loop(now) {
   const dt = Math.min((now - lastT) / 1000, 0.05);

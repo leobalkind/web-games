@@ -2889,6 +2889,34 @@
       import {
         initHubAccounts, syncProfileChip, openMyDataModal, forceShowLoginOverlay,
       } from './src/hub/login.js';
+      // Tiny UI SFX for the hub — clicks, modal open/close, success chimes.
+      import { playUI } from './src/shared/miniSfx.js';
+      // Delegated: every primary button + chip + card click plays the click tick.
+      // We listen on document so dynamically-injected buttons (profile list,
+      // login overlay) automatically inherit it without extra wiring.
+      document.addEventListener('pointerup', (e) => {
+        const t = e.target.closest('button, .hub__cat, .card');
+        if (!t) return;
+        if (t.disabled) return;
+        // Skip the close ✖ buttons inside modals so they get a 'close' woosh instead.
+        if (t.classList.contains('hub-modal__close')) { playUI('close'); return; }
+        if (t.classList.contains('hub__cat'))           { playUI('click'); return; }
+        if (t.classList.contains('card'))               { playUI('click'); return; }
+        playUI('click');
+      }, { passive: true });
+      // Subtle hover tone for hub category chips and cards (desktop only).
+      // Throttled to ~6 events/sec so quick mouse sweeps don't chatter.
+      if (!('ontouchstart' in window)) {
+        let _lastHover = 0;
+        document.addEventListener('pointerenter', (e) => {
+          const now = performance.now();
+          if (now - _lastHover < 160) return;
+          const t = e.target?.closest?.('.hub__cat, .card');
+          if (!t) return;
+          _lastHover = now;
+          playUI('hover');
+        }, { capture: true, passive: true });
+      }
 
       // Register service worker (offline cache) — only in production
       if ('serviceWorker' in navigator && location.hostname !== 'localhost') {
@@ -2974,6 +3002,7 @@
       }
       function openModal(id, opener) {
         const m = $(id); if (!m) return;
+        if (m.hidden) try { playUI('open'); } catch {}
         m.hidden = false;
         // Mark as a true modal dialog for assistive tech.
         m.setAttribute('role', 'dialog');
@@ -2997,6 +3026,7 @@
       }
       function closeModal(id) {
         const m = $(id); if (!m) return;
+        if (!m.hidden) try { playUI('close'); } catch {}
         m.hidden = true;
         const st = _modalState[id];
         if (st) {

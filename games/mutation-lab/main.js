@@ -6,6 +6,7 @@
 // triggers an "ALREADY DISCOVERED" feedback (toast + shake + ingredient
 // refund) instead of producing the same result again.
 import { createSfx } from '../../src/shared/miniSfx.js';
+import { createMusicTrack } from '../../src/shared/musicTrack.js';
 import { showTip } from '../../src/shared/tutorialTip.js';
 import { drawPug } from '../../src/shared/pugSprite.js';
 import { makeIngredientCanvas } from '../../src/shared/ingredientIcons.js';
@@ -61,6 +62,8 @@ function _ingredientEl(ing, size) {
 }
 
 const sfx = createSfx({ storageKey: 'mutlab:muted' });
+// Sleepy lab ambience — slow chill arp, never changes intensity.
+const music = createMusicTrack({ mood: 'chill', tempo: 80, key: 'F', scale: 'major' });
 sfx.applyButton(document.getElementById('mute-btn'));
 
 // ----- Visual polish: bubbling beaker, glow, sparkles, table texture -----
@@ -1301,6 +1304,7 @@ document.getElementById('start-btn').addEventListener('click', () => {
   updateHud();
   syncBeaker(); // ensures bubble + glow state reflects empty beaker
   sfx.resume();
+  try { music.setIntensity(0.3); music.play(); } catch {}
 });
 
 // Tutorial tip — shows briefly when the game starts (every match)

@@ -22,71 +22,113 @@ export class Hud {
     this.overlay = document.getElementById('hud');
     this.genHp = document.getElementById('hud-gen-hp');
     this.genFill = document.getElementById('hud-gen-fill');
+    // Boss-bar DOM cached so updateBoss() doesn't re-query each frame.
+    this._bossEl = document.getElementById('hud-boss');
+    this._bossFill = document.getElementById('hud-boss-fill');
+    this._bossHp = document.getElementById('hud-boss-hp');
+    // Perf: prev-value cache — only touch DOM when something actually changed.
+    this._prev = {
+      hp: '', hpPct: -1, stamPct: -1, stam: '',
+      wood: -1, scrap: -1, explosives: -1, electronics: -1, kills: -1,
+      night: '', phase: '', phasePct: -1, night_class: null,
+      phaseTime: '', genHp: '', genPct: -1, bossHp: -1, bossPct: -1, bossHidden: null,
+    };
   }
 
   updateGenerator(gen) {
     if (!this.genHp || !gen) return;
-    this.genHp.textContent = `${Math.ceil(gen.hp)}/${gen.maxHp}`;
+    const t = `${Math.ceil(gen.hp)}/${gen.maxHp}`;
+    if (t !== this._prev.genHp) { this.genHp.textContent = t; this._prev.genHp = t; }
     const r = Math.max(0, gen.hp / gen.maxHp) * 100;
-    this.genFill.style.width = `${r}%`;
+    const pct = Math.round(r * 10) / 10;
+    if (pct !== this._prev.genPct) { this.genFill.style.width = `${r}%`; this._prev.genPct = pct; }
   }
 
   showBoss(boss) {
-    const el = document.getElementById('hud-boss');
-    if (!el || !boss) return;
-    el.hidden = false;
-    document.getElementById('hud-boss-max').textContent = boss.maxHp;
+    if (!this._bossEl || !boss) return;
+    this._bossEl.hidden = false;
+    this._prev.bossHidden = false;
+    const max = document.getElementById('hud-boss-max');
+    if (max) max.textContent = boss.maxHp;
     this.updateBoss(boss);
   }
   updateBoss(boss) {
-    if (!boss) return;
-    const el = document.getElementById('hud-boss');
-    const fill = document.getElementById('hud-boss-fill');
-    const hp = document.getElementById('hud-boss-hp');
-    if (!el || !fill) return;
-    if (!boss.alive) { el.hidden = true; return; }
-    el.hidden = false;
-    hp.textContent = Math.ceil(boss.hp);
-    fill.style.width = `${(boss.hp / boss.maxHp) * 100}%`;
+    if (!boss || !this._bossEl || !this._bossFill) return;
+    if (!boss.alive) {
+      if (this._prev.bossHidden !== true) { this._bossEl.hidden = true; this._prev.bossHidden = true; }
+      return;
+    }
+    if (this._prev.bossHidden !== false) { this._bossEl.hidden = false; this._prev.bossHidden = false; }
+    const hp = Math.ceil(boss.hp);
+    if (hp !== this._prev.bossHp) { this._bossHp.textContent = hp; this._prev.bossHp = hp; }
+    const pct = Math.round((boss.hp / boss.maxHp) * 1000) / 10;
+    if (pct !== this._prev.bossPct) { this._bossFill.style.width = `${(boss.hp / boss.maxHp) * 100}%`; this._prev.bossPct = pct; }
   }
   hideBoss() {
-    const el = document.getElementById('hud-boss');
-    if (el) el.hidden = true;
+    if (this._bossEl && this._prev.bossHidden !== true) {
+      this._bossEl.hidden = true;
+      this._prev.bossHidden = true;
+    }
   }
 
   show() { this.overlay.hidden = false; this.overlay.classList.remove('is-hidden'); }
   hide() { this.overlay.hidden = true; this.overlay.classList.add('is-hidden'); }
 
   updatePlayer(player) {
-    this.hp.textContent = `${Math.ceil(player.hp)}/${player.maxHp}`;
+    const P = this._prev;
+    const t = `${Math.ceil(player.hp)}/${player.maxHp}`;
+    if (t !== P.hp) { this.hp.textContent = t; P.hp = t; }
     const ratio = Math.max(0, player.hp / player.maxHp) * 100;
-    this.hpFill.style.width = `${ratio}%`;
+    const pct = Math.round(ratio * 10) / 10;
+    if (pct !== P.hpPct) { this.hpFill.style.width = `${ratio}%`; P.hpPct = pct; }
     const sRatio = Math.max(0, player.stam / player.maxStam) * 100;
-    this.stamFill.style.width = `${sRatio}%`;
-    this.stamText.textContent = `${Math.ceil(player.stam)}`;
+    const sPct = Math.round(sRatio * 10) / 10;
+    if (sPct !== P.stamPct) { this.stamFill.style.width = `${sRatio}%`; P.stamPct = sPct; }
+    const st = `${Math.ceil(player.stam)}`;
+    if (st !== P.stam) { this.stamText.textContent = st; P.stam = st; }
   }
 
   updateResources(res, kills) {
-    if (this.wood)        this.wood.textContent        = Math.floor(res.wood || 0);
-    if (this.scrap)       this.scrap.textContent       = Math.floor(res.scrap || 0);
-    if (this.explosives)  this.explosives.textContent  = Math.floor(res.explosives || 0);
-    if (this.electronics) this.electronics.textContent = Math.floor(res.electronics || 0);
-    if (this.kills)       this.kills.textContent       = kills;
+    const P = this._prev;
+    if (this.wood) {
+      const v = Math.floor(res.wood || 0);
+      if (v !== P.wood) { this.wood.textContent = v; P.wood = v; }
+    }
+    if (this.scrap) {
+      const v = Math.floor(res.scrap || 0);
+      if (v !== P.scrap) { this.scrap.textContent = v; P.scrap = v; }
+    }
+    if (this.explosives) {
+      const v = Math.floor(res.explosives || 0);
+      if (v !== P.explosives) { this.explosives.textContent = v; P.explosives = v; }
+    }
+    if (this.electronics) {
+      const v = Math.floor(res.electronics || 0);
+      if (v !== P.electronics) { this.electronics.textContent = v; P.electronics = v; }
+    }
+    if (this.kills && kills !== P.kills) { this.kills.textContent = kills; P.kills = kills; }
   }
 
   updatePhase(phase, night, total, k) {
-    this.night.textContent = `${night}/${total}`;
-    this.phase.textContent = phase.toUpperCase();
-    this.phaseFill.style.width = `${Math.max(0, Math.min(1, k)) * 100}%`;
+    const P = this._prev;
+    const n = `${night}/${total}`;
+    if (n !== P.night) { this.night.textContent = n; P.night = n; }
+    const ph = phase.toUpperCase();
+    if (ph !== P.phase) { this.phase.textContent = ph; P.phase = ph; }
+    const pct = Math.round(Math.max(0, Math.min(1, k)) * 1000) / 10;
+    if (pct !== P.phasePct) { this.phaseFill.style.width = `${Math.max(0, Math.min(1, k)) * 100}%`; P.phasePct = pct; }
     const isNight = phase === 'night';
-    if (isNight) this.phaseFillRow.classList.add('night');
-    else this.phaseFillRow.classList.remove('night');
+    if (isNight !== P.night_class) {
+      this.phaseFillRow.classList.toggle('night', isNight);
+      P.night_class = isNight;
+    }
   }
 
   updatePhaseTime(secsLeft) {
     const m = Math.max(0, Math.floor(secsLeft / 60));
     const s = Math.max(0, Math.floor(secsLeft % 60));
-    this.phaseTime.textContent = `${m}:${String(s).padStart(2, '0')}`;
+    const t = `${m}:${String(s).padStart(2, '0')}`;
+    if (t !== this._prev.phaseTime) { this.phaseTime.textContent = t; this._prev.phaseTime = t; }
   }
 
   setBuildActive(active, id = null) {

@@ -3,6 +3,7 @@
 // Shopping cart = speed boost but louder. Guards chase based on heat.
 import { submitRun, loadBest } from '../../src/persistence/highScores.js';
 import { createSfx } from '../../src/shared/miniSfx.js';
+import { createMusicTrack } from '../../src/shared/musicTrack.js';
 import { showTip } from '../../src/shared/tutorialTip.js';
 import { drawIcon } from '../../src/shared/icons.js';
 import { drawPug } from '../../src/shared/pugSprite.js';
@@ -66,6 +67,8 @@ function drawDonut(ctx, x, y, size) {
 const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
 const sfx = createSfx({ storageKey: 'mart:muted' });
+// Tense pulse — alarms ramp intensity to max.
+const music = createMusicTrack({ mood: 'tense', tempo: 120, key: 'D', scale: 'minor' });
 sfx.applyButton(document.getElementById('mute-btn'));
 const _isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 createSettingsMenu({ gameId: 'supermarket-pug', getControlsHelp: () => _isTouch
@@ -517,7 +520,7 @@ function tick(dt) {
     spotFlashT = 0.5;
   }
   // Heat decays slowly UNLESS alarm is on
-  if (!alarm.on) heat = Math.max(0, heat - dt * 0.05);
+  if (!alarm.on) heat = Math.max(0, heat - dt * 0.07);
   else { heat = 1; alarm.T -= dt; if (alarm.T <= 0) alarm.T = 0; }
   // Cleaner robot — patrols an elliptical loop; sees player at close range -> heat spike
   if (cleanerBot) {
@@ -1086,21 +1089,47 @@ function render() {
   ctx.restore();
 }
 
+// Perf: cache DOM refs + prev values; only touch DOM when something changed.
+const _smHud = {
+  haul: document.getElementById('hud-haul'),
+  bag: document.getElementById('hud-bag'),
+  heat: document.getElementById('hud-heat'),
+  shelves: document.getElementById('hud-shelves'),
+  hud: document.getElementById('hud'),
+  best: document.getElementById('hud-best'),
+};
+let _smHudPrev = { haul: -1, bag: '', heat: -1, shelves: -1, pulse: false, best: '' };
+let _smBestCache = null, _smBestCacheT = 0;
 function updateHud() {
-  document.getElementById('hud-haul').textContent = '$' + haul;
-  document.getElementById('hud-bag').textContent = `${bag}/${maxBag}`;
-  document.getElementById('hud-heat').textContent = Math.floor(heat * 100) + '%';
-  document.getElementById('hud-shelves').textContent = shelvesKnocked;
-  const hud = document.getElementById('hud');
-  if (heat > 0.7) {
-    const pulse = 0.6 + 0.4 * Math.sin(performance.now() * 0.014);
-    hud.style.filter = `drop-shadow(0 0 ${6 + pulse * 8}px rgba(255,58,58,${0.4 + pulse * 0.4}))`;
-  } else {
-    hud.style.filter = '';
+  if (haul !== _smHudPrev.haul) { _smHud.haul.textContent = '$' + haul; _smHudPrev.haul = haul; }
+  const bg = `${bag}/${maxBag}`;
+  if (bg !== _smHudPrev.bag) { _smHud.bag.textContent = bg; _smHudPrev.bag = bg; }
+  const ht = Math.floor(heat * 100);
+  if (ht !== _smHudPrev.heat) { _smHud.heat.textContent = ht + '%'; _smHudPrev.heat = ht; }
+  if (shelvesKnocked !== _smHudPrev.shelves) {
+    _smHud.shelves.textContent = shelvesKnocked;
+    _smHudPrev.shelves = shelvesKnocked;
   }
-  const best = loadBest('supermarket-pug');
-  const bestHaul = best && (best.haul != null ? best.haul : best.score);
-  document.getElementById('hud-best').textContent = bestHaul != null ? '$' + bestHaul : '$0';
+  const pulseOn = heat > 0.7;
+  if (pulseOn) {
+    const pulse = 0.6 + 0.4 * Math.sin(performance.now() * 0.014);
+    _smHud.hud.style.filter = `drop-shadow(0 0 ${6 + pulse * 8}px rgba(255,58,58,${0.4 + pulse * 0.4}))`;
+  } else if (_smHudPrev.pulse) {
+    _smHud.hud.style.filter = '';
+  }
+  _smHudPrev.pulse = pulseOn;
+  // loadBest hits localStorage — cache for 2s.
+  const now = performance.now();
+  if (now - _smBestCacheT > 2000) {
+    const best = loadBest('supermarket-pug');
+    const bestHaul = best && (best.haul != null ? best.haul : best.score);
+    _smBestCache = bestHaul != null ? '$' + bestHaul : '$0';
+    _smBestCacheT = now;
+  }
+  if (_smBestCache !== _smHudPrev.best) {
+    _smHud.best.textContent = _smBestCache;
+    _smHudPrev.best = _smBestCache;
+  }
 }
 
 function caught() { shake(8, 0.3); end(false); }
@@ -1159,7 +1188,26 @@ function start() {
   document.getElementById('end-overlay').hidden = true; document.getElementById('end-overlay').classList.add('is-hidden');
   document.getElementById('hud').hidden = false;
   sfx.resume();
+  try { music.setIntensity(0.25); music.play(); } catch {}
 }
+// Music dynamics — sample alarm state + heat in a periodic timer.
+setInterval(() => {
+  if (!running) return;
+  try {
+    const heatVal = (typeof heat === 'number') ? heat : 0;
+    const i = (alarm && alarm.on) ? 1.0 : Math.min(0.75, 0.25 + heatVal * 0.5);
+    music.setIntensity(i);
+  } catch {}
+}, 350);
+(function _wireMartMusicEnd() {
+  const endOv = document.getElementById('end-overlay');
+  if (!endOv) return;
+  const upd = () => {
+    const visible = !endOv.hidden && !endOv.classList.contains('is-hidden');
+    if (visible) try { music.stop(); } catch {}
+  };
+  new MutationObserver(upd).observe(endOv, { attributes: true, attributeFilter: ['hidden','class'] });
+})();
 let lastT = performance.now();
 (function loop(now) {
   const dt = Math.min((now - lastT) / 1000, 0.05);
@@ -1332,13 +1380,24 @@ function renderBribeChips() {
     _bribeChips.appendChild(c);
   }
 }
-// Keep bribe button label fresh + chips ticking
+// Keep bribe button label fresh + chips ticking.
+// Perf: cache prev values so we only touch the button DOM when something changed.
+// renderBribeChips() must remain per-frame — it visualises timers (guardFreezeT,
+// cameraBlinkT) that decrement continuously.
+let _prevBribeDisplay = null, _prevBribeHaul = -1, _prevBribeChipsDisplay = null;
 function _bribeBtnLoop() {
   if (_bribeBtn) {
-    _bribeBtn.style.display = running ? 'block' : 'none';
-    _bribeBtn.textContent = `💰 BRIBE $${haul}`;
+    const disp = running ? 'block' : 'none';
+    if (_prevBribeDisplay !== disp) { _bribeBtn.style.display = disp; _prevBribeDisplay = disp; }
+    if (running && haul !== _prevBribeHaul) {
+      _bribeBtn.textContent = `💰 BRIBE $${haul}`;
+      _prevBribeHaul = haul;
+    }
   }
-  if (_bribeChips) _bribeChips.style.display = running ? 'flex' : 'none';
+  if (_bribeChips) {
+    const cd = running ? 'flex' : 'none';
+    if (_prevBribeChipsDisplay !== cd) { _bribeChips.style.display = cd; _prevBribeChipsDisplay = cd; }
+  }
   renderBribeChips();
   requestAnimationFrame(_bribeBtnLoop);
 }
@@ -1391,9 +1450,14 @@ function renderObjectivesPanel() {
   }
   _objPanel.innerHTML = html;
 }
-// Hide objectives panel when run ends (visible only while in-game)
+// Hide objectives panel when run ends (visible only while in-game).
+// Perf: cache prev display so we don't touch CSS every frame.
+let _prevObjDisplay = null;
 const _objVisLoop = () => {
-  if (_objPanel) _objPanel.style.display = (running && objectives && objectives.length) ? 'block' : 'none';
+  if (_objPanel) {
+    const d = (running && objectives && objectives.length) ? 'block' : 'none';
+    if (_prevObjDisplay !== d) { _objPanel.style.display = d; _prevObjDisplay = d; }
+  }
   requestAnimationFrame(_objVisLoop);
 };
 _objVisLoop();

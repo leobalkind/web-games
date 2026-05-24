@@ -42,8 +42,8 @@ export class World {
       targetY: this.height / 2 - 180,
       targetW: 480,
       targetH: 360,
-      shrinkStart: 30,
-      shrinkEnd: 130,
+      shrinkStart: 40,
+      shrinkEnd: 140,
     };
     this.zoneGraphics = new Graphics();
     this.zoneLayer.addChild(this.zoneGraphics);

@@ -1223,7 +1223,7 @@ function tick(dt) {
   }
   // Battery drain
   if (flashlightOn) {
-    battery = Math.max(0, battery - 4 * dt);
+    battery = Math.max(0, battery - 3 * dt);
     if (battery <= 0) { flashlightOn = false; pop(pug.x, pug.y - 18, 'BATTERY DEAD', '#ff3a3a'); }
   }
   monsterDazedT = Math.max(0, monsterDazedT - dt);
@@ -1396,8 +1396,8 @@ function tick(dt) {
     lastSanityTick = 0;
     const lit = inLitCell(pug.x, pug.y) && !hidden;
     let drain = 0;
-    if (!lit) drain += 1.2;
-    if (monster.chase) drain += 3.0;
+    if (!lit) drain += 1.0;
+    if (monster.chase) drain += 2.4;
     if (archetype === 'pipes') drain += 0.8;
     // Smiler proximity drains sanity even without contact
     for (const e of entities)
@@ -2608,42 +2608,81 @@ function drawFlashlightCone() {
   ctx.restore();
 }
 
+// Perf: cache DOM refs + prev values; only touch DOM when something changed.
+const _brHud = {
+  cans: document.getElementById('hud-cans'),
+  state: document.getElementById('hud-state'),
+  card: document.querySelector('#hud .hud-card'),
+  sanBar: document.getElementById('hud-sanity-bar'),
+  batBar: document.getElementById('hud-battery-bar'),
+  smk: document.getElementById('hud-smoke'),
+  depth: document.getElementById('hud-depth'),
+  best: document.getElementById('hud-best'),
+  notes: document.getElementById('hud-notes'),
+};
+let _brHudPrev = {
+  cans: -1, state: '', stateColor: '',
+  san: -1, sanColor: '',
+  bat: -1, batColor: '', batShadow: null,
+  smk: -1, depth: -1, best: -1, notes: '',
+  chase: null,
+};
+let _brBestCache = -1, _brBestCacheT = 0;
 function updateHud() {
-  document.getElementById('hud-cans').textContent = `${5 - cans.length}/5`;
+  const cansLeft = 5 - cans.length;
+  if (cansLeft !== _brHudPrev.cans) { _brHud.cans.textContent = `${cansLeft}/5`; _brHudPrev.cans = cansLeft; }
   const state = monsterDazedT > 0 ? 'SMOKED' : (monster.chase ? 'HUNTED!' : (soundLevel > 0.5 ? 'LOUD' : 'SAFE'));
-  const el = document.getElementById('hud-state');
-  el.textContent = state;
-  el.style.color = monster.chase ? '#ff3a3a' : (soundLevel > 0.5 ? '#ffd23f' : '#5ef38c');
-  const hudCard = document.querySelector('#hud .hud-card');
-  if (hudCard) {
+  const stateColor = monster.chase ? '#ff3a3a' : (soundLevel > 0.5 ? '#ffd23f' : '#5ef38c');
+  if (state !== _brHudPrev.state) { _brHud.state.textContent = state; _brHudPrev.state = state; }
+  if (stateColor !== _brHudPrev.stateColor) { _brHud.state.style.color = stateColor; _brHudPrev.stateColor = stateColor; }
+  if (_brHud.card) {
     if (monster.chase) {
+      // pulsing shadow requires per-frame update (sin())
       const k = 0.5 + Math.sin(performance.now() / 120) * 0.5;
-      hudCard.style.boxShadow = `0 0 ${10 + k * 20}px rgba(255,58,58,${0.4 + k * 0.4})`;
-    } else if (hudCard.style.boxShadow) {
-      hudCard.style.boxShadow = '';
+      _brHud.card.style.boxShadow = `0 0 ${10 + k * 20}px rgba(255,58,58,${0.4 + k * 0.4})`;
+      _brHudPrev.chase = true;
+    } else if (_brHudPrev.chase) {
+      _brHud.card.style.boxShadow = '';
+      _brHudPrev.chase = false;
     }
   }
   // Sanity bar
-  const sanBar = document.getElementById('hud-sanity-bar');
-  if (sanBar) {
-    sanBar.style.width = sanity + '%';
-    sanBar.style.background = sanity > 60 ? '#5ef38c' : (sanity > 25 ? '#ffd23f' : '#ff3a3a');
+  if (_brHud.sanBar) {
+    const s = Math.round(sanity);
+    if (s !== _brHudPrev.san) { _brHud.sanBar.style.width = s + '%'; _brHudPrev.san = s; }
+    const c = sanity > 60 ? '#5ef38c' : (sanity > 25 ? '#ffd23f' : '#ff3a3a');
+    if (c !== _brHudPrev.sanColor) { _brHud.sanBar.style.background = c; _brHudPrev.sanColor = c; }
   }
   // Battery bar
-  const batBar = document.getElementById('hud-battery-bar');
-  if (batBar) {
-    batBar.style.width = battery + '%';
-    batBar.style.background = battery > 50 ? '#ffd23f' : (battery > 15 ? '#ffa83a' : '#ff3a3a');
-    batBar.style.boxShadow = flashlightOn ? '0 0 8px #ffd23f' : 'none';
+  if (_brHud.batBar) {
+    const b = Math.round(battery);
+    if (b !== _brHudPrev.bat) { _brHud.batBar.style.width = b + '%'; _brHudPrev.bat = b; }
+    const c = battery > 50 ? '#ffd23f' : (battery > 15 ? '#ffa83a' : '#ff3a3a');
+    if (c !== _brHudPrev.batColor) { _brHud.batBar.style.background = c; _brHudPrev.batColor = c; }
+    const sh = flashlightOn ? '0 0 8px #ffd23f' : 'none';
+    if (sh !== _brHudPrev.batShadow) { _brHud.batBar.style.boxShadow = sh; _brHudPrev.batShadow = sh; }
   }
   // Smoke pip
-  const smk = document.getElementById('hud-smoke');
-  if (smk) smk.textContent = '× ' + smokeCount;
-  document.getElementById('hud-depth').textContent = `Level ${level}`;
-  const best = loadBest('backrooms-pug');
-  document.getElementById('hud-best').textContent = best ? best.level : 0;
-  const notesEl = document.getElementById('hud-notes');
-  if (notesEl) notesEl.textContent = `${notesFoundCount()}/${NOTE_TOTAL}`;
+  if (_brHud.smk && smokeCount !== _brHudPrev.smk) {
+    _brHud.smk.textContent = '× ' + smokeCount;
+    _brHudPrev.smk = smokeCount;
+  }
+  if (level !== _brHudPrev.depth) { _brHud.depth.textContent = `Level ${level}`; _brHudPrev.depth = level; }
+  // loadBest hits localStorage — cache for 2s, doesn't change mid-match.
+  const now = performance.now();
+  if (now - _brBestCacheT > 2000) {
+    const best = loadBest('backrooms-pug');
+    _brBestCache = best ? best.level : 0;
+    _brBestCacheT = now;
+  }
+  if (_brBestCache !== _brHudPrev.best) {
+    _brHud.best.textContent = _brBestCache;
+    _brHudPrev.best = _brBestCache;
+  }
+  if (_brHud.notes) {
+    const n = `${notesFoundCount()}/${NOTE_TOTAL}`;
+    if (n !== _brHudPrev.notes) { _brHud.notes.textContent = n; _brHudPrev.notes = n; }
+  }
 }
 
 function die(cause) {

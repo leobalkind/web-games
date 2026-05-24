@@ -152,7 +152,7 @@ export class Game {
     this.pugs.push(this.player);
     this.pugsLayer.addChild(this.player.container);
     // Spawn invulnerability — gives time to find bearings before bots swarm
-    this.player.invuln = 3.0;
+    this.player.invuln = 3.5;
 
     // Spawn bots — keep them far from the player at start
     for (let i = 0; i < MAX_BOTS; i++) {
@@ -1582,6 +1582,16 @@ export class Game {
   }
 
   _updateParticles(dt) {
+    // Perf safety cap: chained kills + explosions can spike this above 500.
+    // Drop the OLDEST excess particles so newest visual feedback survives.
+    if (this.particles.length > 400) {
+      const excess = this.particles.length - 400;
+      for (let k = 0; k < excess; k++) {
+        const old = this.particles[k];
+        if (old && old.g) { try { old.g.destroy(); } catch {} }
+      }
+      this.particles.splice(0, excess);
+    }
     for (let i = this.particles.length - 1; i >= 0; i--) {
       const p = this.particles[i];
       p.t += dt;
@@ -1806,7 +1816,7 @@ export class Game {
     for (const p of this.pugs) {
       if (!p.alive) continue;
       if (!this.world.pointInSafeZone(p.x, p.y)) {
-        p.takeDamage(28 * dt, null);
+        p.takeDamage(22 * dt, null);
         if (!p.alive) this._handleKill(null, p, true);
       }
     }

@@ -118,6 +118,10 @@ function showToast(achDef) {
   el.querySelector('.ach-toast__desc').textContent = achDef.desc || '';
   host.appendChild(el);
   requestAnimationFrame(() => el.classList.add('is-in'));
+  // Bright success arpeggio so the unlock has audio reward to match the toast.
+  // Lazy import to avoid pulling miniSfx into game pages that don't need it
+  // (and to dodge any circular-load order issues at module init time).
+  try { import('./miniSfx.js').then((m) => m.playUI && m.playUI('success')).catch(() => {}); } catch {}
   setTimeout(() => {
     el.classList.remove('is-in');
     el.classList.add('is-out');

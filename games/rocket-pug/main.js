@@ -1,6 +1,7 @@
 // ROCKET PUG ARENA — 4 bot pugs in giant kitchen, absurd weapons.
 import { submitRun, loadBest } from '../../src/persistence/highScores.js';
 import { createSfx } from '../../src/shared/miniSfx.js';
+import { createMusicTrack } from '../../src/shared/musicTrack.js';
 import { showTip } from '../../src/shared/tutorialTip.js';
 import { drawIcon } from '../../src/shared/icons.js';
 import { drawPug } from '../../src/shared/pugSprite.js';
@@ -63,6 +64,18 @@ function drawBubble(ctx, x, y, size) {
 const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
 const sfx = createSfx({ storageKey: 'rocket:muted' });
+
+// Perf: reusable scratch buffer for [pug, ...bots] iterations — these
+// happen 6+ times per frame and used to allocate a fresh array each call.
+const _allFighters = [];
+function _fighters() {
+  _allFighters.length = 0;
+  if (pug) _allFighters.push(pug);
+  for (const b of bots) _allFighters.push(b);
+  return _allFighters;
+}
+// Fast arcade backing track — sustained intensity for the whole arena.
+const music = createMusicTrack({ mood: 'arcade', tempo: 150, key: 'F', scale: 'minor' });
 sfx.applyButton(document.getElementById('mute-btn'));
 const _isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 createSettingsMenu({ gameId: 'rocket-pug', getControlsHelp: () => _isTouch
@@ -136,6 +149,8 @@ function mkPug(x, y, isPlayer, color, mask) {
     targetAng: 0,
     hitFlashT: 0,
     slipT: 0, // when >0, controls reduced and velocity scaled
+    // 2s grace period at match start — player gets oriented before bots open fire
+    invuln: isPlayer ? 2.0 : 0,
   };
 }
 // Build the central kitchen stove (large rectangle + 4 burners).
@@ -422,6 +437,7 @@ function tick(dt) {
   pug.jetT = Math.max(0, pug.jetT - dt);
   pug.jetCd = Math.max(0, pug.jetCd - dt);
   pug.fireCd = Math.max(0, pug.fireCd - dt);
+  if (pug.invuln > 0) pug.invuln = Math.max(0, pug.invuln - dt);
   // Aim
   pug.ang = Math.atan2(mouse.y - pug.y, mouse.x - pug.x);
   if (firing) fire(pug, pug.ang);
@@ -430,11 +446,14 @@ function tick(dt) {
   for (const b of bots) {
     if (b.hp <= 0) continue;
     b.fireCd = Math.max(0, b.fireCd - dt);
-    // pick nearest enemy (player or other bot)
-    const all = [pug, ...bots.filter((x) => x !== b)];
+    // Perf: scan bots directly, skip self — no allocation per bot per frame.
     let target = null, bestD = Infinity;
-    for (const o of all) {
-      if (o.hp <= 0) continue;
+    if (pug.hp > 0) {
+      const d = Math.hypot(pug.x - b.x, pug.y - b.y);
+      bestD = d; target = pug;
+    }
+    for (const o of bots) {
+      if (o === b || o.hp <= 0) continue;
       const d = Math.hypot(o.x - b.x, o.y - b.y);
       if (d < bestD) { bestD = d; target = o; }
     }
@@ -457,7 +476,7 @@ function tick(dt) {
     }
   }
   // Physics
-  for (const p of [pug, ...bots]) {
+  for (const p of _fighters()) {
     if (p.hp <= 0) continue;
     // Slip on puddles — boost velocity and freeze input briefly on entry
     for (const pud of puddles) {
@@ -515,7 +534,7 @@ function tick(dt) {
       }
     } else {
       pedestal.t += dt;
-      for (const p of [pug, ...bots]) {
+      for (const p of _fighters()) {
         if (p.hp <= 0) continue;
         if (Math.hypot(p.x - pedestal.x, p.y - pedestal.y) < 26) {
           activeBuffs.set(p, { type: pedestal.type, t: 12 });
@@ -541,8 +560,9 @@ function tick(dt) {
     }
     if (pr.life <= 0 || pr.x < -20 || pr.x > W + 20 || pr.y < -20 || pr.y > H + 20) { projectiles.splice(i, 1); continue; }
     // Hit check
-    for (const target of [pug, ...bots]) {
+    for (const target of _fighters()) {
       if (target === pr.owner || target.hp <= 0) continue;
+      if (target.invuln > 0) continue; // skip projectiles on invulnerable targets (player spawn grace)
       const d = Math.hypot(target.x - pr.x, target.y - pr.y);
       if (d < 22) {
         const outMul = pr.owner ? buffMod(pr.owner, 'damage_out') : 1;
@@ -639,7 +659,7 @@ function tick(dt) {
   comboT = Math.max(0, comboT - dt); if (comboT === 0) comboN = 0;
   comboBannerT = Math.max(0, comboBannerT - dt);
   lastHitT = Math.max(0, lastHitT - dt);
-  for (const p of [pug, ...bots]) p.hitFlashT = Math.max(0, p.hitFlashT - dt);
+  for (const p of _fighters()) p.hitFlashT = Math.max(0, p.hitFlashT - dt);
   // crowd ambient sway uses real-time, no state to update
 
   // End check
@@ -955,7 +975,7 @@ function render() {
   }
 
   // pugs
-  for (const p of [pug, ...bots]) {
+  for (const p of _fighters()) {
     if (p.hp <= 0) continue;
     // jetpack thruster particles (player only)
     if (p === pug && pug.jetT > 0) spawnJet(p.x, p.y);
@@ -1111,23 +1131,50 @@ function render() {
   }
 }
 
+// Perf: cache DOM refs + prev values; only touch DOM when something changed.
+// Avoids localStorage hit (loadBest) and array allocation (filter) every frame.
+const _hudEls = {
+  hp: document.getElementById('hud-hp'),
+  hud: document.getElementById('hud'),
+  kills: document.getElementById('hud-kills'),
+  left: document.getElementById('hud-left'),
+  weapon: document.getElementById('hud-weapon'),
+  jet: document.getElementById('hud-jet'),
+  best: document.getElementById('hud-best'),
+};
+let _hudPrev = { hp: -1, kills: -1, left: -1, weapon: '', jet: '', best: -1, pulse: false };
+let _hudBestCache = -1, _hudBestCacheT = 0;
 function updateHud() {
-  const hpEl = document.getElementById('hud-hp');
-  hpEl.textContent = Math.max(0, Math.ceil(pug.hp));
-  // low-HP pulse
-  const hud = document.getElementById('hud');
-  if (pug.hp <= 25 && pug.hp > 0) {
+  const hpV = Math.max(0, Math.ceil(pug.hp));
+  if (hpV !== _hudPrev.hp) { _hudEls.hp.textContent = hpV; _hudPrev.hp = hpV; }
+  // low-HP pulse — needs continuous update because of sin() animation.
+  const pulseOn = pug.hp <= 25 && pug.hp > 0;
+  if (pulseOn) {
     const pulse = 0.6 + 0.4 * Math.sin(performance.now() * 0.012);
-    hud.style.filter = `drop-shadow(0 0 ${6 + pulse * 8}px rgba(255,58,58,${0.4 + pulse * 0.4}))`;
-  } else {
-    hud.style.filter = '';
+    _hudEls.hud.style.filter = `drop-shadow(0 0 ${6 + pulse * 8}px rgba(255,58,58,${0.4 + pulse * 0.4}))`;
+  } else if (_hudPrev.pulse) {
+    _hudEls.hud.style.filter = '';
   }
-  document.getElementById('hud-kills').textContent = kills;
-  document.getElementById('hud-left').textContent = bots.filter((b) => b.hp > 0).length;
-  document.getElementById('hud-weapon').textContent = pug.weapon.name.toUpperCase();
-  document.getElementById('hud-jet').textContent = pug.jetCd > 0 ? pug.jetCd.toFixed(1) + 's' : 'READY';
-  const best = loadBest('rocket-pug');
-  document.getElementById('hud-best').textContent = best ? best.kills : 0;
+  _hudPrev.pulse = pulseOn;
+  if (kills !== _hudPrev.kills) { _hudEls.kills.textContent = kills; _hudPrev.kills = kills; }
+  let aliveBots = 0;
+  for (const b of bots) if (b.hp > 0) aliveBots++;
+  if (aliveBots !== _hudPrev.left) { _hudEls.left.textContent = aliveBots; _hudPrev.left = aliveBots; }
+  const wn = pug.weapon.name.toUpperCase();
+  if (wn !== _hudPrev.weapon) { _hudEls.weapon.textContent = wn; _hudPrev.weapon = wn; }
+  const jt = pug.jetCd > 0 ? pug.jetCd.toFixed(1) + 's' : 'READY';
+  if (jt !== _hudPrev.jet) { _hudEls.jet.textContent = jt; _hudPrev.jet = jt; }
+  // loadBest hits localStorage — cache for 2s, it never changes mid-match anyway.
+  const now = performance.now();
+  if (now - _hudBestCacheT > 2000) {
+    const best = loadBest('rocket-pug');
+    _hudBestCache = best ? best.kills : 0;
+    _hudBestCacheT = now;
+  }
+  if (_hudBestCache !== _hudPrev.best) {
+    _hudEls.best.textContent = _hudBestCache;
+    _hudPrev.best = _hudBestCache;
+  }
 }
 
 function end(won) {
@@ -1180,7 +1227,17 @@ function start() {
   document.getElementById('end-overlay').hidden = true; document.getElementById('end-overlay').classList.add('is-hidden');
   document.getElementById('hud').hidden = false;
   sfx.resume();
+  try { music.setIntensity(0.6); music.play(); } catch {}
 }
+(function _wireRocketMusicEnd() {
+  const endOv = document.getElementById('end-overlay');
+  if (!endOv) return;
+  const upd = () => {
+    const visible = !endOv.hidden && !endOv.classList.contains('is-hidden');
+    if (visible) try { music.stop(); } catch {}
+  };
+  new MutationObserver(upd).observe(endOv, { attributes: true, attributeFilter: ['hidden','class'] });
+})();
 let lastT = performance.now();
 (function loop(now) {
   const dt = Math.min((now - lastT) / 1000, 0.05);

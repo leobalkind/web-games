@@ -129,10 +129,10 @@ export class Zombie {
     this.aim = 0;
 
     // tier scaling — each night escalates stats
-    const tierMult = 1 + (tier - 1) * 0.32;
+    const tierMult = 1 + (tier - 1) * 0.28;
     this.maxHp = Math.round(def.hpBase * tierMult);
     this.hp = this.maxHp;
-    this.damage = Math.round(def.dmgBase * (0.9 + (tier - 1) * 0.18));
+    this.damage = Math.round(def.dmgBase * (0.9 + (tier - 1) * 0.16));
     this.speed = Math.round(def.speedBase * (0.95 + (tier - 1) * 0.08));
     this.radius = def.radius;
     this.scale = def.scale;
@@ -565,8 +565,8 @@ export function pickZombieType(nightIdx) {
   // (Was 60/25/10/5 walker/runner/cloaker/digger — too punishing for first-time players.)
   const compositions = {
     1: [['walker', 0.80], ['runner', 0.20]],
-    2: [['walker', 0.30], ['runner', 0.25], ['tank', 0.12], ['spitter', 0.10],
-        ['cloaker', 0.10], ['digger', 0.08], ['screamer', 0.05]],
+    2: [['walker', 0.40], ['runner', 0.28], ['tank', 0.10], ['spitter', 0.08],
+        ['cloaker', 0.06], ['digger', 0.05], ['screamer', 0.03]],
     3: [['walker', 0.20], ['runner', 0.18], ['tank', 0.14], ['spitter', 0.12],
         ['exploder', 0.10], ['cloaker', 0.10], ['digger', 0.08], ['screamer', 0.08]],
   };
@@ -584,9 +584,9 @@ export function pickZombieType(nightIdx) {
 // on Normal). Difficulty key matches the localStorage value in Game/main.
 export function waveLineup(nightIdx, difficulty = 'normal') {
   const perNight = {
-    easy:   { 1: 7,  2: 30, 3: 32 },
-    normal: { 1: 12, 2: 42, 3: 40 },
-    hard:   { 1: 18, 2: 54, 3: 50 },
+    easy:   { 1: 7,  2: 22, 3: 32 },
+    normal: { 1: 12, 2: 32, 3: 44 },
+    hard:   { 1: 18, 2: 44, 3: 56 },
   };
   const table = perNight[difficulty] || perNight.normal;
   return table[nightIdx] || (50 + (nightIdx - 3) * 15);
