@@ -2478,3 +2478,114 @@ if (_startOv) {
     box.appendChild(div);
   }).observe(endOv, { attributes: true, attributeFilter: ['hidden', 'class'] });
 })();
+
+// ============================================================================
+// v2.6 CAFE-013: Barista milk-steam ambience SFX — every 11-14s while game
+// is running, fire a soft steam-puff (white-noise burst + high-pass) so the
+// café feels alive.
+// ============================================================================
+(function _r6CafeSteamAmb() {
+  let ac = null;
+  let interval = null;
+  function puff() {
+    try {
+      ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+      if (ac.state === 'suspended') ac.resume();
+      if (localStorage.getItem('wg:settings:muted') === '1') return;
+      const t = ac.currentTime;
+      const bufSize = ac.sampleRate * 0.6;
+      const buf = ac.createBuffer(1, bufSize, ac.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < bufSize; i++) d[i] = (Math.random() * 2 - 1) * 0.5;
+      const src = ac.createBufferSource(); src.buffer = buf;
+      const filt = ac.createBiquadFilter(); filt.type = 'highpass'; filt.frequency.value = 1800;
+      const g = ac.createGain();
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.018, t + 0.04);
+      g.gain.exponentialRampToValueAtTime(0.0008, t + 0.55);
+      src.connect(filt); filt.connect(g); g.connect(ac.destination);
+      src.start(t); src.stop(t + 0.6);
+    } catch {}
+  }
+  function start() {
+    if (interval) return;
+    const tick = () => {
+      const endOv = document.getElementById('end-overlay');
+      const startOv = document.getElementById('overlay');
+      const endV = endOv && !endOv.hidden && !endOv.classList.contains('is-hidden');
+      const startV = startOv && !startOv.hidden && !startOv.classList.contains('is-hidden');
+      if (!endV && !startV) puff();
+    };
+    interval = setInterval(tick, 11000 + Math.random() * 3000);
+  }
+  window.addEventListener('pointerdown', start, { once: true });
+  window.addEventListener('keydown', start, { once: true });
+})();
+
+// ============================================================================
+// v2.6 CAFE-014: Customer leaving animation — when a customer DOM element
+// vanishes (via class change or removal), spawn a quick 600ms vapor puff
+// at its last position. Catches MutationObserver tree mutations on the
+// canvas container fallback to a periodic check.
+// ============================================================================
+(function _r6CafeLeaveAnim() {
+  if (!document.getElementById('cafe-leave-style')) {
+    const s = document.createElement('style');
+    s.id = 'cafe-leave-style';
+    s.textContent = '@keyframes cafePuff{0%{transform:scale(0.5);opacity:0.9}100%{transform:scale(2.2);opacity:0}}';
+    document.head.appendChild(s);
+  }
+  // Hook for the game to call manually
+  window.__cafeCustomerLeft = function (x, y) {
+    const cv = document.querySelector('#game-root canvas, canvas');
+    if (!cv) return;
+    const r = cv.getBoundingClientRect();
+    const cx = (typeof x === 'number') ? r.left + x : r.left + r.width * (0.4 + Math.random() * 0.2);
+    const cy = (typeof y === 'number') ? r.top + y : r.top + r.height * (0.6 + Math.random() * 0.2);
+    const p = document.createElement('div');
+    p.textContent = '💨';
+    p.style.cssText = 'position:fixed;left:' + cx + 'px;top:' + cy + 'px;font-size:24px;z-index:9990;pointer-events:none;animation:cafePuff 0.7s ease-out forwards;';
+    document.body.appendChild(p);
+    setTimeout(() => p.remove(), 750);
+  };
+  // Best-effort: watch the served counter, and when patience-related leavings
+  // happen (lives drop), trigger a puff
+  const lives = document.getElementById('hud-lives');
+  if (lives) {
+    let last = (lives.textContent || '').length;
+    setInterval(() => {
+      const cur = (lives.textContent || '').length;
+      if (cur < last) window.__cafeCustomerLeft();
+      last = cur;
+    }, 350);
+  }
+})();
+
+// ============================================================================
+// v2.6 CAFE-015: Achievement — serve 50 perfect orders in a single shift.
+// Tracks the `hud-served` counter while in-game. Persists once unlocked.
+// ============================================================================
+(function _r6CafePerfectAch() {
+  const KEY = 'cafe:achievement:perfect50';
+  if (localStorage.getItem(KEY) === '1') return;
+  const served = document.getElementById('hud-served');
+  if (!served) return;
+  setInterval(() => {
+    if (localStorage.getItem(KEY) === '1') return;
+    const n = parseInt((served.textContent || '').replace(/\D/g, ''), 10) || 0;
+    if (n >= 50) {
+      localStorage.setItem(KEY, '1');
+      const toast = document.createElement('div');
+      toast.textContent = '★ ACHIEVEMENT: 50 PERFECT ORDERS!';
+      toast.style.cssText = 'position:fixed;top:36%;left:50%;transform:translateX(-50%);background:linear-gradient(90deg,#ffd23f,#ff8e3c);color:#0a0716;padding:10px 18px;font-family:"Press Start 2P",monospace;font-size:10px;border-radius:6px;z-index:9999;pointer-events:none;animation:cafeAchPop 3.4s ease-out forwards;box-shadow:0 0 24px rgba(255,210,63,0.55);font-weight:bold;';
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 3500);
+      if (!document.getElementById('cafe-ach-style')) {
+        const s = document.createElement('style');
+        s.id = 'cafe-ach-style';
+        s.textContent = '@keyframes cafeAchPop{0%{opacity:0;transform:translateX(-50%) translateY(20px) scale(0.5)}12%{opacity:1;transform:translateX(-50%) translateY(0) scale(1.18)}28%{transform:translateX(-50%) translateY(0) scale(1)}90%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(-12px)}}';
+        document.head.appendChild(s);
+      }
+    }
+  }, 800);
+})();

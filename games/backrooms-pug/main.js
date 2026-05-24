@@ -6930,3 +6930,42 @@ void showTip; // explicit reference so linters don't yell about unused import
     try { master.gain.linearRampToValueAtTime(want, ac.currentTime + 0.6); } catch {}
   }, 600);
 })();
+
+// ============================================================================
+// v2.6 BACK2D-009: End-card stats — appends a small "RUN REPORT" block to
+// the end overlay each time it appears. Pulls from #hud-* counters that
+// were live during the run + persists low-water sanity in localStorage.
+// ============================================================================
+(function _r6Back2dRunReport() {
+  const endOv = document.getElementById('end-overlay');
+  if (!endOv) return;
+  let lowSanity = 100;
+  let monsterEncs = 0, prevState = null;
+  setInterval(() => {
+    const s = parseInt(document.getElementById('hud-sanity-pct')?.textContent || '100', 10);
+    if (!isNaN(s) && s < lowSanity) lowSanity = s;
+    const st = (document.getElementById('hud-state')?.textContent || '').trim().toUpperCase();
+    if (st === 'CHASE' && prevState !== 'CHASE') monsterEncs++;
+    prevState = st;
+  }, 400);
+  new MutationObserver(() => {
+    if (endOv.hidden || endOv.classList.contains('is-hidden')) return;
+    if (endOv.querySelector('.r6-back2d-report')) return;
+    const cans = document.getElementById('end-cans')?.textContent || '0';
+    const notes = document.getElementById('end-notes')?.textContent || '0';
+    const div = document.createElement('div');
+    div.className = 'r6-back2d-report';
+    div.innerHTML = '<div style="color:#4cc9f0;font-size:9px;margin-bottom:4px;letter-spacing:2px;">▼ RUN REPORT</div>'
+      + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-family:VT323,monospace;font-size:15px;color:#fff;">'
+      + '<div>Low sanity: <b style="color:#ff3aa1">' + lowSanity + '%</b></div>'
+      + '<div>Encounters: <b style="color:#ffd23f">' + monsterEncs + '</b></div>'
+      + '<div>Cans found: <b style="color:#5ef38c">' + cans + '</b></div>'
+      + '<div>Notes read: <b style="color:#4cc9f0">' + notes + '</b></div>'
+      + '</div>';
+    div.style.cssText = 'margin:10px auto 0;max-width:340px;padding:10px 12px;background:rgba(76,201,240,0.08);border:1px solid rgba(76,201,240,0.4);border-radius:4px;text-align:left;';
+    const box = endOv.querySelector('.overlay__panel') || endOv.querySelector('.overlay__inner') || endOv;
+    box.appendChild(div);
+    // reset for next run
+    setTimeout(() => { lowSanity = 100; monsterEncs = 0; }, 500);
+  }).observe(endOv, { attributes: true, attributeFilter: ['hidden', 'class'] });
+})();

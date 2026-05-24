@@ -6,7 +6,24 @@
     <meta name="theme-color" content="#0a0716" />
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" type="image/svg+xml" href="icon-192.svg" />
+    <!-- iOS/Safari "Add to Home Screen" icons. iOS still ignores webmanifest
+         icons so we declare every required apple-touch-icon size explicitly.
+         All sizes resolve to the same SVG — iOS rasterizes per-device. -->
     <link rel="apple-touch-icon" href="icon-192.svg" />
+    <link rel="apple-touch-icon" sizes="120x120" href="icon-192.svg" />
+    <link rel="apple-touch-icon" sizes="152x152" href="icon-192.svg" />
+    <link rel="apple-touch-icon" sizes="167x167" href="icon-192.svg" />
+    <link rel="apple-touch-icon" sizes="180x180" href="icon-192.svg" />
+    <link rel="mask-icon" href="icon-192.svg" color="#ff3aa1" />
+    <!-- iOS splash + standalone-app meta. Apple respects these to skin the
+         home-screen launcher. Apple-mobile-web-app-capable enables the full
+         standalone experience (no Safari chrome). -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Web Games" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="application-name" content="Web Games" />
+    <meta name="msapplication-TileColor" content="#0a0716" />
     <title>Web Games</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -68,6 +85,18 @@
         <!-- Empty-state node is built lazily by setupSearchAndCats() when needed,
              so web scrapers / screen-readers don't see "No games match" on initial load. -->
       </header>
+
+      <!-- FEATURED GAME OF THE DAY — picked deterministically from the UTC
+           date so every visitor on the same day sees the same banner. The
+           anchor href + label is filled in by JS once the grid is ready. -->
+      <a id="hub-featured" class="hub-featured" href="#" hidden aria-label="Featured game of the day">
+        <div class="hub-featured__ribbon">FEATURED · TODAY</div>
+        <div class="hub-featured__body">
+          <div class="hub-featured__title" id="hub-featured-title">—</div>
+          <div class="hub-featured__sub" id="hub-featured-sub">Play the daily pick</div>
+        </div>
+        <div class="hub-featured__cta">PLAY ▸</div>
+      </a>
 
       <section id="hub-grid" class="hub__grid" aria-label="Game grid">
         <a class="card" href="/games/bork-battle/index.html">
@@ -3045,12 +3074,26 @@
         <div class="hub__meta">
           <button id="credits-btn" type="button" class="hub__meta-link" aria-label="Credits and attribution">CREDITS</button>
           <span class="hub__meta-sep">·</span>
+          <button id="about-btn" type="button" class="hub__meta-link" aria-label="About / tech stack">ABOUT</button>
+          <span class="hub__meta-sep">·</span>
+          <button id="share-btn" type="button" class="hub__meta-link" aria-label="Share Web Games">SHARE</button>
+          <span class="hub__meta-sep">·</span>
+          <button id="shortcuts-btn" type="button" class="hub__meta-link" aria-label="Keyboard shortcuts">SHORTCUTS</button>
+          <span class="hub__meta-sep">·</span>
           <a id="discord-link" class="hub__meta-link" href="https://discord.gg/webgames" target="_blank" rel="noopener noreferrer" aria-label="Join our Discord">JOIN DISCORD</a>
           <span class="hub__meta-sep">·</span>
-          <span id="build-version" class="hub__meta-version" title="Build version">v2.3 · build 2026-05-24</span>
+          <span id="build-version" class="hub__meta-version" title="Build version">v2.4 · build 2026-05-24</span>
         </div>
       </footer>
     </main>
+
+    <!-- Floating QUICK PLAY action button. Bottom-right of the viewport,
+         picks a random playable card and navigates to it. Hidden when the
+         player is mid-modal so it never blocks a close button on mobile. -->
+    <button id="quick-play-fab" type="button" class="quick-play-fab" aria-label="Quick play — launch a random game">
+      <span class="quick-play-fab__icon" aria-hidden="true">▶</span>
+      <span class="quick-play-fab__label">QUICK PLAY</span>
+    </button>
 
     <!-- Settings modal -->
     <div id="settings-modal" class="hub-modal" hidden>
@@ -3096,6 +3139,25 @@
           <label for="opt-profile-name" class="hub-profile-label">Display name</label>
           <input id="opt-profile-name" type="text" maxlength="16" placeholder="PUGGO" />
         </div>
+        <!-- HUB THEME picker — three preset palettes. The chosen theme
+             is applied as a body className (hub-theme--…) so existing CSS
+             tokens get overridden by .theme--retro / .theme--modern blocks
+             at the tail of hub.css. -->
+        <h3 class="settings-sec">HUB THEME</h3>
+        <div id="theme-picker" class="theme-picker" role="radiogroup" aria-label="Hub theme">
+          <button type="button" class="theme-swatch is-active" data-theme="default" role="radio" aria-checked="true" title="Default neon">
+            <span class="theme-swatch__band theme-swatch__band--default"></span>
+            <span class="theme-swatch__name">NEON</span>
+          </button>
+          <button type="button" class="theme-swatch" data-theme="retro" role="radio" aria-checked="false" title="Retro CRT (amber + scanlines)">
+            <span class="theme-swatch__band theme-swatch__band--retro"></span>
+            <span class="theme-swatch__name">RETRO CRT</span>
+          </button>
+          <button type="button" class="theme-swatch" data-theme="modern" role="radio" aria-checked="false" title="Modern dark (cool grays + cyan)">
+            <span class="theme-swatch__band theme-swatch__band--modern"></span>
+            <span class="theme-swatch__name">MODERN</span>
+          </button>
+        </div>
         <!-- GAMES STATS section — populated by JS on modal open. Shows
              quick at-a-glance numbers for the active profile. -->
         <h3 class="settings-sec">GAMES STATS</h3>
@@ -3116,6 +3178,7 @@
       <div class="hub-modal__panel">
         <h2>WHAT'S NEW</h2>
         <ul class="hub-changelog">
+          <li><b>v2.4</b> · HUB POLISH ROUND 2 + PWA + SOCIAL SHARING. Cursor-proximity 3D perspective tilt on every card (parallax rotateX/rotateY), FEATURED GAME OF THE DAY banner (deterministic UTC-day pick), floating QUICK PLAY FAB (R key shortcut, auto-hides during modals), three HUB THEMES (NEON / RETRO CRT / MODERN — T key cycles), KEYBOARD SHORTCUTS modal (? key), SEARCH HISTORY chips under the search box (last 5 queries), ABOUT modal with tech stack + GitHub link, SHARE modal with native Web Share API + per-game share text (right-click any card or press S), FRIEND CODE popover (6-char deterministic code on profile chip context-menu). PWA: manifest declares all iOS icon sizes (120/152/167/180), display_override fallback chain, mask-icon, apple-mobile-web-app meta tags. Service worker bumped to wg-v2 with offline-fallback HTML page on cold-start navigation failure.</li>
           <li><b>v2.3</b> · WAVE Z2 — DEEP SYSTEMS PASS. CLOWN FOREST round 4: 3 difficulties (EASY/NORMAL/NIGHTMARE), 4 endings (ESCAPE/TRUE/TRAGIC/DEFIANT — kill the clown in 5% of attempts), 7 achievements, ADRENALINE mode, CAFFEINE MUG run-modifier, weather/wind/breath puffs, random NPC encounter w/ cryptic lore, 3 cassette tape lore collectibles, 12-spot procedural item placement, handheld map item. HUB UX FINAL: 15-card grid w/ horror oxblood frame + NEW badge + REALISTIC/3D chips, sort/filter pill (Featured/Name/Updated/Played/Horror), fuzzy "btb→BORK BATTLE" search, sortable My Data, GAMES STATS + DANGER ZONE (type "RESET" to wipe), CREDITS modal, Discord link, PWA shortcuts to 3D games, Konami easter egg (rainbow card borders). CROSS-GAME ROUND 3 (13 new systems, 1 per game): bork DAILY MUTATOR, pugfort TECH TREE (RP currency), heist CONTRACTS, cafe STAFF ROSTER, rocket WEAPON MASTERY, diggers TREASURE MAP, lab EVOLUTION TREE (SVG modal), delivery ROUTES, pugzilla TARGET PRIORITY, backrooms PSYCHIC FLASH, lava BIOME CHALLENGES, supermarket GETAWAY VEHICLE, td WAVE MODIFIER.</li>
           <li><b>v2.2</b> · WAVE Z1 — PERF + ROUND 2 FOR 3D + CROSS-GAME POLISH. CLOWN FOREST: critical O(N²) tree-wind fix (1100² updates per tick → linear), TREE_CULL_DIST wired (60m), LOW_POWER particle/shadow downscale, RAF cancels on visibilitychange, 9 new audio methods (surface footsteps, gasp, item hum, beacon siren, distant car, wind whistle, shelter rain, heartbeat fade-out, clown breath gating). BACKROOMS 3D ROUND 2: 3 monster archetypes (CHASER/SHADOW/WHISPER), architecture variety (large rooms / hallways / niches), CLOSETS (E to hide, 7s immunity), 4 LEVELS w/ unique materials (LOBBY/WAREHOUSE/PIPES/VOID + EXIT door on L4 = WIN), 8 new audio methods (door slams, distant cry, whispers, level stings, steam, drip), HUD level pill + heartbeat icon + hide countdown + interact prompts, 4-phase win cutscene, 3-phase death cutscene. CROSS-GAME: legacy duplicate-button fix on 6 games (supermarket/heist/lava/diggers/zilla/rocket), touch-aware tutorial copy on 11 games, end-screen stats expansions (max combo, form reached, biome reached, $ haul, kills, towers placed).</li>
           <li><b>v2.1</b> · CLOWN-FOREST BUG-HUNT (7 fixes — audio wrappers pointed to non-existent methods so pickup/flashlight/win/ambience were silent no-ops; window.world never set so items spawned on fallback ring; clownState/HUD/heart state leaked across runs; music didn't stop between runs; lightning className clobbered cinematic flash; locket personality flash had same bug). SPRITE QUALITY PASS — 9 remaining games (pug-heist/supermarket/pug-td/pugzilla/delivery/pugfort/backrooms-pug/dungeon-diggers/mutation-lab) get per-theme pug outfits + accessory layers, distinct guard/enemy/loot/projectile silhouettes per source (10 unique tower drawers, 5 zombie variants, 7 vehicle chassis with type-specific accessories, 28 grocery icons, multi-layer wall claw rakes, 4-tier furniture detail, war-dog pet evolution, boss chain belt + iron crown, codex hash-derived decorations).</li>
@@ -3222,6 +3285,83 @@
         <p class="credits-foot">100% client-side · no telemetry · no ads · open-source-friendly build</p>
         <button id="credits-close" type="button" class="hub-modal__close">DONE</button>
       </div>
+    </div>
+
+    <!-- KEYBOARD SHORTCUTS modal — opens via "?" key or footer link. -->
+    <div id="shortcuts-modal" class="hub-modal" hidden>
+      <div class="hub-modal__panel hub-modal__panel--wide">
+        <h2>KEYBOARD SHORTCUTS</h2>
+        <p class="onboard-body" style="margin-bottom:12px;">Hub navigation. Each game has its own pause-menu help — open it with <kbd>Esc</kbd> in-game.</p>
+        <dl class="shortcuts-list">
+          <dt><kbd>/</kbd></dt><dd>Focus the search box</dd>
+          <dt><kbd>?</kbd></dt><dd>Open this shortcuts panel</dd>
+          <dt><kbd>Esc</kbd></dt><dd>Close any open modal · clear search</dd>
+          <dt><kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd> <kbd>↓</kbd></dt><dd>Move between game cards (focus a card first)</dd>
+          <dt><kbd>Enter</kbd></dt><dd>Launch the focused game</dd>
+          <dt><kbd>Home</kbd> <kbd>End</kbd></dt><dd>First / last game card</dd>
+          <dt><kbd>R</kbd></dt><dd>Quick-play a random game</dd>
+          <dt><kbd>T</kbd></dt><dd>Cycle hub theme (NEON → CRT → MODERN)</dd>
+          <dt><kbd>S</kbd></dt><dd>Open share modal</dd>
+          <dt><kbd>↑</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd><kbd>←</kbd><kbd>→</kbd><kbd>B</kbd><kbd>A</kbd></dt><dd>Konami code · rainbow card borders</dd>
+        </dl>
+        <button id="shortcuts-close" type="button" class="hub-modal__close">DONE</button>
+      </div>
+    </div>
+
+    <!-- SHARE modal — share text + URL, per-game when launched from a card.
+         Uses the native Web Share API on mobile; falls back to copy-link. -->
+    <div id="share-modal" class="hub-modal" hidden>
+      <div class="hub-modal__panel">
+        <h2 id="share-title">SHARE</h2>
+        <p class="onboard-body" id="share-blurb" style="margin-bottom:10px;">Tell a friend. Nothing to install — they tap the link and play.</p>
+        <textarea id="share-text" rows="3" readonly aria-label="Share message" style="width:100%;background:rgba(0,0,0,.5);border:2px solid var(--border);color:var(--text);font-family:var(--font-body);font-size:.9rem;padding:10px;border-radius:6px;resize:none;margin-bottom:10px;line-height:1.4;"></textarea>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;">
+          <button id="share-copy" type="button" class="profile-btn">COPY LINK</button>
+          <button id="share-native" type="button" class="profile-btn profile-btn--ghost" hidden>NATIVE SHARE…</button>
+          <a id="share-twitter" class="profile-btn profile-btn--ghost" target="_blank" rel="noopener noreferrer">TWEET</a>
+        </div>
+        <div id="share-msg" class="profile-error" hidden style="margin-top:10px;"></div>
+        <button id="share-close" type="button" class="hub-modal__close">DONE</button>
+      </div>
+    </div>
+
+    <!-- ABOUT modal — credits + tech stack + GitHub link. Replaces a slimmer
+         credits modal as the canonical "what is this" page. -->
+    <div id="about-modal" class="hub-modal" hidden>
+      <div class="hub-modal__panel hub-modal__panel--wide">
+        <h2>ABOUT WEB GAMES</h2>
+        <p class="onboard-body">A growing collection of pixel-art and 3D browser games. Everything runs client-side. No accounts required, no ads, no telemetry. Pick a card and play.</p>
+        <h3 class="profile-h3" style="margin-top:14px;">TECH STACK</h3>
+        <ul class="credits-list">
+          <li><b>2D engine</b> · PixiJS 8 · canvas + WebGL pixel rendering</li>
+          <li><b>3D engine</b> · Three.js · first-person Backrooms + Clown Forest</li>
+          <li><b>Build</b> · Vite 5 · ES modules, code-split per-game</li>
+          <li><b>Audio</b> · WebAudio API · 100% synthesised (no samples)</li>
+          <li><b>Storage</b> · localStorage · optional Supabase cloud sync</li>
+          <li><b>Offline</b> · Service Worker + Web App Manifest (installable PWA)</li>
+          <li><b>Fonts</b> · Press Start 2P + VT323 (Google Fonts)</li>
+        </ul>
+        <h3 class="profile-h3" style="margin-top:14px;">LINKS</h3>
+        <ul class="credits-list">
+          <li><b>Source code</b> · <a id="about-github" href="https://github.com/leobalkind/web-games" target="_blank" rel="noopener">github.com/leobalkind/web-games</a></li>
+          <li><b>Latest release</b> · <span id="about-version">v2.4</span></li>
+          <li><b>Bug reports + feature ideas</b> · open a GitHub Issue</li>
+        </ul>
+        <p class="credits-foot">Made with too much coffee. Open-source-friendly build. Pugs not included.</p>
+        <button id="about-close" type="button" class="hub-modal__close">DONE</button>
+      </div>
+    </div>
+
+    <!-- FRIEND CODE popover — appears anchored to the profile chip when the
+         player taps "Show friend code" inside the quick-switch dropdown.
+         Pure cosmetic — no backend matching, just a deterministic 6-char id
+         derived from the profile id for social-proof / bragging. -->
+    <div id="friend-code-popover" class="friend-code-pop" hidden>
+      <div class="friend-code-pop__label">YOUR FRIEND CODE</div>
+      <div id="friend-code-value" class="friend-code-pop__code">— — — — — —</div>
+      <div class="friend-code-pop__hint">Cosmetic only — no backend matching yet.</div>
+      <button id="friend-code-copy" type="button" class="profile-btn">COPY</button>
+      <button id="friend-code-close" type="button" class="profile-btn profile-btn--ghost">CLOSE</button>
     </div>
 
     <!-- RESET ALL confirm modal — two-step destructive flow. Step 1 prompts
@@ -4350,6 +4490,439 @@
         });
       })();
 
+      // ======================================================================
+      // HUB POLISH ROUND 2 — packaged as one bootstrap so all features wire up
+      // after the rest of the hub has settled. Each helper is internally
+      // null-safe so a missing DOM hook can't break the rest of the page.
+      // ======================================================================
+      (function hubPolishRound2() {
+        // ---- helper: pick element by id ------------------------------------
+        const $$ = (id) => document.getElementById(id);
+        const cards = () => [...document.querySelectorAll('.hub__grid .card[href*="/games/"]')];
+
+        // ====================================================================
+        // ITEM 1: Cursor-proximity perspective tilt on game cards.
+        // Adds rotateX/rotateY relative to where the pointer enters the card.
+        // Pure CSS handles the hover lift; this layer adds 3D parallax.
+        // Skipped under reduced-motion (we already respect that body class).
+        // ====================================================================
+        (function cardPerspectiveTilt() {
+          if (document.body.classList.contains('reduced-motion')) return;
+          if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+          // Touch devices already cope poorly with hover transforms.
+          if ('ontouchstart' in window && window.innerWidth < 900) return;
+          for (const card of cards()) {
+            // Use the card's bounding rect cached at pointermove time so we
+            // don't read layout in a tight loop.
+            card.addEventListener('pointermove', (e) => {
+              const r = card.getBoundingClientRect();
+              const x = (e.clientX - r.left) / r.width;   // 0..1
+              const y = (e.clientY - r.top) / r.height;   // 0..1
+              const tiltX = (0.5 - y) * 8;  // ±4deg
+              const tiltY = (x - 0.5) * 10; // ±5deg
+              card.style.setProperty('--tiltX', tiltX.toFixed(2) + 'deg');
+              card.style.setProperty('--tiltY', tiltY.toFixed(2) + 'deg');
+            }, { passive: true });
+            card.addEventListener('pointerleave', () => {
+              card.style.setProperty('--tiltX', '0deg');
+              card.style.setProperty('--tiltY', '0deg');
+            }, { passive: true });
+          }
+        })();
+
+        // ====================================================================
+        // ITEM 2: FEATURED GAME OF THE DAY — deterministic by UTC date.
+        // Hashes "YYYY-MM-DD" → picks one card. Re-rolls if user clicks the
+        // ribbon (so they can preview tomorrow's potential pick).
+        // ====================================================================
+        (function featuredOfTheDay() {
+          const banner = $$('hub-featured');
+          if (!banner) return;
+          const playable = cards();
+          if (!playable.length) return;
+          // Daily seed → numeric hash → index
+          const d = new Date();
+          const seed = d.getUTCFullYear() + '-' + String(d.getUTCMonth()+1).padStart(2,'0') + '-' + String(d.getUTCDate()).padStart(2,'0');
+          let h = 2166136261;
+          for (let i = 0; i < seed.length; i++) { h ^= seed.charCodeAt(i); h = (h * 16777619) >>> 0; }
+          const idx = h % playable.length;
+          const pick = playable[idx];
+          const title = pick.querySelector('.card__title')?.textContent?.trim() || 'TODAY\'S PICK';
+          const desc = pick.querySelector('.card__desc')?.textContent?.trim() || 'Play the game of the day.';
+          banner.href = pick.getAttribute('href');
+          $$('hub-featured-title').textContent = title;
+          $$('hub-featured-sub').textContent = desc.length > 80 ? desc.slice(0, 77) + '…' : desc;
+          banner.hidden = false;
+          // Stash pick id so other features (e.g. share modal) can default to it.
+          const m = (pick.getAttribute('href') || '').match(/\/games\/([^/]+)/);
+          if (m) banner.dataset.gid = m[1];
+        })();
+
+        // ====================================================================
+        // ITEM 3: QUICK PLAY FAB — bottom-right floating button, random launch.
+        // Hidden while a modal is open so it never blocks "DONE" on mobile.
+        // ====================================================================
+        (function quickPlayFab() {
+          const fab = $$('quick-play-fab');
+          if (!fab) return;
+          fab.addEventListener('click', () => {
+            try { playUI('open'); } catch {}
+            gotoRandom();
+          });
+          // Hide while ANY modal is open (modal nodes have class hub-modal and
+          // toggle hidden attr). We observe via a tiny periodic check on
+          // focusin/focusout that's cheap and survives ad-hoc modals.
+          const sync = () => {
+            const anyOpen = !!document.querySelector('.hub-modal:not([hidden])');
+            fab.classList.toggle('is-hidden', anyOpen);
+          };
+          // Watch attribute changes on every modal so we don't poll.
+          const obs = new MutationObserver(sync);
+          for (const m of document.querySelectorAll('.hub-modal')) {
+            obs.observe(m, { attributes: true, attributeFilter: ['hidden'] });
+          }
+          // Also wire "R" key as quick-play (skips when typing into a field).
+          window.addEventListener('keydown', (e) => {
+            if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+            if (e.key === 'r' || e.key === 'R') {
+              if (e.metaKey || e.ctrlKey || e.altKey) return;
+              e.preventDefault();
+              fab.click();
+            }
+          });
+          sync();
+        })();
+
+        // ====================================================================
+        // ITEM 4: FRIEND CODES (cosmetic). Deterministic 6-char from profile id.
+        // Anchored popover opens from the profile chip's hover menu, but also
+        // via the dropdown's existing "My Data / Stats" sibling — we inject a
+        // tiny "Show friend code" entry next time the dropdown opens.
+        // ====================================================================
+        (function friendCodes() {
+          const pop = $$('friend-code-popover');
+          if (!pop) return;
+          const valueEl = $$('friend-code-value');
+          const chars = 'ABCDEFGHIJKLMNPQRSTUVWXYZ23456789';  // skip O/0/1/I
+          function codeFor(seedStr) {
+            if (!seedStr) return '------';
+            let h = 2166136261;
+            for (let i = 0; i < seedStr.length; i++) { h ^= seedStr.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+            let out = '';
+            for (let i = 0; i < 6; i++) { out += chars[h % chars.length]; h = Math.floor(h / chars.length) || 0x9e3779b9; }
+            return out;
+          }
+          function activeProfileId() {
+            try { return localStorage.getItem('wg:profiles:active'); } catch { return null; }
+          }
+          function openPopover(anchor) {
+            const id = activeProfileId();
+            const code = id ? codeFor(id) : codeFor('guest:' + (navigator.userAgent || '').slice(0, 32));
+            valueEl.textContent = code.split('').join(' ');
+            pop.hidden = false;
+            // Position above the anchor
+            const r = anchor.getBoundingClientRect();
+            const w = pop.offsetWidth || 240;
+            let left = r.left + r.width / 2 - w / 2;
+            left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
+            let top = r.top - pop.offsetHeight - 12;
+            if (top < 8) top = r.bottom + 12;
+            pop.style.left = left + 'px';
+            pop.style.top = top + 'px';
+            // Close handlers (added once per open)
+            const onDoc = (e) => { if (!pop.contains(e.target) && e.target !== anchor) closePopover(); };
+            const onKey = (e) => { if (e.key === 'Escape') closePopover(); };
+            function closePopover() {
+              pop.hidden = true;
+              document.removeEventListener('click', onDoc);
+              document.removeEventListener('keydown', onKey);
+            }
+            setTimeout(() => {
+              document.addEventListener('click', onDoc);
+              document.addEventListener('keydown', onKey);
+            }, 0);
+            $$('friend-code-close').onclick = closePopover;
+            $$('friend-code-copy').onclick = async () => {
+              try { await navigator.clipboard.writeText(code); } catch {}
+              const btn = $$('friend-code-copy');
+              const orig = btn.textContent;
+              btn.textContent = 'COPIED!';
+              setTimeout(() => { btn.textContent = orig; }, 1400);
+            };
+          }
+          // Chip click also opens popover if double-tap (single still opens the
+          // existing quick-switch dropdown). We use altKey/ctrlKey as a power
+          // shortcut, and inject a button into the dropdown via MutationObserver.
+          const profileChip = $$('profile-chip');
+          if (profileChip) {
+            profileChip.addEventListener('contextmenu', (e) => {
+              e.preventDefault();
+              openPopover(profileChip);
+            });
+          }
+          // Watch for the quick-switch dropdown so we can append our entry.
+          const bodyObs = new MutationObserver(() => {
+            const dd = document.querySelector('.profile-dd');
+            if (!dd || dd.dataset.friendInjected) return;
+            dd.dataset.friendInjected = '1';
+            const sep = document.createElement('div');
+            sep.className = 'profile-dd__sep';
+            dd.insertBefore(sep, dd.querySelector('.profile-dd__manage--danger') || dd.lastChild);
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'profile-dd__manage';
+            btn.setAttribute('role', 'menuitem');
+            btn.textContent = 'Show friend code…';
+            btn.addEventListener('click', () => {
+              // Close the dropdown by clicking outside; then open popover.
+              const anchor = $$('profile-chip') || document.body;
+              dd.remove();
+              setTimeout(() => openPopover(anchor), 30);
+            });
+            dd.insertBefore(btn, dd.querySelector('.profile-dd__manage--danger') || dd.lastChild);
+          });
+          bodyObs.observe(document.body, { childList: true });
+        })();
+
+        // ====================================================================
+        // ITEM 5: THEME PICKER (NEON / RETRO CRT / MODERN). Persists choice.
+        // Bound to settings modal swatches + "T" key cycles.
+        // ====================================================================
+        (function themePicker() {
+          const THEMES = ['default', 'retro', 'modern'];
+          const STORE_KEY = 'wg:hub:theme';
+          function applyTheme(name) {
+            if (!THEMES.includes(name)) name = 'default';
+            for (const t of THEMES) document.body.classList.toggle('hub-theme--' + t, t === name);
+            try { localStorage.setItem(STORE_KEY, name); } catch {}
+            // Update meta theme-color for matching browser chrome.
+            const meta = document.querySelector('meta[name="theme-color"]');
+            if (meta) meta.content = name === 'retro' ? '#150a00' : name === 'modern' ? '#0e141d' : '#0a0716';
+            // Sync swatch active state
+            for (const sw of document.querySelectorAll('.theme-swatch')) {
+              const on = sw.dataset.theme === name;
+              sw.classList.toggle('is-active', on);
+              sw.setAttribute('aria-checked', String(on));
+            }
+          }
+          // Initial: read storage
+          let saved = 'default';
+          try { saved = localStorage.getItem(STORE_KEY) || 'default'; } catch {}
+          applyTheme(saved);
+          // Bind swatches
+          for (const sw of document.querySelectorAll('.theme-swatch')) {
+            sw.addEventListener('click', () => applyTheme(sw.dataset.theme || 'default'));
+          }
+          // "T" key cycles themes
+          window.addEventListener('keydown', (e) => {
+            if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+            if (e.metaKey || e.ctrlKey || e.altKey) return;
+            if (e.key === 't' || e.key === 'T') {
+              e.preventDefault();
+              const cur = THEMES.indexOf((localStorage.getItem(STORE_KEY) || 'default'));
+              applyTheme(THEMES[(cur + 1) % THEMES.length]);
+              try { playUI('click'); } catch {}
+            }
+          });
+        })();
+
+        // ====================================================================
+        // ITEM 6: KEYBOARD SHORTCUTS MODAL — replaces "?" → onboarding fallback.
+        // We override the prior "?" handler by stopping its propagation here.
+        // ====================================================================
+        (function shortcutsModal() {
+          const btn = $$('shortcuts-btn');
+          if (btn) btn.addEventListener('click', (e) => openModal('shortcuts-modal', e.currentTarget));
+          $$('shortcuts-close')?.addEventListener('click', () => closeModal('shortcuts-modal'));
+          $$('shortcuts-modal')?.addEventListener('click', (e) => { if (e.target.id === 'shortcuts-modal') closeModal('shortcuts-modal'); });
+          // Re-bind "?" to open shortcuts (the old binding opened onboarding).
+          // Capture phase so we run before the inner handler in setupSearchAndCats.
+          window.addEventListener('keydown', (e) => {
+            if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+            if (e.key !== '?' && !(e.key === '/' && e.shiftKey)) return;
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            const m = $$('shortcuts-modal');
+            if (m && m.hidden) openModal('shortcuts-modal', document.activeElement);
+            else closeModal('shortcuts-modal');
+          }, { capture: true });
+        })();
+
+        // ====================================================================
+        // ITEM 7: SEARCH HISTORY chips — last 5 queries committed (Enter or 1s
+        // debounce). Render as quick-pick chips just under the search box.
+        // ====================================================================
+        (function searchHistory() {
+          const input = $$('hub-search');
+          if (!input) return;
+          const KEY = 'wg:search:hist';
+          const MAX = 5;
+          const COMMIT_DEBOUNCE = 1100;
+          function read() {
+            try { return JSON.parse(localStorage.getItem(KEY) || '[]'); } catch { return []; }
+          }
+          function write(arr) {
+            try { localStorage.setItem(KEY, JSON.stringify(arr.slice(0, MAX))); } catch {}
+          }
+          // Render the row of chips beneath the search input. Re-rendered after
+          // every commit so it stays in sync.
+          let row = null;
+          function render() {
+            const arr = read();
+            if (!row) {
+              row = document.createElement('div');
+              row.className = 'hub__search-hist';
+              row.setAttribute('aria-label', 'Recent searches');
+              input.insertAdjacentElement('afterend', row);
+            }
+            row.innerHTML = '';
+            if (!arr.length) { row.hidden = true; return; }
+            row.hidden = false;
+            const label = document.createElement('span');
+            label.className = 'hub__search-hist__lbl';
+            label.textContent = 'RECENT';
+            row.appendChild(label);
+            for (const q of arr) {
+              const chip = document.createElement('button');
+              chip.type = 'button';
+              chip.className = 'hub__search-hist__chip';
+              chip.textContent = q;
+              chip.title = 'Re-run search: ' + q;
+              chip.addEventListener('click', () => {
+                input.value = q;
+                input.dispatchEvent(new Event('input'));
+                input.focus();
+              });
+              row.appendChild(chip);
+            }
+            const clear = document.createElement('button');
+            clear.type = 'button';
+            clear.className = 'hub__search-hist__clear';
+            clear.textContent = '×';
+            clear.title = 'Clear search history';
+            clear.addEventListener('click', () => { write([]); render(); });
+            row.appendChild(clear);
+          }
+          function commit(q) {
+            q = (q || '').trim();
+            if (q.length < 2) return;
+            const arr = read().filter((x) => x.toLowerCase() !== q.toLowerCase());
+            arr.unshift(q);
+            write(arr);
+            render();
+          }
+          let debounceT = 0;
+          input.addEventListener('input', () => {
+            clearTimeout(debounceT);
+            debounceT = setTimeout(() => commit(input.value), COMMIT_DEBOUNCE);
+          });
+          input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { clearTimeout(debounceT); commit(input.value); }
+          });
+          render();
+        })();
+
+        // ====================================================================
+        // ITEM 8: ABOUT MODAL — bind footer button.
+        // ====================================================================
+        (function aboutModal() {
+          $$('about-btn')?.addEventListener('click', (e) => openModal('about-modal', e.currentTarget));
+          $$('about-close')?.addEventListener('click', () => closeModal('about-modal'));
+          $$('about-modal')?.addEventListener('click', (e) => { if (e.target.id === 'about-modal') closeModal('about-modal'); });
+        })();
+
+        // ====================================================================
+        // ITEM 9: SHARE MODAL — opened from footer or from a card via right-click.
+        // Builds the share text + URL, prefers native Web Share API on mobile.
+        // ====================================================================
+        (function shareModal() {
+          const SITE_URL = location.origin + location.pathname.replace(/\/[^/]*$/, '/');
+          function buildShare(gid) {
+            const playable = cards();
+            const card = gid ? playable.find((c) => (c.getAttribute('href') || '').includes('/games/' + gid + '/')) : null;
+            const title = card ? (card.querySelector('.card__title')?.textContent?.trim() || gid) : 'Web Games';
+            const url = card ? new URL(card.getAttribute('href'), SITE_URL).href : SITE_URL;
+            const text = card
+              ? `I just played ${title} on Web Games. Try it: ${url}`
+              : `15 quick-hit browser pug games. No installs, no accounts. Play: ${url}`;
+            return { title, url, text };
+          }
+          function open(gid) {
+            const m = $$('share-modal');
+            if (!m) return;
+            const { title, url, text } = buildShare(gid);
+            const titleEl = $$('share-title');
+            if (titleEl) titleEl.textContent = gid ? 'SHARE — ' + title.toUpperCase() : 'SHARE';
+            const blurb = $$('share-blurb');
+            if (blurb) blurb.textContent = gid
+              ? 'Send a friend straight into ' + title + '. No installs.'
+              : 'Tell a friend. Nothing to install — they tap the link and play.';
+            const ta = $$('share-text');
+            if (ta) ta.value = text;
+            const tw = $$('share-twitter');
+            if (tw) tw.href = 'https://twitter.com/intent/tweet?text=' + encodeURIComponent(text);
+            const nat = $$('share-native');
+            if (nat) nat.hidden = !navigator.share;
+            openModal('share-modal');
+            // bind copy / share once per open
+            $$('share-copy').onclick = async () => {
+              try { await navigator.clipboard.writeText(url); } catch {}
+              const msg = $$('share-msg');
+              if (msg) { msg.textContent = 'Link copied to clipboard.'; msg.hidden = false; msg.style.color = '#5ef38c'; msg.style.background = 'rgba(94,243,140,0.1)'; }
+            };
+            $$('share-native').onclick = async () => {
+              if (!navigator.share) return;
+              try { await navigator.share({ title: 'Web Games · ' + title, text, url }); } catch {}
+            };
+          }
+          $$('share-btn')?.addEventListener('click', () => open(null));
+          $$('share-close')?.addEventListener('click', () => closeModal('share-modal'));
+          $$('share-modal')?.addEventListener('click', (e) => { if (e.target.id === 'share-modal') closeModal('share-modal'); });
+          // Right-click any card → share that specific game.
+          for (const card of cards()) {
+            card.addEventListener('contextmenu', (e) => {
+              // Skip on Ctrl-click (let browser context menu through on macOS).
+              if (e.ctrlKey) return;
+              e.preventDefault();
+              const m = (card.getAttribute('href') || '').match(/\/games\/([^/]+)/);
+              open(m ? m[1] : null);
+            });
+          }
+          // "S" key opens share modal.
+          window.addEventListener('keydown', (e) => {
+            if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+            if (e.metaKey || e.ctrlKey || e.altKey) return;
+            if (e.key === 's' || e.key === 'S') {
+              e.preventDefault();
+              open(null);
+            }
+          });
+        })();
+
+        // ====================================================================
+        // ITEM 10: PWA install banner — Android variant adds a 3-step iOS
+        // expandable explainer for users mis-identified or who switched.
+        // (The base banner was already installed earlier in the script.)
+        // ====================================================================
+        (function pwaBannerEnhance() {
+          // Only enhance once the original banner appears.
+          const obs = new MutationObserver(() => {
+            const wrap = document.querySelector('.pwa-install-hint:not([data-enhanced])');
+            if (!wrap) return;
+            wrap.dataset.enhanced = '1';
+            // Adjacency: stick a tiny step-list under the title for iOS hints.
+            const isIOS = wrap.innerHTML.includes('SHARE → ADD');
+            if (isIOS) {
+              const steps = document.createElement('ol');
+              steps.className = 'pwa-install-hint__steps';
+              steps.innerHTML = '<li>Tap the SHARE icon</li><li>Pick "Add to Home Screen"</li><li>Confirm — done!</li>';
+              wrap.querySelector('.pwa-install-hint__body')?.appendChild(steps);
+            }
+          });
+          obs.observe(document.body, { childList: true });
+        })();
+      })();
+
       // === Cloud sync indicator — small online/offline dot beside profile chip ===
       // Only render when Supabase is configured. The status reflects the
       // navigator.onLine flag + cloudSync's session presence.
@@ -4380,6 +4953,35 @@
           window.addEventListener('offline', sync);
           sync();
         } catch {}
+      })();
+
+      // ======================================================================
+      // v2.6 SITE-018: Updates banner — small "WHAT'S NEW" pill sitting just
+      // below the chips that surfaces the latest 3 items shipped this version.
+      // Dismissible; persists `wg:updatesSeen:v26` so it never reappears.
+      // ======================================================================
+      (function updatesBanner() {
+        const KEY = 'wg:updatesSeen:v26';
+        if (localStorage.getItem(KEY) === '1') return;
+        const host = document.querySelector('.hub__chips');
+        if (!host) return;
+        const banner = document.createElement('div');
+        banner.className = 'hub__updates';
+        banner.style.cssText = 'margin:12px auto 0;max-width:560px;background:linear-gradient(90deg,rgba(94,243,140,0.12),rgba(76,201,240,0.12));border:1px solid #5ef38c;color:#fff;padding:8px 14px;font-family:VT323,monospace;font-size:15px;border-radius:6px;text-align:left;position:relative;line-height:1.4;';
+        banner.innerHTML = '<span style="color:#5ef38c;font-family:\'Press Start 2P\',monospace;font-size:9px;letter-spacing:1px;">★ WHAT\'S NEW v2.6</span>'
+          + '<ul style="margin:6px 0 0;padding-left:18px;color:#bcd;">'
+          + '<li>Bork-Battle: audience cheers on 5-kill chains + treat-magnet hint</li>'
+          + '<li>Diggers + Lava + Cafe + TD + Mart: new achievements unlocked</li>'
+          + '<li>Lab: 📥 export your codex as JSON; live completion % chip</li>'
+          + '</ul>'
+          + '<button type="button" aria-label="Dismiss" style="position:absolute;top:6px;right:8px;background:none;border:none;color:#888;cursor:pointer;font-size:14px;line-height:1;padding:2px 4px;">✕</button>';
+        host.parentNode.insertBefore(banner, host.nextSibling);
+        banner.querySelector('button').addEventListener('click', () => {
+          localStorage.setItem(KEY, '1');
+          banner.style.opacity = '0';
+          banner.style.transition = 'opacity 0.3s,height 0.3s,padding 0.3s,margin 0.3s';
+          setTimeout(() => banner.remove(), 320);
+        });
       })();
     </script>
   </body>

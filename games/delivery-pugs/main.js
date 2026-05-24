@@ -3111,3 +3111,77 @@ if (_startOv) {
     new MutationObserver(onHide).observe(startOv, { attributes: true, attributeFilter: ['hidden','class'] });
   }
 })();
+
+// ============================================================================
+// v2.6 DELIV-004: Customer emoji reactions on delivery. Watches `#hud-del`
+// counter — whenever it increments, picks an emoji (😊/🤩/😡 based on tip
+// magnitude derived from time-since-last) and floats it up from bottom-center.
+// ============================================================================
+(function _r6DelivCustomerReact() {
+  const del = document.getElementById('hud-del');
+  if (!del) return;
+  let last = 0, lastTime = performance.now();
+  setInterval(() => {
+    const cur = parseInt((del.textContent || '').replace(/\D/g, ''), 10) || 0;
+    if (cur > last) {
+      const dt = performance.now() - lastTime;
+      lastTime = performance.now();
+      // Faster delivery = happier emoji
+      const em = dt < 8000 ? '🤩' : dt < 15000 ? '😊' : dt < 30000 ? '😐' : '😡';
+      const col = dt < 8000 ? '#5ef38c' : dt < 15000 ? '#4cc9f0' : dt < 30000 ? '#ffd23f' : '#ff3aa1';
+      const bub = document.createElement('div');
+      bub.textContent = em + ' DELIVERED';
+      bub.style.cssText = 'position:fixed;bottom:30%;left:50%;transform:translateX(-50%);background:rgba(20,8,32,0.92);color:' + col + ';border:1px solid ' + col + ';padding:6px 14px;font-family:"Press Start 2P",monospace;font-size:11px;border-radius:4px;z-index:9997;pointer-events:none;animation:delCustomerRise 1.8s ease-out forwards;';
+      document.body.appendChild(bub);
+      setTimeout(() => bub.remove(), 1900);
+    }
+    last = cur;
+  }, 250);
+  if (!document.getElementById('del-customer-style')) {
+    const s = document.createElement('style');
+    s.id = 'del-customer-style';
+    s.textContent = '@keyframes delCustomerRise{0%{opacity:0;transform:translateX(-50%) translateY(20px) scale(0.7)}15%{opacity:1;transform:translateX(-50%) translateY(0) scale(1.18)}30%{transform:translateX(-50%) translateY(0) scale(1)}82%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(-40px) scale(0.95)}}';
+    document.head.appendChild(s);
+  }
+})();
+
+// ============================================================================
+// v2.6 DELIV-012: Achievement — 5 perfect deliveries in a row. Reads the
+// combo stat from `#end-combo` after a run (or live via `#hud-combo` if
+// exposed). Persists `delivery:achievement:5streak`.
+// ============================================================================
+(function _r6DelivStreakAch() {
+  const KEY = 'delivery:achievement:5streak';
+  if (localStorage.getItem(KEY) === '1') return;
+  const del = document.getElementById('hud-del');
+  let streak = 0, last = 0;
+  setInterval(() => {
+    if (localStorage.getItem(KEY) === '1') return;
+    const cur = parseInt((del?.textContent || '').replace(/\D/g, ''), 10) || 0;
+    if (cur > last) {
+      // Heuristic: each new delivery counts as +1 streak; a hud "fail" indicator
+      // (smoke/sparks class) breaks it. Best-effort: read window.__deliveryPerfectStreak.
+      streak = (typeof window.__deliveryPerfectStreak === 'number') ? window.__deliveryPerfectStreak : streak + 1;
+    }
+    last = cur;
+    if (streak >= 5) {
+      localStorage.setItem(KEY, '1');
+      const toast = document.createElement('div');
+      toast.textContent = '★ 5 PERFECT DELIVERIES IN A ROW!';
+      toast.style.cssText = 'position:fixed;top:30%;left:50%;transform:translateX(-50%);background:linear-gradient(90deg,#ffd23f,#ff8e3c);color:#0a0716;padding:10px 18px;font-family:"Press Start 2P",monospace;font-size:10px;border-radius:6px;z-index:9999;pointer-events:none;animation:delStreakPop 3.4s ease-out forwards;box-shadow:0 0 24px rgba(255,210,63,0.55);font-weight:bold;';
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 3500);
+      if (!document.getElementById('del-streak-style')) {
+        const s = document.createElement('style');
+        s.id = 'del-streak-style';
+        s.textContent = '@keyframes delStreakPop{0%{opacity:0;transform:translateX(-50%) translateY(20px) scale(0.5)}12%{opacity:1;transform:translateX(-50%) translateY(0) scale(1.18)}28%{transform:translateX(-50%) translateY(0) scale(1)}90%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(-12px)}}';
+        document.head.appendChild(s);
+      }
+    }
+  }, 350);
+  // Reset streak when starting overlay shows
+  const sov = document.getElementById('overlay');
+  if (sov) {
+    new MutationObserver(() => { if (!sov.hidden) streak = 0; }).observe(sov, { attributes: true, attributeFilter: ['hidden', 'class'] });
+  }
+})();

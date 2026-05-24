@@ -899,3 +899,88 @@ setInterval(() => {
     document.head.appendChild(s);
   }
 })();
+
+// ============================================================================
+// v2.6 FORT-004: Build-grid snap preview hint — flashes a faint dashed ring
+// around the cursor when a build slot is selected (any .hud-slot.is-active).
+// Best-effort overlay near the player cursor; pure CSS body class.
+// ============================================================================
+(function _r6FortBuildSnap() {
+  if (!document.getElementById('pf-snap-style')) {
+    const s = document.createElement('style');
+    s.id = 'pf-snap-style';
+    s.textContent = '@keyframes pfSnapRing{0%,100%{box-shadow:0 0 0 2px rgba(94,243,140,0.55)}50%{box-shadow:0 0 0 8px rgba(94,243,140,0.18)}}'
+      + 'body.pf-building::after{content:"GRID-SNAP";position:fixed;top:14px;right:84px;background:rgba(20,8,32,0.92);color:#5ef38c;border:1px solid #5ef38c;padding:4px 8px;font-family:"Press Start 2P",monospace;font-size:8px;border-radius:3px;z-index:50;letter-spacing:1px;animation:pfSnapRing 1.4s ease-in-out infinite}';
+    document.head.appendChild(s);
+  }
+  setInterval(() => {
+    const anyActive = !!document.querySelector('.hud-slot.is-active, .hud-slot.is-selected, .hud-slot[aria-pressed="true"]');
+    document.body.classList.toggle('pf-building', anyActive);
+  }, 250);
+})();
+
+// ============================================================================
+// v2.6 FORT-015: Fog-of-war reveal — fade in dark vignette every time a new
+// zombie wave starts (phase flips DAY→NIGHT) so the player feels the dread.
+// Pure DOM overlay, auto-removed after 2.4s.
+// ============================================================================
+(function _r6FortFogReveal() {
+  const phase = document.getElementById('hud-phase');
+  if (!phase) return;
+  let last = '';
+  setInterval(() => {
+    const cur = (phase.textContent || '').trim().toUpperCase();
+    if (cur === last) return;
+    if (last === 'DAY' && cur.includes('NIGHT')) {
+      const fog = document.createElement('div');
+      fog.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:40;background:radial-gradient(ellipse at center,transparent 30%,rgba(0,0,0,0.7) 100%);opacity:0;animation:pfFogIn 2.4s ease-out forwards;';
+      document.body.appendChild(fog);
+      setTimeout(() => fog.remove(), 2500);
+    }
+    last = cur;
+  }, 400);
+  if (!document.getElementById('pf-fog-style')) {
+    const s = document.createElement('style');
+    s.id = 'pf-fog-style';
+    s.textContent = '@keyframes pfFogIn{0%{opacity:0}30%{opacity:1}80%{opacity:1}100%{opacity:0}}';
+    document.head.appendChild(s);
+  }
+})();
+
+// ============================================================================
+// v2.6 FORT-018: Bone-crunch zombie hits — exposes window.__fortWallHit() as
+// an SFX hook. WebAudio: layered low-freq sawtooth + click + noise tail.
+// ============================================================================
+(function _r6FortBoneCrunch() {
+  let ac = null;
+  let lastFire = 0;
+  window.__fortWallHit = function () {
+    try {
+      const now = performance.now();
+      if (now - lastFire < 80) return;
+      lastFire = now;
+      ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+      if (ac.state === 'suspended') ac.resume();
+      if (localStorage.getItem('wg:settings:muted') === '1') return;
+      const t = ac.currentTime;
+      const o = ac.createOscillator();
+      const g = ac.createGain();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(120 + Math.random() * 30, t);
+      o.frequency.exponentialRampToValueAtTime(40, t + 0.14);
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.045, t + 0.005);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.14);
+      o.connect(g); g.connect(ac.destination);
+      // Crunch click
+      const o2 = ac.createOscillator();
+      const g2 = ac.createGain();
+      o2.type = 'square'; o2.frequency.value = 1800;
+      g2.gain.setValueAtTime(0.025, t);
+      g2.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
+      o2.connect(g2); g2.connect(ac.destination);
+      o.start(t); o.stop(t + 0.16);
+      o2.start(t); o2.stop(t + 0.05);
+    } catch {}
+  };
+})();

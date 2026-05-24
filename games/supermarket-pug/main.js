@@ -2837,3 +2837,44 @@ _renderMapPicker();
     }).observe(start, { attributes: true, attributeFilter: ['hidden','class'] });
   }
 })();
+
+// ============================================================================
+// v2.6 MART-010: Achievement — escape with 20+ items. Reads #end-shelves
+// + #hud-bag to detect bag size at exit; persists `mart:achievement:bag20`.
+// Best-effort: triggers on end overlay if bag was ≥ 20 at any point.
+// ============================================================================
+(function _r6MartBag20Ach() {
+  const KEY = 'mart:achievement:bag20';
+  if (localStorage.getItem(KEY) === '1') return;
+  const bag = document.getElementById('hud-bag');
+  const endOv = document.getElementById('end-overlay');
+  if (!bag || !endOv) return;
+  let peak = 0;
+  setInterval(() => {
+    if (localStorage.getItem(KEY) === '1') return;
+    const m = (bag.textContent || '').match(/(\d+)/);
+    if (m) peak = Math.max(peak, parseInt(m[1], 10));
+  }, 400);
+  new MutationObserver(() => {
+    if (localStorage.getItem(KEY) === '1') return;
+    if (endOv.hidden || endOv.classList.contains('is-hidden')) return;
+    // Check title for "ESCAPED" / "FREE" rather than "CAUGHT"
+    const title = (document.getElementById('end-title')?.textContent || '').toUpperCase();
+    if (peak >= 20 && /ESCAP|FREE|WIN|HAUL/.test(title) && !/CAUGHT|BUSTED/.test(title)) {
+      localStorage.setItem(KEY, '1');
+      const toast = document.createElement('div');
+      toast.textContent = '★ ESCAPED WITH 20+ ITEMS!';
+      toast.style.cssText = 'position:fixed;top:30%;left:50%;transform:translateX(-50%);background:linear-gradient(90deg,#ffd23f,#ff8e3c);color:#0a0716;padding:10px 18px;font-family:"Press Start 2P",monospace;font-size:10px;border-radius:6px;z-index:9999;pointer-events:none;animation:martBag20Pop 3.4s ease-out forwards;box-shadow:0 0 24px rgba(255,210,63,0.55);font-weight:bold;';
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 3500);
+      if (!document.getElementById('mart-bag20-style')) {
+        const s = document.createElement('style');
+        s.id = 'mart-bag20-style';
+        s.textContent = '@keyframes martBag20Pop{0%{opacity:0;transform:translateX(-50%) translateY(20px) scale(0.5)}12%{opacity:1;transform:translateX(-50%) translateY(0) scale(1.18)}28%{transform:translateX(-50%) translateY(0) scale(1)}90%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(-12px)}}';
+        document.head.appendChild(s);
+      }
+    }
+    // reset peak on overlay hide
+    setTimeout(() => { if (endOv.hidden) peak = 0; }, 500);
+  }).observe(endOv, { attributes: true, attributeFilter: ['hidden', 'class'] });
+})();

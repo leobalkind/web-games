@@ -1037,3 +1037,164 @@ try {
     document.head.appendChild(s);
   }
 })();
+
+// ============================================================================
+// v2.6 BORK-005: Treat-magnet upgrade hint chip — surfaces a one-shot tip
+// pill on the loadout overlay explaining that perks with "magnet" in name
+// pull money/treats. Pure DOM, persists `bork:magnetTipSeen`.
+// ============================================================================
+(function _r6BorkMagnetTip() {
+  if (localStorage.getItem('bork:magnetTipSeen') === '1') return;
+  const ov = document.getElementById('overlay');
+  if (!ov) return;
+  const fire = () => {
+    if (localStorage.getItem('bork:magnetTipSeen') === '1') return;
+    const perks = document.getElementById('perk-choices');
+    if (!perks || !perks.children.length) return;
+    const txt = (perks.textContent || '').toLowerCase();
+    if (!txt.includes('magnet') && !txt.includes('pull') && !txt.includes('vacuum')) return;
+    localStorage.setItem('bork:magnetTipSeen', '1');
+    const pill = document.createElement('div');
+    pill.textContent = '💡 MAGNET perks pull cash + treats toward you';
+    pill.style.cssText = 'position:absolute;bottom:-32px;left:50%;transform:translateX(-50%);background:rgba(20,8,32,0.95);color:#ffd23f;border:1px solid #ffd23f;padding:5px 10px;font-family:"Press Start 2P",monospace;font-size:8px;border-radius:4px;z-index:9998;pointer-events:none;animation:borkMagTipPop 4.5s ease-out forwards;white-space:nowrap;';
+    perks.style.position = perks.style.position || 'relative';
+    perks.appendChild(pill);
+    setTimeout(() => pill.remove(), 4700);
+  };
+  setInterval(() => {
+    const visible = !ov.hidden && !ov.classList.contains('is-hidden');
+    if (visible) fire();
+  }, 1500);
+  if (!document.getElementById('bork-magnet-tip-style')) {
+    const s = document.createElement('style');
+    s.id = 'bork-magnet-tip-style';
+    s.textContent = '@keyframes borkMagTipPop{0%{opacity:0;transform:translateX(-50%) translateY(4px)}10%{opacity:1;transform:translateX(-50%) translateY(0)}90%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(-4px)}}';
+    document.head.appendChild(s);
+  }
+})();
+
+// ============================================================================
+// v2.6 BORK-007: Audio ducking on BORK ability fire — when window.__borkFire()
+// gets called by the game (or when the bork bar visibly drains), drop music
+// to ~30% for 600ms via a body class. Pure CSS — Howler/Web Audio not touched.
+// ============================================================================
+(function _r6BorkDuck() {
+  if (!document.getElementById('bork-duck-style')) {
+    const s = document.createElement('style');
+    s.id = 'bork-duck-style';
+    s.textContent = '.bork-music-duck audio,.bork-music-duck video{volume:0.3 !important}';
+    document.head.appendChild(s);
+  }
+  const fill = document.getElementById('hud-bork-fill');
+  let lastW = 0;
+  const duck = () => {
+    document.body.classList.add('bork-music-duck');
+    setTimeout(() => document.body.classList.remove('bork-music-duck'), 600);
+  };
+  window.__borkFire = duck;
+  if (fill) {
+    setInterval(() => {
+      const w = parseFloat(fill.style.width) || 0;
+      if (lastW > 70 && w < 12) duck(); // big drop = released
+      lastW = w;
+    }, 120);
+  }
+})();
+
+// ============================================================================
+// v2.6 BORK-013: Audience cheer reactions — when player chains 5+ kills in
+// 6s, fire a louder bottom-screen cheer burst (DOM-only emoji rain, audio
+// optional). Reads kill-feed for new entries that contain "YOU".
+// ============================================================================
+(function _r6BorkAudienceCheer() {
+  const feed = document.getElementById('kill-feed') || document.body;
+  let recent = [];
+  let lastFired = 0;
+  setInterval(() => {
+    if (!game?.running) return;
+    const items = feed.querySelectorAll ? feed.querySelectorAll('.kill-feed__item, .kf-row') : [];
+    const now = performance.now();
+    const count = items.length;
+    if (count !== recent.lastCount) {
+      const diff = count - (recent.lastCount || 0);
+      const fresh = [...items].slice(-Math.max(0, diff));
+      for (const f of fresh) {
+        const txt = (f.textContent || '').toUpperCase();
+        if (txt.startsWith('YOU ') || txt.includes('YOU KILL') || /YOU.*BORK/.test(txt)) recent.push(now);
+      }
+      recent.lastCount = count;
+    }
+    recent = recent.filter((t) => now - t < 6000);
+    if (recent.length >= 5 && now - lastFired > 8000) {
+      lastFired = now;
+      recent = [];
+      // Emoji rain
+      for (let i = 0; i < 14; i++) {
+        const em = document.createElement('div');
+        em.textContent = ['🎉','🐶','★','💥','🔥'][i % 5];
+        const lx = 5 + Math.random() * 90;
+        em.style.cssText = `position:fixed;bottom:-30px;left:${lx}%;font-size:${18 + Math.random() * 14}px;z-index:9997;pointer-events:none;animation:borkCheerRise ${1.6 + Math.random() * 0.8}s ease-out forwards;`;
+        document.body.appendChild(em);
+        setTimeout(() => em.remove(), 2600);
+      }
+    }
+  }, 350);
+  if (!document.getElementById('bork-cheer-style')) {
+    const s = document.createElement('style');
+    s.id = 'bork-cheer-style';
+    s.textContent = '@keyframes borkCheerRise{0%{transform:translateY(0) scale(0.8);opacity:0}10%{opacity:1}100%{transform:translateY(-60vh) scale(1.1);opacity:0}}';
+    document.head.appendChild(s);
+  }
+})();
+
+// ============================================================================
+// v2.6 BORK-017: BORK ability charge SFX — quiet rising hum that fires when
+// the bork bar fills (~80%) for the first time per run, then again per fill.
+// Exposed as window.__borkChargeReady() so the game can call it directly.
+// ============================================================================
+(function _r6BorkChargeHum() {
+  let ac = null;
+  let lastFireTime = 0;
+  function hum() {
+    try {
+      const now = performance.now();
+      if (now - lastFireTime < 1500) return;
+      lastFireTime = now;
+      ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+      if (ac.state === 'suspended') ac.resume();
+      if (localStorage.getItem('wg:settings:muted') === '1') return;
+      const t = ac.currentTime;
+      const o = ac.createOscillator();
+      const g = ac.createGain();
+      o.type = 'triangle';
+      o.frequency.setValueAtTime(180, t);
+      o.frequency.exponentialRampToValueAtTime(620, t + 0.55);
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.05, t + 0.45);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.7);
+      // Tail "click" release
+      const o2 = ac.createOscillator();
+      const g2 = ac.createGain();
+      o2.type = 'square';
+      o2.frequency.value = 900;
+      g2.gain.setValueAtTime(0, t + 0.55);
+      g2.gain.linearRampToValueAtTime(0.04, t + 0.56);
+      g2.gain.exponentialRampToValueAtTime(0.001, t + 0.65);
+      o.connect(g); g.connect(ac.destination);
+      o2.connect(g2); g2.connect(ac.destination);
+      o.start(t); o.stop(t + 0.72);
+      o2.start(t + 0.55); o2.stop(t + 0.68);
+    } catch {}
+  }
+  window.__borkChargeReady = hum;
+  // Auto-detect from the bork fill bar reaching ~80%
+  const fill = document.getElementById('hud-bork-fill');
+  if (fill) {
+    let armed = true;
+    setInterval(() => {
+      const w = parseFloat(fill.style.width) || 0;
+      if (w >= 78 && armed) { armed = false; hum(); }
+      else if (w < 25) armed = true;
+    }, 200);
+  }
+})();

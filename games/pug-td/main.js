@@ -2684,3 +2684,48 @@ if (_startOv) {
   }
   window.__tdFireBlip = blip;
 })();
+
+// ============================================================================
+// v2.6 TD-008: Achievement — clear wave 30 without losing health. Watches
+// #hud-wave (format "N/M") and #hud-lives. Tracks whether lives dropped
+// during the run; one-shot persisted in `td:achievement:wave30perfect`.
+// ============================================================================
+(function _r6TdWave30Ach() {
+  const KEY = 'td:achievement:wave30perfect';
+  if (localStorage.getItem(KEY) === '1') return;
+  const wave = document.getElementById('hud-wave');
+  const lives = document.getElementById('hud-lives');
+  const start = document.getElementById('overlay');
+  if (!wave || !lives) return;
+  let runStartLives = null;
+  let livesEverDropped = false;
+  setInterval(() => {
+    if (localStorage.getItem(KEY) === '1') return;
+    const cur = parseInt((lives.textContent || '').replace(/\D/g, ''), 10);
+    if (runStartLives === null && !isNaN(cur)) runStartLives = cur;
+    if (runStartLives !== null && cur < runStartLives) livesEverDropped = true;
+    const w = (wave.textContent || '').match(/(\d+)/);
+    const waveNum = w ? parseInt(w[1], 10) : 0;
+    if (waveNum >= 30 && !livesEverDropped) {
+      localStorage.setItem(KEY, '1');
+      const toast = document.createElement('div');
+      toast.textContent = '★ WAVE 30 PERFECT — NO LIVES LOST!';
+      toast.style.cssText = 'position:fixed;top:30%;left:50%;transform:translateX(-50%);background:linear-gradient(90deg,#ffd23f,#ff8e3c);color:#0a0716;padding:10px 18px;font-family:"Press Start 2P",monospace;font-size:10px;border-radius:6px;z-index:9999;pointer-events:none;animation:tdWave30Pop 3.4s ease-out forwards;box-shadow:0 0 24px rgba(255,210,63,0.55);font-weight:bold;';
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 3500);
+      if (!document.getElementById('td-wave30-style')) {
+        const s = document.createElement('style');
+        s.id = 'td-wave30-style';
+        s.textContent = '@keyframes tdWave30Pop{0%{opacity:0;transform:translateX(-50%) translateY(20px) scale(0.5)}12%{opacity:1;transform:translateX(-50%) translateY(0) scale(1.18)}28%{transform:translateX(-50%) translateY(0) scale(1)}90%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(-12px)}}';
+        document.head.appendChild(s);
+      }
+    }
+  }, 600);
+  // Reset on starting overlay shown
+  if (start) {
+    new MutationObserver(() => {
+      const visible = !start.hidden && !start.classList.contains('is-hidden');
+      if (visible) { runStartLives = null; livesEverDropped = false; }
+    }).observe(start, { attributes: true, attributeFilter: ['hidden', 'class'] });
+  }
+})();

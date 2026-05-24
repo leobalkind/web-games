@@ -47,6 +47,27 @@ export function createAudio() {
   // Surface palette for footsteps — 'dirt' (default), 'grass' (softer high
   // band), 'path' (slightly brighter + thinner). setSurface() updates this.
   let currentSurface = 'dirt';
+  // Round-6 — footstep variation: cycle a 4-step palette so consecutive steps
+  // never use the exact same filter centre. Each "voice" tweaks centre / Q /
+  // playback rate by small amounts. Index advances every call to playFootstep.
+  // VARIATIONS[0] = baseline, others perturb +/- slightly. Reads less robotic
+  // than the prior single-tone footstep — even on dirt, four steps in a row
+  // now alternate timbre subtly.
+  const FOOT_VARIATIONS = [
+    { cMul: 1.00, qMul: 1.00, rMul: 1.00 },
+    { cMul: 0.92, qMul: 1.15, rMul: 0.95 },
+    { cMul: 1.06, qMul: 0.85, rMul: 1.05 },
+    { cMul: 0.97, qMul: 1.05, rMul: 1.00 },
+  ];
+  let _footStepIdx = 0;
+  // Round-6 — landmark ambient bed. Map of name -> { g, oscs[], timer? }. Each
+  // landmark has its own positional tone faded in by playLandmarkAmbient(name,
+  // volume) and faded back out when the player walks away. Lazy-created per
+  // landmark on first call; idle landmarks contribute zero CPU after fade.
+  const landmarkAmb = Object.create(null);
+  // Round-6 — sub-bass chase heartbeat. Separate oscillator group from the
+  // main heart loop; faded up during CHASE so the kick lands deeper. Lazy.
+  let chaseSub = null;
 
   const rnd = Math.random, mx = Math.max, mn = Math.min;
   const now = () => ctx ? ctx.currentTime : 0;
@@ -128,6 +149,8 @@ export function createAudio() {
     setTimeout(() => {
       stopBed(); stopClownBreath(); stopAllMusic();
       stopHeart(); stopItemHum(); stopShelterRain(); stopWindWhistle();
+      // Round-6 — tear down all landmark ambients on shutdown.
+      stopAllLandmarkAmbient();
       try { masterGain.disconnect(); } catch {}
     }, 550);
     if (unsubSettings) { try { unsubSettings(); } catch {} unsubSettings = null; }
@@ -518,10 +541,14 @@ export function createAudio() {
   function playFootstep(speed) {
     if (!started || !ctx) return;
     const s = c01(speed), t = now();
-    const src = nz(0.9 + (rnd() - 0.5) * 0.1);
+    // Round-6 — cycle through 4 variation slots so consecutive steps don't sound
+    // identical. Combines with the rnd() noise-rate jitter for natural feel.
+    const v = FOOT_VARIATIONS[_footStepIdx++ % FOOT_VARIATIONS.length];
+    const src = nz((0.9 + (rnd() - 0.5) * 0.1) * v.rMul);
     let centre = 600 + s * 800, Q = 1.4, ampScale = 1.0;
     if (currentSurface === 'grass')      { centre = 380 + s * 540; Q = 1.1; ampScale = 0.62; }
     else if (currentSurface === 'path')  { centre = 820 + s * 980; Q = 2.0; ampScale = 1.10; }
+    centre *= v.cMul; Q *= v.qMul;
     const pk = (0.12 + 0.18 * s) * ampScale;
     pipe(src, flt('bandpass', centre, Q),
          env(t, 0.005, pk, 0.09 + 0.05 * (1 - s)), busSfx);
@@ -808,7 +835,9 @@ export function createAudio() {
   function _ensureHeart() {
     if (heart) return heart;
     const g = gn(0); g.connect(busSfx);
-    heart = { g, rateHz: 0.0, timer: null, gainTarget: 0 };
+    // Round-6 — chaseDepth (0..1) drives the sub-bass thump layer: at depth 1
+    // each beat fires a 36Hz sub OUT OF BAND so it reads as chest-rumble.
+    heart = { g, rateHz: 0.0, timer: null, gainTarget: 0, chaseDepth: 0 };
     const tick = () => {
       if (!heart) return;
       // Schedule a single thump if gain is high enough to be audible.
@@ -818,6 +847,15 @@ export function createAudio() {
         const e = env(t, 0.01, 0.22 * heart.gainTarget, 0.18);
         pipe(o, e, g);
         o.start(t); o.stop(t + 0.22);
+        // Round-6 — sub-bass thump layered ONLY when chaseDepth > 0. Deeper
+        // 36Hz tone with a slow tail; intensifies as depth approaches 1 so the
+        // chase reads physically heavier than a regular near-clown heartbeat.
+        if (heart.chaseDepth > 0.05) {
+          const sub = osc('sine', 36);
+          const sg = env(t, 0.012, 0.30 * heart.chaseDepth, 0.36);
+          pipe(sub, sg, g);
+          sub.start(t); sub.stop(t + 0.42);
+        }
       }
       // Reschedule based on current rate; clamp so 0 rate => long pause.
       const interval = heart.rateHz > 0.05 ? 1000 / heart.rateHz : 1500;
@@ -837,6 +875,14 @@ export function createAudio() {
     heart.gainTarget = r < 0.5 ? 0 : mn(1, (r - 0.5) / 1.0);
     // Ease the heartbeat-bus gain too so the silent state really is silent.
     gl(heart.g.gain, heart.gainTarget, 0.6);
+  }
+  // Round-6 — chase-depth control. Caller passes 0..1 (0 = normal heart, 1 =
+  // peak chase). Layered sub-bass thump is mixed in on top of the existing
+  // 58Hz sine when depth > 0 — making the CHASE phase audibly deeper.
+  function setChaseDepth(depth) {
+    if (!started || !ctx) return;
+    _ensureHeart();
+    heart.chaseDepth = c01(depth);
   }
   function stopHeart() {
     if (!heart) return;
@@ -860,6 +906,105 @@ export function createAudio() {
     playClownBreath(d);
   }
 
+  // ---- 32. LANDMARK AMBIENTS (Round-6) ------------------------------------
+  // Per-landmark procedural tones — each name maps to a small oscillator graph
+  // that fades up as the player approaches and fades out when they leave. We
+  // build them lazily so a player who never visits a given landmark pays zero
+  // cost. Volume 0..1; the gain target is 0.18*volume (peak ~0.18) so it sits
+  // under the forest bed rather than washing over it.
+  //   shrine     = low chanting drone (2 detuned sines + slight tremolo)
+  //   well       = water drip echo (single short tap scheduler + lp noise)
+  //   cemetery   = wind whistle through stones (high bandpass over noise)
+  //   cabin      = creaking wood (random low taps)
+  //   tent       = distant insect buzz (narrow bandpass over noise + tremolo)
+  //   car-wreck  = metal groan (long sub-osc with slow pitch drift)
+  function _buildLandmarkAmb(name) {
+    const g = gn(0); g.connect(busAmbient);
+    const entry = { g, oscs: [], srcs: [], timer: null };
+    if (name === 'shrine') {
+      const a = osc('sine', 110), b = osc('sine', 147.5);
+      const lp = flt('lowpass', 380, 0.8); lp.connect(g);
+      pipe(a, gn(0.18), lp); pipe(b, gn(0.14), lp);
+      const trem = osc('sine', 0.6);
+      pipe(trem, gn(0.05), g.gain);
+      [a, b, trem].forEach((o) => { o.start(); entry.oscs.push(o); });
+    } else if (name === 'well') {
+      const tick = () => {
+        if (!landmarkAmb[name]) return;
+        const t = now();
+        const drop = osc('sine', 1100 + rnd() * 400);
+        drop.frequency.exponentialRampToValueAtTime(420, t + 0.18);
+        pipe(drop, env(t, 0.005, 0.10, 0.18), g);
+        drop.start(t); drop.stop(t + 0.22);
+        entry.timer = setTimeout(tick, 900 + rnd() * 2200);
+      };
+      tick();
+    } else if (name === 'cemetery') {
+      const src = nz(0.6); src.loop = true;
+      const bp = flt('bandpass', 2400, 6);
+      pipe(src, bp, gn(0.07), g);
+      src.start(); entry.srcs.push(src);
+      const lfo = osc('sine', 0.22);
+      pipe(lfo, gn(420), bp.frequency);
+      lfo.start(); entry.oscs.push(lfo);
+    } else if (name === 'cabin') {
+      const tick = () => {
+        if (!landmarkAmb[name]) return;
+        const t = now();
+        const creak = osc('sawtooth', 80 + rnd() * 60);
+        creak.frequency.exponentialRampToValueAtTime(40 + rnd() * 30, t + 0.4);
+        pipe(creak, flt('lowpass', 240, 0.8), env(t, 0.03, 0.08, 0.45), g);
+        creak.start(t); creak.stop(t + 0.55);
+        entry.timer = setTimeout(tick, 1200 + rnd() * 3500);
+      };
+      tick();
+    } else if (name === 'tent') {
+      const src = nz(0.5); src.loop = true;
+      const bp = flt('bandpass', 3200, 18);
+      pipe(src, bp, gn(0.05), g);
+      src.start(); entry.srcs.push(src);
+      const trem = osc('sine', 5.5);
+      pipe(trem, gn(0.03), g.gain);
+      trem.start(); entry.oscs.push(trem);
+    } else if (name === 'car-wreck') {
+      const a = osc('sawtooth', 55);
+      const lp = flt('lowpass', 180, 1.2); lp.connect(g);
+      pipe(a, gn(0.14), lp);
+      const drift = osc('sine', 0.08);
+      pipe(drift, gn(6), a.frequency);
+      [a, drift].forEach((o) => { o.start(); entry.oscs.push(o); });
+    } else {
+      // Unknown name: empty bed (still tracked so the caller's fade-up is a no-op).
+    }
+    landmarkAmb[name] = entry;
+    return entry;
+  }
+  // Fade a named landmark ambient to the given volume (0..1). Lazy-creates the
+  // graph on the first non-zero call. Volumes near zero will tear the bed
+  // down after the fade completes to free the oscillators.
+  function playLandmarkAmbient(name, volume) {
+    if (!started || !ctx || !name) return;
+    const v = c01(volume);
+    let entry = landmarkAmb[name];
+    if (!entry) {
+      if (v < 0.02) return; // don't bother building for 0
+      entry = _buildLandmarkAmb(name);
+    }
+    gl(entry.g.gain, 0.18 * v, 0.55);
+  }
+  function stopLandmarkAmbient(name) {
+    const entry = landmarkAmb[name];
+    if (!entry) return;
+    if (entry.timer) clearTimeout(entry.timer);
+    entry.oscs.forEach(stop_);
+    entry.srcs.forEach(stop_);
+    try { entry.g.disconnect(); } catch {}
+    delete landmarkAmb[name];
+  }
+  function stopAllLandmarkAmbient() {
+    for (const k of Object.keys(landmarkAmb)) stopLandmarkAmbient(k);
+  }
+
   return {
     start, stop,
     playFootstep, setSurface,
@@ -876,5 +1021,7 @@ export function createAudio() {
     playDistantCar, playWindWhistle,
     playRainOn, playRainOff, playRainOnShelter,
     setHeartbeatRate, updateClownDistance,
+    // Round-6 additions
+    setChaseDepth, playLandmarkAmbient, stopLandmarkAmbient, stopAllLandmarkAmbient,
   };
 }

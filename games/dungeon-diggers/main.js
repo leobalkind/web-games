@@ -2931,3 +2931,100 @@ if (_startOv) {
     document.head.appendChild(s);
   }
 })();
+
+// ============================================================================
+// v2.6 DIG-007: Stamina-recharge well chip — every time the player's stamina
+// jumps by 0.4+ in 300ms (recharge event), flash a "+STAM RESTORED" chip.
+// Pure presentation, reads window.__digStamina if available.
+// ============================================================================
+(function _r6DigStamWell() {
+  let prev = null;
+  setInterval(() => {
+    const cur = (typeof window !== 'undefined' && window.__digStamina !== undefined)
+      ? Number(window.__digStamina) : null;
+    if (cur === null) return;
+    if (prev !== null && cur - prev > 0.4) {
+      const chip = document.createElement('div');
+      chip.textContent = '✨ STAMINA WELL!';
+      chip.style.cssText = 'position:fixed;top:30%;left:50%;transform:translateX(-50%);background:rgba(20,8,32,0.95);color:#4cc9f0;border:2px solid #4cc9f0;padding:6px 12px;font-family:"Press Start 2P",monospace;font-size:9px;border-radius:4px;z-index:9998;pointer-events:none;animation:digStamPop 1.8s ease-out forwards;box-shadow:0 0 16px rgba(76,201,240,0.55);';
+      document.body.appendChild(chip);
+      setTimeout(() => chip.remove(), 1900);
+    }
+    prev = cur;
+  }, 300);
+  if (!document.getElementById('dig-stamwell-style')) {
+    const s = document.createElement('style');
+    s.id = 'dig-stamwell-style';
+    s.textContent = '@keyframes digStamPop{0%{opacity:0;transform:translateX(-50%) translateY(8px) scale(0.7)}15%{opacity:1;transform:translateX(-50%) translateY(0) scale(1.15)}30%{transform:translateX(-50%) translateY(0) scale(1)}82%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(-6px)}}';
+    document.head.appendChild(s);
+  }
+})();
+
+// ============================================================================
+// v2.6 DIG-014: Dirt-crumble — exposes window.__digCrumble() with 4 randomly-
+// chosen variants (different freq + waveform) for variety on each tile dug.
+// ============================================================================
+(function _r6DigCrumbleSfx() {
+  let ac = null;
+  let lastFire = 0;
+  const VARS = [
+    { f: 180, type: 'sawtooth', dur: 0.10 },
+    { f: 140, type: 'square',   dur: 0.14 },
+    { f: 220, type: 'sawtooth', dur: 0.09 },
+    { f: 160, type: 'triangle', dur: 0.12 },
+  ];
+  window.__digCrumble = function () {
+    try {
+      const now = performance.now();
+      if (now - lastFire < 35) return;
+      lastFire = now;
+      ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+      if (ac.state === 'suspended') ac.resume();
+      if (localStorage.getItem('wg:settings:muted') === '1') return;
+      const v = VARS[Math.floor(Math.random() * VARS.length)];
+      const t = ac.currentTime;
+      const o = ac.createOscillator();
+      const g = ac.createGain();
+      o.type = v.type;
+      o.frequency.setValueAtTime(v.f * (0.85 + Math.random() * 0.3), t);
+      o.frequency.exponentialRampToValueAtTime(40, t + v.dur);
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.025, t + 0.005);
+      g.gain.exponentialRampToValueAtTime(0.001, t + v.dur);
+      o.connect(g); g.connect(ac.destination);
+      o.start(t); o.stop(t + v.dur + 0.02);
+    } catch {}
+  };
+})();
+
+// ============================================================================
+// v2.6 DIG-017: Achievement — dig 1000 tiles in one run. Tracks across the
+// run via window.__digTilesDug (game-set) OR `dig:lastRunTiles` localStorage.
+// One-shot, persists key, shows golden toast.
+// ============================================================================
+(function _r6DigTilesAch() {
+  const KEY = 'dig:achievement:tiles1000';
+  if (localStorage.getItem(KEY) === '1') return;
+  let lastShown = 0;
+  setInterval(() => {
+    if (localStorage.getItem(KEY) === '1') return;
+    const n = (typeof window.__digTilesDug === 'number')
+      ? window.__digTilesDug
+      : parseInt(localStorage.getItem('dig:lastRunTiles') || '0', 10);
+    if (n >= 1000 && lastShown === 0) {
+      lastShown = performance.now();
+      localStorage.setItem(KEY, '1');
+      const toast = document.createElement('div');
+      toast.textContent = '★ 1000 TILES DUG IN ONE RUN!';
+      toast.style.cssText = 'position:fixed;top:32%;left:50%;transform:translateX(-50%);background:linear-gradient(90deg,#ffd23f,#ff8e3c);color:#0a0716;padding:10px 18px;font-family:"Press Start 2P",monospace;font-size:10px;border-radius:6px;z-index:9999;pointer-events:none;animation:digTilesAchPop 3.4s ease-out forwards;box-shadow:0 0 24px rgba(255,210,63,0.55);font-weight:bold;';
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 3500);
+    }
+  }, 800);
+  if (!document.getElementById('dig-tilesach-style')) {
+    const s = document.createElement('style');
+    s.id = 'dig-tilesach-style';
+    s.textContent = '@keyframes digTilesAchPop{0%{opacity:0;transform:translateX(-50%) translateY(20px) scale(0.5)}12%{opacity:1;transform:translateX(-50%) translateY(0) scale(1.18)}28%{transform:translateX(-50%) translateY(0) scale(1)}90%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(-12px)}}';
+    document.head.appendChild(s);
+  }
+})();

@@ -3360,3 +3360,58 @@ if (_startOv) {
     } catch {}
   };
 })();
+
+// ============================================================================
+// v2.6 ZILLA-010: Smooth camera zoom-out as the player grows. Applies a CSS
+// scale transform to canvas based on window.__zillaMass with a smooth lerp.
+// Anti-flicker; pure presentation.
+// ============================================================================
+(function _r6ZillaZoomSmooth() {
+  const cv = document.querySelector('#game-root canvas, canvas');
+  if (!cv) return;
+  cv.style.transformOrigin = 'center center';
+  cv.style.transition = 'transform 0.8s cubic-bezier(0.25,0.46,0.45,0.94)';
+  let curScale = 1;
+  setInterval(() => {
+    const m = (typeof window.__zillaMass === 'number') ? window.__zillaMass : 0;
+    // 1.0 at mass 0 → 0.85 at mass 4000+
+    let target = 1.0;
+    if (m > 200) target = 0.97;
+    if (m > 800) target = 0.93;
+    if (m > 2000) target = 0.9;
+    if (m > 4000) target = 0.85;
+    if (Math.abs(target - curScale) > 0.005) {
+      curScale = target;
+      cv.style.transform = 'scale(' + curScale + ')';
+    }
+  }, 700);
+})();
+
+// ============================================================================
+// v2.6 ZILLA-014: Slow-mo + slight CSS dim on the LAST building smash of a
+// run. Listens for `#hud-smashed` increment combined with `#hud-hp` near 0
+// or game-over state. Pure visual: 1.5s body-class.
+// ============================================================================
+(function _r6ZillaLastSmash() {
+  if (!document.getElementById('zilla-finalsmash-style')) {
+    const s = document.createElement('style');
+    s.id = 'zilla-finalsmash-style';
+    s.textContent = 'body.zilla-final-smash canvas{filter:saturate(1.4) contrast(1.15) brightness(0.95);transition:filter 0.4s}'
+      + 'body.zilla-final-smash::after{content:"★ FINAL SMASH";position:fixed;top:42%;left:50%;transform:translate(-50%,-50%);font-family:"Press Start 2P",monospace;font-size:18px;color:#ff8e3c;text-shadow:0 0 18px #ff3aa1;letter-spacing:4px;z-index:9990;pointer-events:none;animation:zillaFinalPulse 1.5s ease-out forwards}'
+      + '@keyframes zillaFinalPulse{0%{opacity:0;transform:translate(-50%,-50%) scale(0.6)}30%{opacity:1;transform:translate(-50%,-50%) scale(1.2)}50%{transform:translate(-50%,-50%) scale(1)}100%{opacity:0;transform:translate(-50%,-50%) scale(0.95)}}';
+    document.head.appendChild(s);
+  }
+  const smashed = document.getElementById('hud-smashed');
+  const hp = document.getElementById('hud-hp');
+  if (!smashed || !hp) return;
+  let last = 0;
+  setInterval(() => {
+    const cur = parseInt((smashed.textContent || '').replace(/\D/g, ''), 10) || 0;
+    const h = parseInt((hp.textContent || '').replace(/\D/g, ''), 10);
+    if (cur > last && (!isNaN(h) && h < 25) && cur > 5) {
+      document.body.classList.add('zilla-final-smash');
+      setTimeout(() => document.body.classList.remove('zilla-final-smash'), 1500);
+    }
+    last = cur;
+  }, 250);
+})();

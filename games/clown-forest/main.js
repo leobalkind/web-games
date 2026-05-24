@@ -77,6 +77,10 @@ const playDistantCar   = ()    => { try { audio?.playDistantCar?.(); } catch {} 
 const playWindWhistle  = (k)   => { try { audio?.playWindWhistle?.(k); } catch {} };
 const playRainOnShelter = (v)  => { try { audio?.playRainOnShelter?.(v); } catch {} };
 const setSurface       = (s)   => { try { audio?.setSurface?.(s); } catch {} };
+// Round-6 — chase-depth sub-bass thump + per-landmark ambient bed.
+const setChaseDepth        = (d)    => { try { audio?.setChaseDepth?.(d); } catch {} };
+const playLandmarkAmbient  = (n, v) => { try { audio?.playLandmarkAmbient?.(n, v); } catch {} };
+const stopAllLandmarkAmbient = ()   => { try { audio?.stopAllLandmarkAmbient?.(); } catch {} };
 
 // ---------------------------------------------------------------------------
 // ROUND-5 — clown laugh variants. The audio module exposes a single
@@ -253,6 +257,77 @@ const OWL_FLIGHT_MIN_GAP     = 95;
 const OWL_FLIGHT_MAX_GAP     = 220;
 const ACH_DUSK_THRESHOLD     = 50;
 const ACH_SHADOW_MAX_SPRINT  = 30;
+
+// =============================================================================
+// ROUND-6: AUDIO DEPTH + UI POLISH
+// =============================================================================
+// Landmark ambient — distance at which a landmark's procedural tone reaches
+// 1.0 (full); fades linearly to 0 over LANDMARK_AMB_FADE_OUT_M.
+const LANDMARK_AMB_PEAK_M     = 4;
+const LANDMARK_AMB_FADE_OUT_M = 14;
+// Battery pack — rare 25% spawn chance per run; instantly refills flashlight.
+const BATTERY_SPAWN_CHANCE   = 0.25;
+// Sanity rotation jitter — engage when sanity is low (the existing
+// `is-sanity-low` body class). Max yaw/pitch drift in radians per second.
+const SANITY_JITTER_THRESHOLD = 30;       // body.is-sanity-low maps to this trigger
+const SANITY_JITTER_RATE_HZ   = 0.45;     // emit a jitter pulse this often per second
+const SANITY_JITTER_YAW_MAX   = 0.014;    // radians per pulse
+const SANITY_JITTER_PITCH_MAX = 0.010;
+// Personal-bests storage key — separate from existing stats so we can fork
+// without affecting the lifetime totals row.
+const PB_KEY = (() => {
+  try { return profileKey('clown-forest:pb'); }
+  catch { return 'wg:clown-forest:pb'; }
+})();
+// GORE level setting — when 'off' the bloodstain meshes are hidden + the
+// killcam still triggers but with no red flash background. Persisted per-profile.
+const GORE_KEY = (() => {
+  try { return profileKey('clown-forest:gore'); }
+  catch { return 'wg:clown-forest:gore'; }
+})();
+function _loadGore() {
+  try { return (localStorage.getItem(GORE_KEY) || 'on') === 'off' ? 'off' : 'on'; }
+  catch { return 'on'; }
+}
+function _saveGore(v) {
+  try { localStorage.setItem(GORE_KEY, v === 'off' ? 'off' : 'on'); } catch {}
+}
+let goreLevel = _loadGore(); // 'on' | 'off'
+
+// Personal-best categories tracked across all runs. Each is a single number
+// (or 0 if never achieved). Loaded on boot, written on endGame, rendered in a
+// small <details> block on the end screen.
+function _loadPB() {
+  let o = null;
+  try { o = JSON.parse(localStorage.getItem(PB_KEY) || 'null'); } catch {}
+  o = o && typeof o === 'object' ? o : {};
+  return {
+    fastestEscape: Number(o.fastestEscape) || 0,    // seconds (lower = better)
+    longestSurvival: Number(o.longestSurvival) || 0,// seconds (higher = better)
+    mostItems: o.mostItems | 0,                     // peak items in a run
+    mostTapes: o.mostTapes | 0,                     // peak tapes in a run
+    mostDistance: o.mostDistance | 0,               // metres
+    mostPhotos: o.mostPhotos | 0,
+    lowestSanitySurvived: Number(o.lowestSanitySurvived) || 0,
+  };
+}
+function _savePB(pb) {
+  try { localStorage.setItem(PB_KEY, JSON.stringify(pb)); } catch {}
+}
+function _updatePB(snapshot) {
+  const pb = _loadPB();
+  // snapshot: { escaped, elapsed, items, tapes, distance, photos }
+  if (snapshot.escaped && (pb.fastestEscape === 0 || snapshot.elapsed < pb.fastestEscape)) {
+    pb.fastestEscape = snapshot.elapsed;
+  }
+  if (snapshot.elapsed > pb.longestSurvival) pb.longestSurvival = snapshot.elapsed;
+  if (snapshot.items > pb.mostItems) pb.mostItems = snapshot.items;
+  if (snapshot.tapes > pb.mostTapes) pb.mostTapes = snapshot.tapes;
+  if (snapshot.distance > pb.mostDistance) pb.mostDistance = snapshot.distance;
+  if (snapshot.photos > pb.mostPhotos) pb.mostPhotos = snapshot.photos;
+  _savePB(pb);
+  return pb;
+}
 
 // =============================================================================
 // ROUND-4: DIFFICULTY + ACHIEVEMENT + STATS + ENDINGS + EXTRAS
@@ -1691,6 +1766,9 @@ buildLandmarks();
 // =============================================================================
 // HIDDEN DETAILS — bloodstains on ground + half-buried abandoned items.
 // =============================================================================
+// Round-6 — collect bloodstain meshes so the GORE OFF setting can hide them at
+// runtime without rebuilding the scene.
+const bloodMeshes = [];
 {
   const bloodTex = (() => {
     const c = document.createElement('canvas'); c.width = 128; c.height = 128;
@@ -1731,6 +1809,7 @@ buildLandmarks();
     const s = 0.7 + Math.random() * 0.8;
     b.scale.set(s, s, 1);
     scene.add(b);
+    bloodMeshes.push(b);
     world.hiddenDetails.push({ kind: 'bloodstain', x, z });
   }
   // Bone fragment — thin pale cylinder partially in the dirt.
@@ -1791,6 +1870,16 @@ buildLandmarks();
     world.hiddenDetails.push({ kind: 'fabric', x, z });
   }
 }
+
+// Round-6 — toggle bloodstain visibility from the GORE LEVEL setting. Run on
+// boot so a returning player whose preference is OFF doesn't see the meshes
+// flicker into existence. Cheap: just visibility flag, no rebuild.
+function applyGoreLevel() {
+  const visible = goreLevel !== 'off';
+  for (const m of bloodMeshes) m.visible = visible;
+  try { document.body.classList.toggle('cf-gore-off', !visible); } catch {}
+}
+applyGoreLevel();
 
 // GROUND-FOG PATCHES — semi-transparent quads near the floor, scattered.
 {
@@ -2671,6 +2760,20 @@ const items = []; // { label, sprite, baseOpacity, x, z, picked }
 // ---------------------------------------------------------------------------
 function resetItemsForRun() {
   const required = (diffCfg && diffCfg.itemsRequired) || ITEMS_TO_ESCAPE;
+  // Round-6 — difficulty-aware spread shaping.
+  //   EASY      = jitter radius pulled IN around landmarks (items cluster),
+  //               tree-hidden range capped tight so the player keeps finding
+  //               items near memorable spots.
+  //   NORMAL    = unchanged baseline.
+  //   NIGHTMARE = jitter PUSHED OUT around landmarks + larger tree-hidden
+  //               radius so items spread wider through the woods.
+  // We adjust the two numeric knobs below per preset (everything else stays
+  // identical to the Round-4 logic).
+  const diffName = (diffCfg && diffCfg.label) || 'NORMAL';
+  let lmJitter = 1.6;          // landmark jitter radius (m)
+  let treeRangeMin = 30, treeRangeMax = 120;
+  if (diffName === 'EASY')      { lmJitter = 0.8;  treeRangeMin = 28; treeRangeMax = 90;  }
+  else if (diffName === 'NIGHTMARE') { lmJitter = 3.6;  treeRangeMin = 50; treeRangeMax = 150; }
   const pool = [];
   // 1) Landmarks (jittered, not hidden).
   let landmarks = null;
@@ -2678,7 +2781,7 @@ function resetItemsForRun() {
   if (landmarks) {
     for (const lm of landmarks) {
       if (typeof lm?.x !== 'number') continue;
-      pool.push({ x: lm.x + (Math.random() - 0.5) * 1.6, z: lm.z + (Math.random() - 0.5) * 1.6, hidden: false });
+      pool.push({ x: lm.x + (Math.random() - 0.5) * 2 * lmJitter, z: lm.z + (Math.random() - 0.5) * 2 * lmJitter, hidden: false });
     }
   }
   // 2) Dense-tree "hidden" spots — sample sparsely (cheap; one tree-pass).
@@ -2687,7 +2790,7 @@ function resetItemsForRun() {
     for (let i = 0; i < treeData.length && pool.length < ITEM_POOL_SIZE; i += step) {
       const t = treeData[i];
       const d = Math.hypot(t.x, t.z);
-      if (d < 30 || d > 120) continue;
+      if (d < treeRangeMin || d > treeRangeMax) continue;
       const ang = Math.random() * Math.PI * 2;
       pool.push({ x: t.x + Math.cos(ang) * 1.6, z: t.z + Math.sin(ang) * 1.6, hidden: true });
     }
@@ -2971,6 +3074,19 @@ const mapItemSprite = _haloSprite((g) => {
 const caffeineState = { x: 0, z: 0, picked: false };
 const mapItemState = { x: 0, z: 0, picked: false, spawned: false };
 
+// Round-6 — BATTERY PACK pickup. 25% spawn chance; on pickup the player's
+// flashlight refills to 100% instantly (rare relief in NIGHTMARE where the
+// torch flickers wildly). Drawn as a small dark-green cell with yellow nubs.
+const batteryItemSprite = _haloSprite((g) => {
+  g.fillStyle = '#1a3a1a'; g.fillRect(20, 24, 24, 22);
+  g.fillStyle = '#e8d050'; g.fillRect(28, 20, 4, 4); g.fillRect(36, 20, 4, 4);
+  g.fillStyle = '#3a5a3a'; g.fillRect(20, 24, 24, 3);
+  g.fillStyle = '#0a1a0a'; g.fillRect(20, 41, 24, 2);
+  // tiny "+" mark
+  g.fillStyle = '#ffd680'; g.fillRect(31, 32, 6, 2); g.fillRect(33, 30, 2, 6);
+}, 'rgba(120,255,160,0)');
+const batteryItemState = { x: 0, z: 0, picked: false, spawned: false };
+
 function resetExtraPickupsForRun() {
   let lm = null;
   try {
@@ -2997,6 +3113,26 @@ function resetExtraPickupsForRun() {
   } else {
     mapItemState.spawned = false; mapItemState.picked = true;
     mapItemSprite.visible = false;
+  }
+  // Round-6 — BATTERY PACK. BATTERY_SPAWN_CHANCE per run; placed at a random
+  // landmark-adjacent spot (distinct from caffeine so the player can find
+  // both in a single sweep through a clearing).
+  if (Math.random() < BATTERY_SPAWN_CHANCE) {
+    let lm2 = null;
+    try {
+      const arr = window.world?.landmarks;
+      if (arr?.length) lm2 = arr[Math.floor(Math.random() * arr.length)];
+    } catch {}
+    const a3 = Math.random() * Math.PI * 2;
+    const bxp = (lm2?.x ?? 0) + Math.cos(a3) * (6 + Math.random() * 5);
+    const bzp = (lm2?.z ?? 0) + Math.sin(a3) * (6 + Math.random() * 5);
+    Object.assign(batteryItemState, { x: bxp, z: bzp, picked: false, spawned: true });
+    batteryItemSprite.material.opacity = 0.55;
+    batteryItemSprite.position.set(bxp, groundY(bxp, bzp) + 0.55, bzp);
+    batteryItemSprite.visible = true;
+  } else {
+    batteryItemState.spawned = false; batteryItemState.picked = true;
+    batteryItemSprite.visible = false;
   }
 }
 
@@ -3053,40 +3189,110 @@ function showMapOverlay() {
 function hideMapOverlay(instant) { _toggleOverlay(mapOverlayEl, false, instant ? 0 : 400); _mapHideAt = 0; }
 
 // =============================================================================
-// ROUND-4: NPC ENCOUNTER — 20% chance per run; a hooded figure who says one
-// line and vanishes. Compact 64x128 texture; bubble drawn via DOM overlay.
+// ROUND-4: NPC ENCOUNTER — 20% chance per run; a stranger appears, says one
+// line, and vanishes. Compact 64x128 textures; bubble drawn via DOM overlay.
+//
+// Round-6 — three NPC variants with distinct silhouettes + voice cues + lines:
+//   CHILD     — innocent voice, smaller silhouette, light hair, sing-songy lines
+//   SURVIVOR  — bloodied warning, taller, dark coat with red smears
+//   GHOST     — translucent whispers, near-white silhouette, lowest opacity
+// resetNpcForRun() picks one of the three at random and points the sprite mat
+// at the matching texture; tickPlay triggers the matching voice when revealed.
 // =============================================================================
-const npcSprite = (() => {
+function _makeNpcTexture(kind) {
   const c = document.createElement('canvas'); c.width = 64; c.height = 128;
   const g = c.getContext('2d');
-  g.fillStyle = '#2a2a30';
-  g.beginPath();
-  g.moveTo(17, 60); g.lineTo(47, 60); g.lineTo(51, 115); g.lineTo(13, 115);
-  g.closePath(); g.fill();
-  g.beginPath(); g.ellipse(32, 55, 15, 18, 0, 0, Math.PI * 2); g.fill();
-  g.fillStyle = '#dcc8b0';
-  g.beginPath(); g.ellipse(32, 58, 9, 12, 0, 0, Math.PI * 2); g.fill();
-  g.fillStyle = '#0a0608';
-  g.fillRect(27, 55, 2, 3); g.fillRect(35, 55, 2, 3);
-  const tex = new THREE.CanvasTexture(c);
-  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, fog: true, opacity: 0 });
+  if (kind === 'child') {
+    // Smaller, lighter — bright sweater + golden hair.
+    g.fillStyle = '#5a6a8a';
+    g.beginPath();
+    g.moveTo(22, 78); g.lineTo(42, 78); g.lineTo(46, 116); g.lineTo(18, 116);
+    g.closePath(); g.fill();
+    g.fillStyle = '#caa460';
+    g.beginPath(); g.ellipse(32, 70, 11, 13, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#dcc8b0';
+    g.beginPath(); g.ellipse(32, 73, 7, 9, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#0a0608';
+    g.fillRect(29, 71, 1.5, 2); g.fillRect(33.5, 71, 1.5, 2);
+    // Faint smile.
+    g.strokeStyle = '#3a2018'; g.lineWidth = 0.8;
+    g.beginPath(); g.arc(32, 76, 2, 0, Math.PI); g.stroke();
+  } else if (kind === 'survivor') {
+    // Bigger torso, dark coat, blood smears.
+    g.fillStyle = '#1a1a18';
+    g.beginPath();
+    g.moveTo(14, 56); g.lineTo(50, 56); g.lineTo(54, 118); g.lineTo(10, 118);
+    g.closePath(); g.fill();
+    // Red smears.
+    g.fillStyle = 'rgba(120, 16, 16, 0.78)';
+    g.fillRect(22, 70, 6, 14); g.fillRect(34, 80, 4, 10);
+    g.fillStyle = '#dcc8b0';
+    g.beginPath(); g.ellipse(32, 52, 13, 16, 0, 0, Math.PI * 2); g.fill();
+    // Cut on cheek.
+    g.fillStyle = '#7a0a0a'; g.fillRect(36, 52, 1.5, 6);
+    g.fillStyle = '#0a0608';
+    g.fillRect(26, 49, 2, 3); g.fillRect(36, 49, 2, 3);
+    // Frowning mouth.
+    g.strokeStyle = '#2a0a0a'; g.lineWidth = 1.2;
+    g.beginPath(); g.arc(32, 58, 3, Math.PI, 0); g.stroke();
+  } else { // 'ghost'
+    // Translucent pale silhouette.
+    g.fillStyle = 'rgba(220, 230, 240, 0.55)';
+    g.beginPath();
+    g.moveTo(16, 60); g.lineTo(48, 60); g.lineTo(52, 118); g.lineTo(12, 118);
+    g.closePath(); g.fill();
+    g.fillStyle = 'rgba(220, 230, 240, 0.75)';
+    g.beginPath(); g.ellipse(32, 55, 14, 17, 0, 0, Math.PI * 2); g.fill();
+    // Hollow eyes — dark voids.
+    g.fillStyle = '#0a0a14';
+    g.beginPath(); g.ellipse(27, 53, 2.2, 3.2, 0, 0, Math.PI * 2); g.fill();
+    g.beginPath(); g.ellipse(37, 53, 2.2, 3.2, 0, 0, Math.PI * 2); g.fill();
+    // Wispy edges.
+    g.fillStyle = 'rgba(220, 230, 240, 0.25)';
+    for (let i = 0; i < 12; i++) {
+      g.beginPath();
+      g.arc(8 + Math.random() * 48, 110 + Math.random() * 14, 3 + Math.random() * 4, 0, Math.PI * 2);
+      g.fill();
+    }
+  }
+  return new THREE.CanvasTexture(c);
+}
+const NPC_TEXTURES = {
+  child:    _makeNpcTexture('child'),
+  survivor: _makeNpcTexture('survivor'),
+  ghost:    _makeNpcTexture('ghost'),
+};
+const npcSprite = (() => {
+  const mat = new THREE.SpriteMaterial({
+    map: NPC_TEXTURES.child, transparent: true, depthWrite: false, fog: true, opacity: 0,
+  });
   const s = new THREE.Sprite(mat);
   s.scale.set(1.0, 2.0, 1); s.visible = false;
   scene.add(s);
   return s;
 })();
-const npcState = { x: 0, z: 0, present: false, triggered: false, fadeOutAt: 0 };
-const NPC_LINES = [
-  "He's coming. Run.",
-  "Don't look at him.",
-  "Find the beacon. Don't stop.",
-  "I never got out. Maybe you will.",
-];
+const npcState = { x: 0, z: 0, present: false, triggered: false, fadeOutAt: 0, kind: 'survivor' };
+// Lines bucketed by NPC kind so the voice matches the silhouette.
+const NPC_LINES_BY_KIND = {
+  child:    [ "Have you seen mommy?", "He plays hide and seek.", "Want to play tag?", "He's funny... until he isn't." ],
+  survivor: [ "He's coming. Run.", "Find the beacon. Don't stop.", "I never got out. Maybe you will.", "Don't look at him." ],
+  ghost:    [ "...the trees... see you...", "...he is hungry...", "...stay in the light...", "...he was once like us..." ],
+};
 
 function resetNpcForRun() {
   npcState.present = false; npcState.triggered = false; npcState.fadeOutAt = 0;
   npcSprite.material.opacity = 0; npcSprite.visible = false;
   if (Math.random() > NPC_SPAWN_CHANCE) return;
+  // Round-6 — pick a variant per run (uniform across the three kinds) and
+  // swap the sprite's texture so the rendered silhouette matches.
+  const kinds = ['child', 'survivor', 'ghost'];
+  npcState.kind = kinds[Math.floor(Math.random() * kinds.length)];
+  npcSprite.material.map = NPC_TEXTURES[npcState.kind];
+  npcSprite.material.needsUpdate = true;
+  // Child is smaller; ghost is slightly taller/wider with a translucent edge.
+  if (npcState.kind === 'child')      npcSprite.scale.set(0.75, 1.55, 1);
+  else if (npcState.kind === 'ghost') npcSprite.scale.set(1.15, 2.10, 1);
+  else                                npcSprite.scale.set(1.0,  2.0,  1);
   let lm = null;
   try {
     const arr = window.world?.landmarks;
@@ -3648,6 +3854,39 @@ function refreshStartStats() {
 }
 refreshStartStats();
 
+// Round-6 — PERSONAL BESTS table. Rendered into a <details> block injected
+// into the end overlay panel at runtime so we don't have to touch index.html.
+// Re-uses .end-stats styling but collapses by default so it isn't loud.
+let _pbBlockEl = null;
+function _ensurePbBlock() {
+  if (_pbBlockEl) return _pbBlockEl;
+  const panel = endOverlay?.querySelector('.end-panel');
+  if (!panel) return null;
+  const det = document.createElement('details');
+  det.className = 'cf-pb';
+  det.innerHTML = '<summary class="cf-pb__summary">PERSONAL BESTS</summary><ul class="cf-pb__list"></ul>';
+  // Slot just before the end-buttons row so it sits naturally above the buttons.
+  const beforeEl = panel.querySelector('.end-buttons') || panel.lastElementChild;
+  panel.insertBefore(det, beforeEl);
+  _pbBlockEl = det;
+  return det;
+}
+function renderPersonalBests(pb) {
+  const det = _ensurePbBlock();
+  if (!det) return;
+  const ul = det.querySelector('.cf-pb__list');
+  if (!ul) return;
+  const rows = [
+    ['Fastest escape',   pb.fastestEscape > 0 ? formatTime(pb.fastestEscape) : '—'],
+    ['Longest survival', pb.longestSurvival > 0 ? formatTime(pb.longestSurvival) : '—'],
+    ['Most items',       pb.mostItems ? String(pb.mostItems) : '—'],
+    ['Most tapes',       pb.mostTapes ? `${pb.mostTapes}/${TAPE_COUNT}` : '—'],
+    ['Most photos',      pb.mostPhotos ? String(pb.mostPhotos) : '—'],
+    ['Furthest walked',  pb.mostDistance ? `${pb.mostDistance} m` : '—'],
+  ];
+  ul.innerHTML = rows.map(([k, v]) => `<li><span>${k}</span><b>${v}</b></li>`).join('');
+}
+
 function formatTime(secs) {
   const m = Math.floor(secs / 60);
   const s = Math.floor(secs % 60);
@@ -4014,6 +4253,27 @@ function tryPickupMap() {
   }
   showSubtitle('A map. You study it.', 3);
   try { wgCaption?.('READING MAP — clown gains ground', 2400); } catch {}
+  return true;
+}
+// Round-6 — instant battery refill. Picks up the pack within ITEM_PICKUP_DIST.
+function tryPickupBattery() {
+  if (!batteryItemState.spawned || batteryItemState.picked) return false;
+  const d = Math.hypot(batteryItemState.x - player.pos.x, batteryItemState.z - player.pos.z);
+  if (d > ITEM_PICKUP_DIST) return false;
+  batteryItemState.picked = true;
+  batteryItemSprite.visible = false;
+  player.flashlightBattery = 100;
+  // Make sure the torch is back on (player may have toggled it off when dim).
+  if (!player.flashlightOn) {
+    player.flashlightOn = true;
+    flashlight.visible = true;
+  }
+  try { playPickup?.(); } catch {}
+  // Audible "click" of the new cell snapping into the housing.
+  try { audio?.playFlashlightClick?.(); } catch {}
+  showPopup('<b>BATTERY PACK</b> · torch refilled', 3);
+  showSubtitle('The torch flares back to life.', 2.5);
+  try { wgCaption?.('BATTERY PACK', 1500); } catch {}
   return true;
 }
 function tryDefiantConfront() {
@@ -4558,6 +4818,12 @@ function pauseGame() {
   pauseOverlay.hidden = false;
   document.exitPointerLock?.();
   playAmbience(0);
+  // Round-6 — silence landmark ambient beds while paused (audio.js eases gain
+  // to 0 over the fade; oscillators stay alive but idle so resume is instant).
+  try {
+    let lms = (window.world?.landmarks) || world.landmarks || [];
+    for (const lm of lms) if (lm?.name) playLandmarkAmbient(lm.name, 0);
+  } catch {}
 }
 
 function resumeGame() {
@@ -4647,6 +4913,19 @@ function endGame(reason) {
   // ---- ROUND-4: lifetime stats + achievement unlocks ----
   try { updateLifetimeStatsAndAchievements({ escaped, ending, elapsed }); } catch {}
 
+  // ---- ROUND-6: personal bests + render the PERSONAL BESTS block ----
+  try {
+    const pb = _updatePB({
+      escaped,
+      elapsed,
+      items: player.itemsFound | 0,
+      tapes: player.tapesFound | 0,
+      distance: Math.round(player.distanceWalked || 0),
+      photos: (player.photosFound | 0),
+    });
+    renderPersonalBests(pb);
+  } catch {}
+
   // Show the overlay AFTER the kill / sunrise cinematic completes.
   // The kill cinematic already fades to black for ~0.85s before calling here;
   // we follow with the typography fade-in built into the .end-title style.
@@ -4658,6 +4937,8 @@ function endGame(reason) {
     flashEl.style.opacity = '';
   }, delay);
   playAmbience(0);
+  // Round-6 — tear down landmark ambient oscillators between runs.
+  try { stopAllLandmarkAmbient(); } catch {}
 }
 
 // Round-4 helper — lifetime stats + achievement unlocks (called from endGame).
@@ -4884,6 +5165,31 @@ const pauseControlsBtn = document.getElementById('pause-controls');
 if (pauseControlsBtn) pauseControlsBtn.addEventListener('click', () => openControlsHelp());
 const pauseSettingsBtn = document.getElementById('pause-settings');
 if (pauseSettingsBtn) pauseSettingsBtn.addEventListener('click', () => openSettings());
+// Round-6 — GORE LEVEL toggle. Injected into the pause overlay's button list at
+// runtime so we don't have to touch index.html. Cycles ON / OFF; immediately
+// applies via applyGoreLevel() (bloodstain visibility) and persists.
+{
+  const buttonsRow = document.querySelector('#pause-overlay .pause-buttons');
+  if (buttonsRow) {
+    const btn = document.createElement('button');
+    btn.id = 'pause-gore';
+    btn.className = 'pause-btn';
+    btn.type = 'button';
+    const setLabel = () => { btn.textContent = `GORE: ${goreLevel === 'off' ? 'OFF' : 'ON'}`; };
+    setLabel();
+    btn.addEventListener('click', () => {
+      goreLevel = goreLevel === 'off' ? 'on' : 'off';
+      _saveGore(goreLevel);
+      applyGoreLevel();
+      setLabel();
+    });
+    // Insert just before the QUIT TO HUB link so RESUME / CONTROLS / SETTINGS /
+    // RESTART / GORE / QUIT reads in a sensible order.
+    const quitLink = buttonsRow.querySelector('a.pause-btn--ghost');
+    if (quitLink) buttonsRow.insertBefore(btn, quitLink);
+    else buttonsRow.appendChild(btn);
+  }
+}
 const controlsCloseBtn = document.getElementById('controls-close');
 if (controlsCloseBtn) controlsCloseBtn.addEventListener('click', () => closeControlsHelp());
 const confirmYesBtn = document.getElementById('confirm-yes');
@@ -5128,6 +5434,8 @@ function tickPlay(dt) {
   // ---- ROUND-4 — caffeine + map pickups + NPC reveal ----
   tryPickupCaffeine();
   tryPickupMap();
+  // Round-6 — instant battery pack refill (rare).
+  tryPickupBattery();
   // NPC stranger — reveal when within range. Sprite eases visible in then
   // shows the one-liner; after NPC_LINE_DURATION it vanishes for the rest
   // of the run.
@@ -5138,11 +5446,27 @@ function tickPlay(dt) {
     if (ndist < 14) {
       npcState.triggered = true;
       npcSprite.visible = true;
-      npcSprite.material.opacity = 0.85;
+      // Round-6 — kind-specific opacity (ghost is hauntingly faint).
+      npcSprite.material.opacity = npcState.kind === 'ghost' ? 0.55 : 0.85;
       npcState.fadeOutAt = now() + NPC_LINE_DURATION;
-      const line = NPC_LINES[Math.floor(Math.random() * NPC_LINES.length)];
+      // Round-6 — kind-specific lines.
+      const lines = NPC_LINES_BY_KIND[npcState.kind] || NPC_LINES_BY_KIND.survivor;
+      const line = lines[Math.floor(Math.random() * lines.length)];
       showNpcOverlay(line);
-      try { audio?.playClownLaugh?.(0, 35); } catch {}
+      // Round-6 — kind-specific voice cue.
+      //   CHILD    = bright laugh (high pan, very close — innocent + wrong)
+      //   SURVIVOR = distant breath + step (warning vibe)
+      //   GHOST    = mid-distance whisper (clown breath at moderate range)
+      try {
+        if (npcState.kind === 'child') {
+          audio?.playClownLaugh?.(0.4, 14);
+        } else if (npcState.kind === 'ghost') {
+          audio?.playClownBreath?.(8);
+        } else {
+          audio?.playClownStep?.(-0.3, 12);
+          setTimeout(() => { try { audio?.playClownLaugh?.(0, 35); } catch {} }, 400);
+        }
+      } catch {}
       // v4 polish: NPC encounter — brief CSS static-flash overlay + heavy
       // footstep audio sweetener. Reinforces "something just appeared".
       try {
@@ -5283,9 +5607,75 @@ function tickPlay(dt) {
   tickDawnBirds();
   tickMoonAngle();
   tickPhotos();
+  // ---- ROUND-6: depth ticks ----
+  tickLandmarkAmbients(dt);
+  tickSanityJitter(dt);
+  tickChaseAudioDepth(dt);
 
   // ---- HUD ticking (Agent C) ----
   tickHUD(dt);
+}
+
+// =============================================================================
+// ROUND-6 — Landmark ambient audio orchestration. For each landmark we map a
+// distance-to-player into a 0..1 volume target and route it through audio.js's
+// playLandmarkAmbient(name, volume). Lazy: a landmark is only built the first
+// time the player gets within range, and torn down via setVolume(0) which the
+// audio module fades. We don't tear down per-frame here — audio.js keeps the
+// graph idle at zero gain after the fade, cheaper than rebuilding on every
+// revisit.
+// =============================================================================
+function tickLandmarkAmbients(dt) {
+  let lms = null;
+  try { lms = (window.world?.landmarks) || world.landmarks || []; } catch {}
+  if (!lms || !lms.length) return;
+  for (const lm of lms) {
+    if (typeof lm?.x !== 'number') continue;
+    const d = Math.hypot(lm.x - player.pos.x, lm.z - player.pos.z);
+    let v;
+    if (d <= LANDMARK_AMB_PEAK_M) v = 1;
+    else if (d >= LANDMARK_AMB_FADE_OUT_M) v = 0;
+    else v = 1 - (d - LANDMARK_AMB_PEAK_M) / (LANDMARK_AMB_FADE_OUT_M - LANDMARK_AMB_PEAK_M);
+    playLandmarkAmbient(lm.name, v);
+  }
+}
+
+// Round-6 — Sanity-driven yaw/pitch jitter. When the existing sanity-low body
+// class is set we emit small camera deflections every SANITY_JITTER_RATE_HZ.
+// Strength scales with how long sanity has been low so a brief dip is subtle
+// but a sustained chase rattles the view audibly. Clamped to ±SANITY_JITTER_*.
+let _sanityJitterAccum = 0;     // seconds since last jitter pulse
+let _sanityLowDuration = 0;     // seconds body has been .is-sanity-low
+function tickSanityJitter(dt) {
+  const low = document.body.classList.contains('is-sanity-low');
+  if (!low) { _sanityLowDuration = 0; _sanityJitterAccum = 0; return; }
+  _sanityLowDuration += dt;
+  _sanityJitterAccum += dt;
+  // Build-up factor: 0 at the moment sanity drops, 1 after ~6s sustained.
+  const k = Math.min(1, _sanityLowDuration / 6);
+  if (_sanityJitterAccum >= 1 / SANITY_JITTER_RATE_HZ) {
+    _sanityJitterAccum = 0;
+    const yawKick   = (Math.random() - 0.5) * 2 * SANITY_JITTER_YAW_MAX   * k;
+    const pitchKick = (Math.random() - 0.5) * 2 * SANITY_JITTER_PITCH_MAX * k;
+    player.yaw   += yawKick;
+    player.pitch += pitchKick;
+    player.pitch = Math.max(-Math.PI / 2 + 0.05, Math.min(Math.PI / 2 - 0.05, player.pitch));
+  }
+}
+
+// Round-6 — pipe a 0..1 "chase depth" into audio.js so the heartbeat layer
+// fires a 36Hz sub-bass thump on top of the regular 58Hz tone. Depth peaks
+// when the clown is close AND in CHASE phase; eases back to 0 otherwise.
+function tickChaseAudioDepth(dt) {
+  let depth = 0;
+  if (clownState.phase === 'chase') {
+    const dxC = clownState.pos.x - player.pos.x;
+    const dzC = clownState.pos.z - player.pos.z;
+    const dC  = Math.hypot(dxC, dzC);
+    // Full depth within 6m, falls off to 0 by 28m.
+    depth = Math.max(0, Math.min(1, 1 - (dC - 6) / 22));
+  }
+  setChaseDepth(depth);
 }
 
 // =============================================================================

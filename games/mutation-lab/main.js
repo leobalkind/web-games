@@ -3141,3 +3141,66 @@ if (_startOv) {
     lastSeen = count;
   }, 400);
 })();
+
+// ============================================================================
+// v2.6 LAB-009: Codex JSON export. Adds a small "📥 EXPORT CODEX" button to
+// the codex panel; on click, dumps `lab:discovered` (and any other lab:*
+// key whose value parses as JSON) to a downloadable .json file.
+// ============================================================================
+(function _r6LabCodexExport() {
+  setInterval(() => {
+    const panel = document.querySelector('.lab-codex, #codex-panel, .codex-grid, .codex');
+    if (!panel || panel.querySelector('.r6-lab-export')) return;
+    const btn = document.createElement('button');
+    btn.className = 'r6-lab-export';
+    btn.textContent = '📥 EXPORT CODEX';
+    btn.style.cssText = 'display:block;margin:8px auto;background:rgba(255,210,63,0.15);border:1px solid #ffd23f;color:#ffd23f;font-family:"Press Start 2P",monospace;font-size:8px;padding:5px 10px;border-radius:3px;cursor:pointer;';
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const dump = {};
+      try {
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (!k || !k.startsWith('lab:')) continue;
+          const v = localStorage.getItem(k);
+          try { dump[k] = JSON.parse(v); } catch { dump[k] = v; }
+        }
+      } catch {}
+      const blob = new Blob([JSON.stringify(dump, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'pug-mutation-codex-' + new Date().toISOString().slice(0, 10) + '.json';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 100);
+      btn.textContent = '✓ DOWNLOADED';
+      setTimeout(() => { btn.textContent = '📥 EXPORT CODEX'; }, 1800);
+    });
+    panel.appendChild(btn);
+  }, 800);
+})();
+
+// ============================================================================
+// v2.6 LAB-019: Codex completion % HUD chip. Reads `#hud-discovered` text
+// (format "N/M") and renders top-right ring + percentage. Updates every 600ms.
+// ============================================================================
+(function _r6LabCompletionChip() {
+  const src = document.getElementById('hud-discovered');
+  if (!src) return;
+  const chip = document.createElement('div');
+  chip.id = 'r6-lab-pct';
+  chip.style.cssText = 'position:fixed;top:14px;right:14px;background:rgba(20,8,32,0.92);color:#5ef38c;border:1px solid #5ef38c;padding:5px 10px;font-family:"Press Start 2P",monospace;font-size:9px;border-radius:18px;z-index:50;letter-spacing:1px;pointer-events:none;box-shadow:0 0 10px rgba(94,243,140,0.25);';
+  document.body.appendChild(chip);
+  setInterval(() => {
+    const m = (src.textContent || '').match(/(\d+)\s*\/\s*(\d+)/);
+    if (!m) { chip.style.display = 'none'; return; }
+    const a = parseInt(m[1], 10), b = parseInt(m[2], 10);
+    if (!b) return;
+    const pct = Math.round((a / b) * 100);
+    chip.textContent = '★ CODEX ' + pct + '%';
+    chip.style.color = pct >= 95 ? '#ffd23f' : pct >= 60 ? '#5ef38c' : '#4cc9f0';
+    chip.style.borderColor = chip.style.color;
+    chip.style.display = 'block';
+  }, 600);
+})();

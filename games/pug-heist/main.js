@@ -3300,3 +3300,66 @@ if (_startOv) {
     new MutationObserver(onHide).observe(start, { attributes: true, attributeFilter: ['hidden','class'] });
   }
 })();
+
+// ============================================================================
+// v2.6 HEIST-008: Time-attack mode chip — top-right par-time clock that
+// derives a per-floor target from `hud-loot` text. Shows green/amber/red
+// based on elapsed vs par. Read-only — no game logic change.
+// ============================================================================
+(function _r6HeistTimeAttack() {
+  const loot = document.getElementById('hud-loot');
+  if (!loot) return;
+  const chip = document.createElement('div');
+  chip.id = 'r6-heist-par';
+  chip.style.cssText = 'position:fixed;top:14px;right:14px;background:rgba(20,8,32,0.92);color:#5ef38c;border:1px solid #5ef38c;padding:4px 9px;font-family:"Press Start 2P",monospace;font-size:9px;border-radius:3px;z-index:50;letter-spacing:1px;pointer-events:none;display:none;';
+  document.body.appendChild(chip);
+  let runStart = 0, lastFloor = '';
+  const fmt = (ms) => {
+    const s = Math.floor(ms / 1000);
+    return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+  };
+  setInterval(() => {
+    const hudVisible = !document.getElementById('hud')?.hidden;
+    if (!hudVisible) { chip.style.display = 'none'; return; }
+    const cur = (loot.textContent || '').trim();
+    if (cur !== lastFloor) { runStart = performance.now(); lastFloor = cur; }
+    if (!runStart) runStart = performance.now();
+    const el = performance.now() - runStart;
+    // Par: 90s for first-look + 30s per loot bracket
+    const m = (loot.textContent || '').match(/(\d+)\s*\/\s*(\d+)/);
+    const target = m ? parseInt(m[2], 10) : 5;
+    const par = 60000 + target * 18000;
+    const ratio = el / par;
+    const col = ratio < 0.7 ? '#5ef38c' : ratio < 1 ? '#ffd23f' : '#ff3aa1';
+    chip.style.color = col;
+    chip.style.borderColor = col;
+    chip.textContent = '⏱ ' + fmt(el) + ' / ' + fmt(par);
+    chip.style.display = 'block';
+  }, 250);
+})();
+
+// ============================================================================
+// v2.6 HEIST-015: Loot-percent chip — top-right pill showing what % of total
+// loot has been collected this floor (derived from existing `#hud-loot`).
+// ============================================================================
+(function _r6HeistLootPct() {
+  const loot = document.getElementById('hud-loot');
+  if (!loot) return;
+  const pill = document.createElement('div');
+  pill.id = 'r6-heist-lootpct';
+  pill.style.cssText = 'position:fixed;top:42px;right:14px;background:rgba(20,8,32,0.92);color:#4cc9f0;border:1px solid #4cc9f0;padding:3px 8px;font-family:"Press Start 2P",monospace;font-size:8px;border-radius:3px;z-index:50;letter-spacing:1px;pointer-events:none;display:none;';
+  document.body.appendChild(pill);
+  setInterval(() => {
+    const hudVisible = !document.getElementById('hud')?.hidden;
+    if (!hudVisible) { pill.style.display = 'none'; return; }
+    const m = (loot.textContent || '').match(/(\d+)\s*\/\s*(\d+)/);
+    if (!m) { pill.style.display = 'none'; return; }
+    const a = parseInt(m[1], 10), b = parseInt(m[2], 10);
+    if (!b) return;
+    const pct = Math.round((a / b) * 100);
+    pill.textContent = '💰 ' + pct + '% COLLECTED';
+    pill.style.color = pct >= 100 ? '#5ef38c' : pct >= 60 ? '#ffd23f' : '#4cc9f0';
+    pill.style.borderColor = pill.style.color;
+    pill.style.display = 'block';
+  }, 350);
+})();

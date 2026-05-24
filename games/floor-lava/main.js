@@ -2345,3 +2345,80 @@ if (_startOv) {
     } catch {}
   };
 })();
+
+// ============================================================================
+// v2.6 LAVA-013: Achievement — reach 2000m without dying. Reads #hud-height
+// + watches end-overlay for death; persists `lava:achievement:2k`.
+// ============================================================================
+(function _r6Lava2kAch() {
+  const KEY = 'lava:achievement:2k';
+  if (localStorage.getItem(KEY) === '1') return;
+  const height = document.getElementById('hud-height');
+  const endOv = document.getElementById('end-overlay');
+  if (!height) return;
+  let peak = 0;
+  let died = false;
+  setInterval(() => {
+    if (localStorage.getItem(KEY) === '1') return;
+    const m = (height.textContent || '').match(/(\d+)/);
+    if (!m) return;
+    const h = parseInt(m[1], 10);
+    if (h > peak) peak = h;
+    const endVisible = endOv && !endOv.hidden && !endOv.classList.contains('is-hidden');
+    if (endVisible && !died) {
+      died = true;
+      // Only unlock if we never died before 2000m on this run
+      if (peak >= 2000) {
+        localStorage.setItem(KEY, '1');
+        const toast = document.createElement('div');
+        toast.textContent = '★ 2KM CLUB — NO DEATHS!';
+        toast.style.cssText = 'position:fixed;top:30%;left:50%;transform:translateX(-50%);background:linear-gradient(90deg,#ffd23f,#ff8e3c);color:#0a0716;padding:10px 18px;font-family:"Press Start 2P",monospace;font-size:10px;border-radius:6px;z-index:9999;pointer-events:none;animation:lava2kAchPop 3.4s ease-out forwards;box-shadow:0 0 24px rgba(255,210,63,0.55);font-weight:bold;';
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 3500);
+      }
+    }
+    if (!endVisible) { died = false; peak = 0; }
+  }, 600);
+  if (!document.getElementById('lava-2kach-style')) {
+    const s = document.createElement('style');
+    s.id = 'lava-2kach-style';
+    s.textContent = '@keyframes lava2kAchPop{0%{opacity:0;transform:translateX(-50%) translateY(20px) scale(0.5)}12%{opacity:1;transform:translateX(-50%) translateY(0) scale(1.18)}28%{transform:translateX(-50%) translateY(0) scale(1)}90%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(-12px)}}';
+    document.head.appendChild(s);
+  }
+})();
+
+// ============================================================================
+// v2.6 LAVA-017: Bonus pickup chip — every ~60s while alive, flash a GOLD
+// PLATFORM hint chip suggesting players watch for it (purely tutorial).
+// One-shot per session.
+// ============================================================================
+(function _r6LavaGoldHint() {
+  if (sessionStorage.getItem('lava:goldHintShown') === '1') return;
+  const start = document.getElementById('overlay');
+  const end = document.getElementById('end-overlay');
+  let armed = false;
+  let gameStart = 0;
+  setInterval(() => {
+    const startVisible = start && !start.hidden && !start.classList.contains('is-hidden');
+    const endVisible = end && !end.hidden && !end.classList.contains('is-hidden');
+    if (!startVisible && !endVisible) {
+      if (!armed) { armed = true; gameStart = performance.now(); }
+      if (armed && performance.now() - gameStart > 60000 && sessionStorage.getItem('lava:goldHintShown') !== '1') {
+        sessionStorage.setItem('lava:goldHintShown', '1');
+        const chip = document.createElement('div');
+        chip.innerHTML = '★ TIP: Land on <b style="color:#ffd23f">GOLD PLATFORMS</b> for +200 bonus';
+        chip.style.cssText = 'position:fixed;top:18%;left:50%;transform:translateX(-50%);background:rgba(20,8,32,0.95);color:#ffd23f;border:1px solid #ffd23f;padding:7px 14px;font-family:"VT323",monospace;font-size:16px;border-radius:4px;z-index:9998;pointer-events:none;animation:lavaGoldHint 4s ease-out forwards;box-shadow:0 0 14px rgba(255,210,63,0.5);';
+        document.body.appendChild(chip);
+        setTimeout(() => chip.remove(), 4100);
+      }
+    } else {
+      armed = false;
+    }
+  }, 1000);
+  if (!document.getElementById('lava-gold-hint-style')) {
+    const s = document.createElement('style');
+    s.id = 'lava-gold-hint-style';
+    s.textContent = '@keyframes lavaGoldHint{0%{opacity:0;transform:translateX(-50%) translateY(8px)}15%{opacity:1;transform:translateX(-50%) translateY(0)}85%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(-6px)}}';
+    document.head.appendChild(s);
+  }
+})();

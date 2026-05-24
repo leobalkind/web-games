@@ -2711,3 +2711,110 @@ if (_startOv) {
     document.head.appendChild(s);
   }
 })();
+
+// ============================================================================
+// v2.6 ROCKET-008: Per-weapon sub-bass on hit. Reads window.__rocketPlayerWep
+// (or falls back to .hud-weapon text) to pick the right impact tone when
+// window.__rocketHit() is fired by the game.
+// ============================================================================
+(function _r6RocketHitBass() {
+  let ac = null;
+  const TONES = {
+    TENNIS:   { f: 240, type: 'sine',     dur: 0.10 },
+    SAUSAGE:  { f: 90,  type: 'sawtooth', dur: 0.22 },
+    TOAST:    { f: 160, type: 'square',   dur: 0.14 },
+    SNIPER:   { f: 80,  type: 'sawtooth', dur: 0.32 },
+    BUBBLE:   { f: 320, type: 'triangle', dur: 0.18 },
+    BFG:      { f: 60,  type: 'sawtooth', dur: 0.45 },
+  };
+  function currentWep() {
+    const e = document.getElementById('hud-weapon');
+    return (e?.textContent || '').trim().toUpperCase();
+  }
+  window.__rocketHit = function () {
+    try {
+      ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+      if (ac.state === 'suspended') ac.resume();
+      if (localStorage.getItem('wg:settings:muted') === '1') return;
+      const wep = currentWep();
+      const tone = TONES[wep] || TONES.TENNIS;
+      const t = ac.currentTime;
+      const o = ac.createOscillator();
+      const g = ac.createGain();
+      o.type = tone.type;
+      o.frequency.setValueAtTime(tone.f * (0.95 + Math.random() * 0.1), t);
+      o.frequency.exponentialRampToValueAtTime(Math.max(35, tone.f * 0.3), t + tone.dur);
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.06, t + 0.005);
+      g.gain.exponentialRampToValueAtTime(0.001, t + tone.dur);
+      o.connect(g); g.connect(ac.destination);
+      o.start(t); o.stop(t + tone.dur + 0.02);
+    } catch {}
+  };
+})();
+
+// ============================================================================
+// v2.6 ROCKET-014: Bullet-time when only ONE bot remains. Reads `#hud-left`
+// for the bot count; when it drops to 1, adds a .rocket-bullettime body
+// class that applies a faint blue wash + scanlines for the final showdown.
+// ============================================================================
+(function _r6RocketBulletTime() {
+  if (!document.getElementById('rocket-bt-style')) {
+    const s = document.createElement('style');
+    s.id = 'rocket-bt-style';
+    s.textContent = 'body.rocket-bullettime canvas{filter:saturate(0.85) contrast(1.12);transition:filter 0.6s}'
+      + 'body.rocket-bullettime::after{content:"";position:fixed;inset:0;pointer-events:none;background:linear-gradient(transparent 50%,rgba(76,201,240,0.04) 51%,transparent 52%);background-size:100% 4px;z-index:30;animation:rocketBtScan 12s linear infinite}'
+      + '@keyframes rocketBtScan{0%{background-position:0 0}100%{background-position:0 100%}}'
+      + 'body.rocket-bullettime .rocket-bt-chip{display:block}'
+      + '.rocket-bt-chip{display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);font-family:"Press Start 2P",monospace;font-size:14px;color:#4cc9f0;text-shadow:0 0 12px #4cc9f0;letter-spacing:3px;z-index:9990;pointer-events:none;opacity:0.5;animation:rocketBtFade 2s ease-in-out infinite alternate}'
+      + '@keyframes rocketBtFade{0%{opacity:0.3}100%{opacity:0.7}}';
+    document.head.appendChild(s);
+  }
+  const chip = document.createElement('div');
+  chip.className = 'rocket-bt-chip';
+  chip.textContent = 'FINAL PUG';
+  document.body.appendChild(chip);
+  const left = document.getElementById('hud-left');
+  if (!left) return;
+  setInterval(() => {
+    const n = parseInt((left.textContent || '').replace(/\D/g, ''), 10);
+    const isFinal = n === 1;
+    document.body.classList.toggle('rocket-bullettime', isFinal);
+  }, 400);
+})();
+
+// ============================================================================
+// v2.6 ROCKET-016: Shot-counter HUD chip — visualizes ammo as pips below
+// the existing #hud-weapon row. Reads window.__rocketAmmo (set by game) or
+// falls back to a 6-pip placeholder. Updates 5/s.
+// ============================================================================
+(function _r6RocketAmmoPips() {
+  const wepRow = document.getElementById('hud-weapon')?.closest('.hud-row');
+  if (!wepRow) return;
+  const row = document.createElement('div');
+  row.className = 'hud-row hud-row--small';
+  row.id = 'hud-ammo-pips-row';
+  row.style.cssText = 'display:flex;gap:3px;justify-content:flex-end;padding:2px 0;';
+  for (let i = 0; i < 6; i++) {
+    const dot = document.createElement('span');
+    dot.style.cssText = 'width:8px;height:8px;border-radius:50%;background:#5ef38c;box-shadow:0 0 6px rgba(94,243,140,0.65);transition:background 0.15s,opacity 0.15s;';
+    row.appendChild(dot);
+  }
+  wepRow.parentNode.insertBefore(row, wepRow.nextSibling);
+  setInterval(() => {
+    const ammo = (typeof window.__rocketAmmo === 'number') ? window.__rocketAmmo : 6;
+    const cap = (typeof window.__rocketAmmoMax === 'number') ? window.__rocketAmmoMax : 6;
+    // Adjust pip count if cap changed
+    while (row.children.length < cap) {
+      const dot = document.createElement('span');
+      dot.style.cssText = 'width:8px;height:8px;border-radius:50%;background:#5ef38c;box-shadow:0 0 6px rgba(94,243,140,0.65);transition:background 0.15s,opacity 0.15s;';
+      row.appendChild(dot);
+    }
+    while (row.children.length > cap && row.children.length > 0) row.removeChild(row.lastChild);
+    [...row.children].forEach((c, i) => {
+      const full = i < ammo;
+      c.style.background = full ? '#5ef38c' : '#2a1a44';
+      c.style.opacity = full ? '1' : '0.45';
+    });
+  }, 200);
+})();

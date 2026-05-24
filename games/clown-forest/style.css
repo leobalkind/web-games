@@ -1721,3 +1721,56 @@ body.reduced-motion .cf-photo-flash.is-on { animation: none; }
   .hud-stealth__bar { width: 78px; height: 7px; }
 }
 
+/* =============================================================================
+   ROUND-6 — PERSONAL BESTS block (end overlay) + GORE OFF body class.
+   ============================================================================= */
+.cf-pb {
+  width: 100%;
+  max-width: 360px;
+  margin: 14px auto 4px;
+  text-align: left;
+  font-family: 'Cormorant Garamond', serif;
+  color: #c8b890;
+}
+.cf-pb__summary {
+  cursor: pointer;
+  list-style: none;
+  font-size: 0.65rem;
+  letter-spacing: 0.18em;
+  padding: 6px 8px;
+  border: 1px solid rgba(120, 88, 60, 0.4);
+  background: rgba(20, 14, 10, 0.55);
+  text-align: center;
+  font-family: 'Press Start 2P', monospace;
+  color: #8a7a60;
+}
+.cf-pb__summary::-webkit-details-marker { display: none; }
+.cf-pb[open] .cf-pb__summary { color: #c8b890; }
+.cf-pb__list {
+  list-style: none;
+  padding: 8px 4px 0;
+  margin: 0;
+}
+.cf-pb__list li {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.95rem;
+  padding: 3px 6px;
+  border-bottom: 1px dotted rgba(120, 88, 60, 0.2);
+}
+.cf-pb__list li:last-child { border-bottom: none; }
+.cf-pb__list li b {
+  color: #ffd0a0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+#end-overlay.is-escape .cf-pb__list li b { color: #ffe0b0; }
+/* GORE OFF — hides the photo-flashback red flair + tones any red overlay so
+   the death/kill screens stay tasteful for players who chose this. */
+body.cf-gore-off .cf-photo-flash__pic {
+  filter: grayscale(0.6) brightness(0.85);
+}
+body.cf-gore-off #vfx-hit-flash {
+  background: radial-gradient(ellipse at center, rgba(60,60,60,0.18) 0%, rgba(0,0,0,0) 70%);
+}
+
