@@ -543,11 +543,84 @@ function _makePugCanvas(w, h, opts) {
   c.setTransform(dpr, 0, 0, dpr, 0, 0);
   // drawPug anchors body around y=14 (feet); place the pug so feet sit near bottom.
   drawPug(c, w / 2, h - 4, opts);
+  // v1.8 sprite polish: layer an optional cosmetic accessory after the
+  // shared sprite renders. `opts.accessory` is one of:
+  //   'beret'   — small angled red beret
+  //   'glasses' — round wire reading glasses
+  //   'bowtie'  — tiny black bowtie at the chest
+  //   'flower'  — pink flower behind ear
+  //   'pearls'  — little pearl necklace
+  // Designed to fit on top of the pug at the same anchor scale as the body.
+  if (opts && opts.accessory) {
+    _drawCafeAccessory(c, w / 2, h - 4, opts.size || 42, opts.accessory);
+  }
   return cv;
 }
 
+// v1.8 — café-specific cosmetic accessories (5 variants). Positioned relative
+// to the pug's pixel anchor inside the shared sprite (body roughly -16..16 in
+// local coords, head dome ends ~y-30).
+function _drawCafeAccessory(c, cx, cy, size, kind) {
+  const s = size / 60; // shared sprite native height is 60
+  const px = (x, y, w, h, color) => { c.fillStyle = color; c.fillRect(cx + x * s, cy + y * s, Math.max(1, w * s), Math.max(1, h * s)); };
+  switch (kind) {
+    case 'beret':
+      // tilted red beret on top-left of head
+      px(-10, -33, 18, 4, '#c81a3a');
+      px(-9, -36, 15, 3, '#c81a3a');
+      px(-9, -36, 15, 1, '#e8506a');
+      // little stem on top
+      px(2, -38, 2, 2, '#c81a3a');
+      // brim shadow
+      px(-10, -30, 18, 1, '#7a0a1a');
+      break;
+    case 'glasses':
+      // round wire glasses over the eyes (eye band at y ~ -19)
+      c.strokeStyle = '#2a2a32'; c.lineWidth = Math.max(1, 1 * s);
+      c.beginPath(); c.arc(cx - 4 * s, cy - 19 * s, 4 * s, 0, Math.PI * 2); c.stroke();
+      c.beginPath(); c.arc(cx + 4 * s, cy - 19 * s, 4 * s, 0, Math.PI * 2); c.stroke();
+      c.beginPath();
+      c.moveTo(cx - 0.5 * s, cy - 19 * s);
+      c.lineTo(cx + 0.5 * s, cy - 19 * s);
+      c.stroke();
+      // tiny lens glint
+      c.fillStyle = 'rgba(255,255,255,0.4)';
+      c.fillRect(cx - 5 * s, cy - 21 * s, 1 * s, 1 * s);
+      c.fillRect(cx + 3 * s, cy - 21 * s, 1 * s, 1 * s);
+      break;
+    case 'bowtie':
+      // black bowtie at chest (~y -8)
+      px(-3, -7, 6, 3, '#2a2a32');
+      px(-4, -8, 1, 5, '#1a1a22');
+      px(3, -8, 1, 5, '#1a1a22');
+      px(-1, -7, 2, 3, '#444454');
+      // center knot
+      px(-1, -7, 2, 1, '#ffd23f');
+      break;
+    case 'flower':
+      // small pink flower behind right ear
+      px(11, -23, 2, 2, '#ff3aa1');
+      px(13, -22, 2, 2, '#ff3aa1');
+      px(12, -25, 2, 2, '#ff3aa1');
+      px(12, -22, 2, 2, '#ff3aa1');
+      px(12, -23, 1, 1, '#ffd23f'); // center
+      // leaf
+      px(10, -21, 2, 2, '#5ef38c');
+      break;
+    case 'pearls':
+      // tiny pearl necklace draped under chin
+      for (let i = -5; i <= 5; i += 2) {
+        c.fillStyle = '#fff7d0';
+        c.beginPath(); c.arc(cx + i * s, cy - 9 * s + Math.abs(i) * 0.2 * s, 0.9 * s, 0, Math.PI * 2); c.fill();
+        c.fillStyle = '#cccccc';
+        c.fillRect(cx + i * s - 0.4 * s, cy - 9 * s, 0.4 * s, 0.4 * s);
+      }
+      break;
+  }
+}
+
 const _staff = document.createElement('div'); _staff.className = 'cafe-staff';
-const _staffCanvas = _makePugCanvas(56, 56, { size: 48, body: '#c8854a', mask: '#1a0d05', chef: true, tongueOut: true });
+const _staffCanvas = _makePugCanvas(56, 56, { size: 48, body: '#c8854a', mask: '#1a0d05', chef: true, tongueOut: true, accessory: 'bowtie' });
 _staffCanvas.className = 'cafe-staff__canvas';
 _staff.appendChild(_staffCanvas);
 const _staffBubEl = document.createElement('span'); _staffBubEl.className = 'cafe-staff__bub'; _staffBubEl.textContent = 'bork!';
@@ -568,11 +641,19 @@ const _CUSTOMER_COLORS = [
 // Wave 1F: bump from 6 to 8 customer slots — booths/bar/patio variety.
 // We rotate through type badges so the crowd visibly reads as varied.
 const _CUSTOMER_BADGE_TYPES = ['NORMAL', 'HUNGRY', 'VIP', 'KAREN', 'TOURIST', 'NORMAL', 'HUNGRY', 'CRITIC'];
+// v1.8 sprite polish — rotate through 5 cosmetic accessories so the crowd
+// looks distinctly varied (beret/glasses/bowtie/flower/pearls). Slot 0 + 5
+// have no accessory so plain pugs still show up.
+const _CUSTOMER_ACCESSORIES = [null, 'beret', 'glasses', 'bowtie', 'flower', null, 'pearls', 'beret'];
 const _customerSlots = []; // POLISH ROUND 2 — track slots for arrival anim + emote update
 for (let i = 0; i < 8; i++) {
   const col = _CUSTOMER_COLORS[i % _CUSTOMER_COLORS.length];
   const wrap = document.createElement('span'); wrap.className = 'cafe-customer';
-  const cv = _makePugCanvas(44, 48, { size: 42, body: col.body, mask: col.mask, tongueOut: i % 3 === 0 });
+  const cv = _makePugCanvas(44, 48, {
+    size: 42, body: col.body, mask: col.mask,
+    tongueOut: i % 3 === 0,
+    accessory: _CUSTOMER_ACCESSORIES[i],
+  });
   wrap.appendChild(cv);
   // Add a small type-badge above the head
   const badge = document.createElement('span');

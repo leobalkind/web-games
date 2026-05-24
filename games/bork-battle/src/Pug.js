@@ -132,6 +132,10 @@ export class Pug {
     this.container.addChildAt(this.visual, 0);
     this.nameTag.y = -this.form.radius - 16;
     this._renderHpBar();
+    // v1.8 — weapon layer (if any) was at child index 1; addChildAt visual=0
+    // pushed everything down. Mark weapon dirty so the held-gun overlay
+    // re-draws on next sync (geometry survives but rotation re-applies).
+    this._weaponDirty = true;
   }
 
   // Aim toward a world point.
@@ -192,6 +196,9 @@ export class Pug {
     this.ammo = weapon.magSize;
     this.reloading = false;
     this.reloadT = 0;
+    // v1.8 sprite polish: mark weapon visual as dirty so the held-weapon
+    // overlay re-draws on the next sync. Game.js owns the actual draw fn.
+    this._weaponDirty = true;
   }
 
   bark(text) {

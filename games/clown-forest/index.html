@@ -6,6 +6,7 @@
   <meta name="theme-color" content="#06080d" />
   <title>The Clown in the Forest · Web Games</title>
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../../src/shared/gameBase.css">
   <link rel="stylesheet" href="./style.css">
 </head>
@@ -16,6 +17,27 @@
 
   <!-- Vignette (heavy, dark — sells the "barely-can-see" mood). -->
   <div id="vignette" aria-hidden="true"></div>
+
+  <!-- =====================================================================
+       VISUAL-EFFECTS LAYER (Agent C). Sits ABOVE the canvas + vignette but
+       BELOW the HUD. CSS-only opacity transitions drive these — no canvas
+       drawing. Coordinated with Agent B (lightning paints #screen-flash) and
+       Agent E (clown proximity drives #vfx-throb intensity).
+       ===================================================================== -->
+  <div id="vfx-layer" aria-hidden="true">
+    <!-- Red edge throb — pulses brighter as clown closes. -->
+    <div id="vfx-throb"></div>
+    <!-- Low-stamina red glow at bottom-left edge. -->
+    <div id="vfx-stamina-crit"></div>
+    <!-- Low-battery corner electrical static flicker. -->
+    <div id="vfx-battery-static"></div>
+    <!-- Red kill / hit flash. -->
+    <div id="vfx-hit-flash"></div>
+    <!-- Heart-rate breath vignette pulse (extra layer atop the static vignette). -->
+    <div id="vfx-heart-breath"></div>
+    <!-- Screen-flash target for lightning (Agent B writes .is-lightning here). -->
+    <div id="screen-flash"></div>
+  </div>
 
   <!-- Lightning flash layer + global death/win fade. -->
   <div id="flash" aria-hidden="true"></div>
@@ -31,43 +53,135 @@
        HUD: minimal by design — we want the player to feel alone in the dark.
        Items badge fades in on pickup. Stamina bar only shows while sprinting.
        Battery readout only while flashlight is on.
+       (Agent C owns this — Agent D does not modify it.)
        ===================================================================== -->
   <div id="hud" hidden>
-    <!-- Items (top-right) — fades in on pickup, fades out after 3s. -->
+
+    <!-- Heart-rate (top-left) — beats faster as clown closes. SVG waveform
+         redrawn each frame; backdrop is translucent dark glass for legibility. -->
+    <div id="hud-heart" class="hud-heart">
+      <div class="hud-heart__icon" aria-hidden="true">
+        <span class="hud-heart__pulse"></span>
+      </div>
+      <div class="hud-heart__wave">
+        <svg viewBox="0 0 140 28" preserveAspectRatio="none" aria-hidden="true">
+          <polyline id="hud-heart-line" points="" />
+        </svg>
+      </div>
+    </div>
+
+    <!-- Stamina + battery stack (bottom-left). Translucent dark glass
+         backdrop for legibility on bright fog moments. -->
+    <div id="hud-vitals" class="hud-vitals">
+      <div id="hud-stamina" class="hud-stamina">
+        <span class="hud-vitals__label">STA</span>
+        <div class="hud-stamina__bar"><i id="hud-stamina-fill"></i></div>
+      </div>
+      <div id="hud-battery" class="hud-battery">
+        <span class="hud-vitals__label">BAT</span>
+        <div class="hud-battery__bar"><i id="hud-battery-fill"></i></div>
+        <span id="hud-battery-n" class="hud-battery__pct">100%</span>
+      </div>
+    </div>
+
+    <!-- Items (top-right) — brief fade-in on pickup only. -->
     <div id="hud-items" class="hud-items">
       ITEMS <span id="hud-items-n">0</span>/5
     </div>
-    <!-- Stamina (bottom-left) — only opaque while sprinting / drained. -->
-    <div id="hud-stamina" class="hud-stamina">
-      <div class="hud-stamina__bar"><i id="hud-stamina-fill"></i></div>
-    </div>
-    <!-- Battery (bottom-center) — only visible while flashlight ON. -->
-    <div id="hud-battery" class="hud-battery">BATTERY <span id="hud-battery-n">100</span>%</div>
-    <!-- Subtitle line (top-center) used for proximity hints + escape prompt. -->
+
+    <!-- Subtitle line (bottom-center) — italicized audio cues + objective beats. -->
     <div id="hud-subtitle" class="hud-subtitle"></div>
+
+    <!-- Crosshair (center) — hidden by default; appears as a pale dot only
+         when flashlight is on AND the player is looking at an interactable. -->
+    <div id="hud-crosshair" class="hud-crosshair" aria-hidden="true"></div>
+
+    <!-- INTERACT prompt (E) when near an item — kept for compat with other agents. -->
+    <div id="hud-interact" class="hud-interact">PRESS <b>E</b> TO TAKE</div>
+
+    <!-- Compass arrow (top-center) — appears only once all 5 items are
+         collected; points at the beacon. NO map — keep player lost. -->
+    <div id="hud-compass" class="hud-compass" aria-hidden="true">
+      <div id="hud-compass-arrow" class="hud-compass__arrow"></div>
+      <div class="hud-compass__label">BEACON</div>
+    </div>
+
+    <!-- Popup notifications (top-right slide-in). Stacked container so we
+         don't fight z-order with the items badge. -->
+    <div id="hud-popups" class="hud-popups" aria-live="polite"></div>
+
+    <!-- Big mid-screen objective beat ("BEACON ACTIVATED"). -->
+    <div id="hud-objective" class="hud-objective" aria-live="polite"></div>
+
+    <!-- Top-center warning blinker ("BATTERY LOW", etc.). -->
+    <div id="hud-warning" class="hud-warning" aria-live="polite"></div>
+
+    <!-- Pause-hint shown briefly when ESC is pressed. -->
+    <div id="hud-pause-hint" class="hud-pause-hint">PRESS ESC TO RESUME</div>
+
+    <!-- Objectives quick-view (Tab). Kept for compat with Agent E. -->
+    <div id="hud-objectives" class="hud-objectives" hidden>
+      <div class="hud-objectives__title">OBJECTIVES</div>
+      <ul>
+        <li><span id="obj-items-row">Lost items: <b id="obj-items">0</b>/5</span></li>
+        <li><span id="obj-beacon-row">Find the beacon at dawn</span></li>
+      </ul>
+      <div class="hud-objectives__hint">Hold <b>TAB</b></div>
+    </div>
+
+    <!-- First-visit tutorial bubble (one at a time, click-dismiss). -->
+    <div id="hud-tut" class="hud-tut" hidden>
+      <div class="hud-tut__bubble">
+        <p id="hud-tut-text">MOVE: WASD or joystick</p>
+        <div class="hud-tut__row">
+          <button id="hud-tut-skip" class="hud-tut__skip">SKIP</button>
+          <button id="hud-tut-next" class="hud-tut__btn">NEXT &rsaquo;</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- =====================================================================
+       LOADING OVERLAY — shown while textures + Three.js boot. Replaced by
+       intro cutscene the first time, or by start screen on subsequent loads.
+       ===================================================================== -->
+  <div id="loading-overlay" class="overlay">
+    <div class="loading-panel">
+      <div class="loading-text">LOADING THE WOODS<span class="loading-dots"></span></div>
+      <div class="loading-bar"><i id="loading-fill"></i></div>
+      <div id="loading-ready" class="loading-ready" hidden>[ CLICK TO ENTER ]</div>
+    </div>
+  </div>
+
+  <!-- =====================================================================
+       INTRO CUTSCENE — typewriter narrative played once per profile on first
+       arrival to this game. SKIP button always visible top-right.
+       ===================================================================== -->
+  <div id="intro-overlay" class="overlay" hidden>
+    <div class="intro-bg" aria-hidden="true"></div>
+    <button id="intro-skip" class="intro-skip">SKIP &gt;&gt;</button>
+    <div class="intro-stage">
+      <div id="intro-line" class="intro-line"></div>
+      <div id="intro-enter" class="intro-enter" hidden>[ CLICK TO ENTER ]</div>
+    </div>
   </div>
 
   <!-- =====================================================================
        START OVERLAY — black, bare, dread-soaked. No animation noise. The
        tagline does the heavy lifting.
        ===================================================================== -->
-  <div id="start-overlay" class="overlay">
-    <div class="overlay__panel overlay__panel--clown">
+  <div id="start-overlay" class="overlay" hidden>
+    <div class="start-fog" aria-hidden="true"></div>
+    <div class="start-trees" aria-hidden="true"></div>
+    <div class="start-panel">
       <div class="overlay__tag">HORROR · REALISTIC · FIRST-PERSON</div>
-      <h1 class="overlay__title overlay__title--clown">THE CLOWN<br>IN THE FOREST</h1>
-      <p class="overlay__sub overlay__sub--clown">
-        Find 5 lost items.<br>Escape before dawn.<br>You are not alone.
-      </p>
-      <ul class="overlay__controls overlay__controls--clown">
-        <li><b>WASD</b> walk · <b>MOUSE</b> look · <b>SHIFT</b> sprint</li>
-        <li><b>C</b> crouch · <b>F</b> flashlight · <b>ESC</b> pause</li>
-        <li>On mobile: <b>JOYSTICK</b> walk · <b>DRAG</b> look</li>
-      </ul>
-      <p class="overlay__sub overlay__sub--clown" style="font-size:0.5rem;color:#7a5a30;">
-        Last escape: <span id="start-best">never</span>
-      </p>
-      <button id="start-btn" class="overlay__btn overlay__btn--clown">[ CLICK TO ENTER ]</button>
-      <a class="overlay__back" href="../../index.html">← BACK TO HUB</a>
+      <h1 class="start-title">THE CLOWN</h1>
+      <p class="start-subtitle"><i>in the forest</i></p>
+      <p class="start-tagline">Find 5. Reach the beacon. Survive the night.</p>
+      <p class="start-best">BEST: <span id="start-best">—</span></p>
+      <button id="start-btn" class="start-btn">ENTER THE WOODS</button>
+      <a class="start-back" href="../../index.html">← BACK TO HUB</a>
     </div>
   </div>
 
@@ -76,18 +190,21 @@
        title/sub/aux.
        ===================================================================== -->
   <div id="end-overlay" class="overlay" hidden>
-    <div class="overlay__panel overlay__panel--clown">
-      <h2 class="overlay__title overlay__title--clown" id="end-title">YOU DIDN'T MAKE IT</h2>
-      <p class="overlay__sub overlay__sub--clown" id="end-sub">The smile reached you.</p>
-      <ul class="end-stats end-stats--clown">
-        <li>Items found: <b id="end-items">0</b> / 5</li>
-        <li>Time alive: <b id="end-time">0:00</b></li>
-        <li id="end-best">Best escape: <b>—</b></li>
+    <div class="end-bg" aria-hidden="true"></div>
+    <div class="end-panel">
+      <h2 class="end-title" id="end-title">YOU WERE FOUND</h2>
+      <p class="end-sub" id="end-sub">Caught at the cabin.</p>
+      <ul class="end-stats">
+        <li>TIME SURVIVED <b id="end-time">0:00</b></li>
+        <li>ITEMS FOUND <b id="end-items">0</b> / 5</li>
+        <li>DISTANCE WALKED <b id="end-distance">0 m</b></li>
+        <li id="end-best">BEST <b>—</b></li>
       </ul>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:14px;">
-        <button id="end-restart" class="overlay__btn overlay__btn--clown">TRY AGAIN</button>
-        <a class="overlay__btn overlay__btn--ghost" href="../../index.html">← HUB</a>
+      <div class="end-buttons">
+        <button id="end-restart" class="end-btn end-btn--primary">TRY AGAIN</button>
+        <a class="end-btn end-btn--ghost" href="../../index.html">← HUB</a>
       </div>
+      <div class="end-hint">Press <b>R</b> to restart</div>
     </div>
   </div>
 
@@ -95,14 +212,51 @@
        PAUSE OVERLAY (ESC). Resume re-acquires pointer-lock.
        ===================================================================== -->
   <div id="pause-overlay" class="overlay" hidden>
-    <div class="overlay__panel overlay__panel--clown">
-      <div class="overlay__tag">PAUSED</div>
-      <h2 class="overlay__title overlay__title--clown">PAUSED</h2>
-      <p class="overlay__sub overlay__sub--clown">The forest waits.</p>
-      <div style="display:flex;flex-direction:column;gap:10px;align-items:stretch;max-width:240px;margin:0 auto;">
-        <button id="pause-resume" class="overlay__btn overlay__btn--clown">RESUME</button>
-        <button id="pause-restart" class="overlay__btn overlay__btn--ghost">RESTART</button>
-        <a class="overlay__btn overlay__btn--ghost" href="../../index.html">← QUIT TO HUB</a>
+    <div class="pause-panel">
+      <h2 class="pause-title">PAUSED</h2>
+      <p class="pause-sub">The forest waits.</p>
+      <div class="pause-buttons">
+        <button id="pause-resume" class="pause-btn pause-btn--primary">RESUME</button>
+        <button id="pause-controls" class="pause-btn">CONTROLS</button>
+        <button id="pause-settings" class="pause-btn">SETTINGS</button>
+        <button id="pause-restart" class="pause-btn">RESTART</button>
+        <a class="pause-btn pause-btn--ghost" href="../../index.html">QUIT TO HUB</a>
+      </div>
+      <div class="pause-hint">Press <b>ESC</b> to resume</div>
+    </div>
+  </div>
+
+  <!-- =====================================================================
+       CONTROLS HELP — opened from pause overlay or via "?" key.
+       ===================================================================== -->
+  <div id="controls-overlay" class="overlay" hidden>
+    <div class="controls-panel">
+      <h2 class="controls-title">CONTROLS</h2>
+      <ul class="controls-list" id="controls-list">
+        <li><b>MOVEMENT</b><span>WASD / arrows / joystick</span></li>
+        <li><b>LOOK</b><span>Mouse / drag right half</span></li>
+        <li><b>INTERACT</b><span>E / TAKE button</span></li>
+        <li><b>FLASHLIGHT</b><span>F / TORCH button</span></li>
+        <li><b>SPRINT</b><span>Shift / RUN button (limited stamina)</span></li>
+        <li><b>CROUCH</b><span>C / CROUCH button (quieter, slower)</span></li>
+        <li><b>OBJECTIVES</b><span>Tab (hold)</span></li>
+        <li><b>RESTART</b><span>R (when dead)</span></li>
+        <li><b>PAUSE</b><span>ESC</span></li>
+      </ul>
+      <button id="controls-close" class="controls-btn">BACK</button>
+    </div>
+  </div>
+
+  <!-- =====================================================================
+       RESTART CONFIRMATION — small modal asking "Are you sure?"
+       ===================================================================== -->
+  <div id="confirm-overlay" class="overlay" hidden>
+    <div class="confirm-panel">
+      <h2 class="confirm-title">RESTART RUN?</h2>
+      <p class="confirm-sub">Your progress will be lost.</p>
+      <div class="confirm-buttons">
+        <button id="confirm-yes" class="confirm-btn confirm-btn--danger">YES, RESTART</button>
+        <button id="confirm-no" class="confirm-btn">CANCEL</button>
       </div>
     </div>
   </div>

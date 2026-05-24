@@ -16,6 +16,9 @@ import { getShakeMul as _shakeMul } from '../../src/shared/screenShake.js';
 // --- Custom weapon icons (drawn on canvas; size ~ 18px) -----------------------
 // Library doesn't have sausage / toast / bubble, so we draw them inline here in
 // the same pixel-art style as the shared icons (centered at x, y).
+// v1.8 sprite polish: each weapon icon now has 4-shade depth + secondary
+// detail (seared cross-hatch on sausage, butter pat on toast, refracted sheen
+// on bubble) so they read crisply both as held-weapon AND as world pickup.
 function drawSausage(ctx, x, y, size) {
   const s = size / 16;
   ctx.save(); ctx.translate(x, y);
@@ -24,29 +27,56 @@ function drawSausage(ctx, x, y, size) {
   ctx.fillRect(-6 * s, -2 * s, 12 * s, 4 * s);
   ctx.fillRect(-7 * s, -1 * s,  1 * s, 2 * s);
   ctx.fillRect( 6 * s, -1 * s,  1 * s, 2 * s);
-  // shading underside
+  // shading underside (deeper now — adds 3D rounding)
   ctx.fillStyle = '#b35a1c';
   ctx.fillRect(-6 * s,  1 * s, 12 * s, 1 * s);
-  // highlight
+  // ends cap shadow
+  ctx.fillRect(-7 * s, 0, 1 * s, 1 * s);
+  ctx.fillRect( 6 * s, 0, 1 * s, 1 * s);
+  // top highlight (broader band)
   ctx.fillStyle = '#ffcc88';
   ctx.fillRect(-5 * s, -2 * s, 4 * s, 1 * s);
+  // top-tip glint
+  ctx.fillStyle = '#fff1b0';
+  ctx.fillRect(-4 * s, -2 * s, 1 * s, 1 * s);
+  // grill marks — 3 sear stripes (charred)
+  ctx.fillStyle = '#5a2a08';
+  ctx.fillRect(-3 * s, -1 * s, 1 * s, 2 * s);
+  ctx.fillRect(0,     -1 * s, 1 * s, 2 * s);
+  ctx.fillRect( 3 * s, -1 * s, 1 * s, 2 * s);
   ctx.restore();
 }
 function drawToast(ctx, x, y, size) {
   const s = size / 16;
   ctx.save(); ctx.translate(x, y);
-  // crust outline
-  ctx.fillStyle = '#8a5a2c';
+  // crust outline (darker now for contrast)
+  ctx.fillStyle = '#6a3a1c';
   ctx.fillRect(-6 * s, -7 * s, 12 * s, 14 * s);
   ctx.fillRect(-7 * s, -6 * s,  1 * s, 12 * s);
   ctx.fillRect( 6 * s, -6 * s,  1 * s, 12 * s);
+  // outer crust hi (top edge)
+  ctx.fillStyle = '#a86a3a';
+  ctx.fillRect(-6 * s, -7 * s, 12 * s, 1 * s);
   // bread interior
   ctx.fillStyle = '#ffd23f';
   ctx.fillRect(-5 * s, -6 * s, 10 * s, 12 * s);
-  // butter melt highlight
+  // bread texture (small holes/pores)
+  ctx.fillStyle = '#e8b820';
+  ctx.fillRect(-3 * s, -5 * s, 1 * s, 1 * s);
+  ctx.fillRect(2 * s, -3 * s, 1 * s, 1 * s);
+  ctx.fillRect(-2 * s, 2 * s, 1 * s, 1 * s);
+  ctx.fillRect(3 * s, 4 * s, 1 * s, 1 * s);
+  // butter pat (golden block) + melt highlight
   ctx.fillStyle = '#fff1b0';
   ctx.fillRect(-3 * s, -4 * s, 4 * s, 2 * s);
   ctx.fillRect(-1 * s,  1 * s, 3 * s, 2 * s);
+  // butter-melt shine
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(-2 * s, -4 * s, 1 * s, 1 * s);
+  // bottom-right shadow on bread
+  ctx.fillStyle = 'rgba(180,140,40,0.5)';
+  ctx.fillRect(-5 * s, 5 * s, 10 * s, 1 * s);
+  ctx.fillRect(4 * s, -6 * s, 1 * s, 12 * s);
   ctx.restore();
 }
 function drawBubble(ctx, x, y, size) {
@@ -56,9 +86,49 @@ function drawBubble(ctx, x, y, size) {
   ctx.strokeStyle = '#4cc9f0';
   ctx.lineWidth = Math.max(1, 1.4 * s);
   ctx.beginPath(); ctx.arc(0, 0, 6 * s, 0, Math.PI * 2); ctx.stroke();
-  // inner sheen
-  ctx.fillStyle = 'rgba(255,255,255,0.35)';
-  ctx.beginPath(); ctx.arc(-2 * s, -2 * s, 1.8 * s, 0, Math.PI * 2); ctx.fill();
+  // inner refraction ring (lighter)
+  ctx.strokeStyle = 'rgba(180,230,255,0.7)';
+  ctx.lineWidth = Math.max(1, 0.6 * s);
+  ctx.beginPath(); ctx.arc(0, 0, 4 * s, 0, Math.PI * 2); ctx.stroke();
+  // inner main sheen (oval)
+  ctx.fillStyle = 'rgba(255,255,255,0.45)';
+  ctx.beginPath(); ctx.ellipse(-2 * s, -2 * s, 2.2 * s, 1.3 * s, -0.4, 0, Math.PI * 2); ctx.fill();
+  // small secondary sheen
+  ctx.fillStyle = 'rgba(255,255,255,0.7)';
+  ctx.beginPath(); ctx.arc(-2.5 * s, -2.5 * s, 0.7 * s, 0, Math.PI * 2); ctx.fill();
+  // rainbow gradient hint on right rim
+  ctx.fillStyle = 'rgba(255,150,200,0.4)';
+  ctx.beginPath(); ctx.arc(3 * s, 2 * s, 0.8 * s, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+// v1.8 — beefier BFG sprite (was reusing sausage). Glowing pink core +
+// power-arc rings. Used both as held-weapon icon and pickup.
+function drawBfg(ctx, x, y, size) {
+  const s = size / 16;
+  ctx.save(); ctx.translate(x, y);
+  // outer glow halo
+  ctx.fillStyle = 'rgba(255,58,161,0.35)';
+  ctx.beginPath(); ctx.arc(0, 0, 8 * s, 0, Math.PI * 2); ctx.fill();
+  // ring (containment)
+  ctx.strokeStyle = '#ff3aa1'; ctx.lineWidth = Math.max(1, 1.4 * s);
+  ctx.beginPath(); ctx.arc(0, 0, 6 * s, 0, Math.PI * 2); ctx.stroke();
+  // inner ring darker
+  ctx.strokeStyle = '#a01a6a'; ctx.lineWidth = Math.max(1, 0.6 * s);
+  ctx.beginPath(); ctx.arc(0, 0, 4.5 * s, 0, Math.PI * 2); ctx.stroke();
+  // pink plasma core
+  ctx.fillStyle = '#ff3aa1';
+  ctx.beginPath(); ctx.arc(0, 0, 3 * s, 0, Math.PI * 2); ctx.fill();
+  // white hot center
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath(); ctx.arc(-1 * s, -1 * s, 1.5 * s, 0, Math.PI * 2); ctx.fill();
+  // 4 mini cross-arcs
+  ctx.strokeStyle = 'rgba(255,200,230,0.8)'; ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(-6 * s, 0); ctx.lineTo(-3.5 * s, 0);
+  ctx.moveTo(6 * s, 0); ctx.lineTo(3.5 * s, 0);
+  ctx.moveTo(0, -6 * s); ctx.lineTo(0, -3.5 * s);
+  ctx.moveTo(0, 6 * s); ctx.lineTo(0, 3.5 * s);
+  ctx.stroke();
   ctx.restore();
 }
 
@@ -106,7 +176,7 @@ const WEAPONS = [
   { id: 'bubble',  name: 'Bubble',  drawIconFn: drawBubble,          cooldown: 0.3,  speed: 240, dmg: 8,  color: '#4cc9f0', shape: 'bubble',  recoil: 0.02, desc: 'Spam at range.' },
   // BFG — Polish R2: cooldown now 4.0s (was 1.4) so it's punishingly slow
   // between shots. Damage stays high so a clean hit still feels devastating.
-  { id: 'bfg',     name: 'BFG',     drawIconFn: drawSausage,         cooldown: 4.0,  speed: 260, dmg: 60, color: '#ff3aa1', shape: 'bfg',     recoil: 0.35, desc: 'BIG. RARE. SLOW.', rare: true },
+  { id: 'bfg',     name: 'BFG',     drawIconFn: drawBfg,             cooldown: 4.0,  speed: 260, dmg: 60, color: '#ff3aa1', shape: 'bfg',     recoil: 0.35, desc: 'BIG. RARE. SLOW.', rare: true },
 ];
 let activePerkId = 'tough';
 
@@ -1225,8 +1295,18 @@ function spawnSpark(x, y) {
   }
 }
 function spawnJet(x, y) {
-  if (particles.length > 200) return;
-  // Round 2C: denser flame trail (2 -> 4 particles per frame) for juicier jet
+  if (particles.length > 220) return;
+  // v1.8 — richer flame trail: a white-hot core ember plus warm outer puffs.
+  // First particle is a tight white core (smaller, faster decay) for that
+  // "afterburner crack" reading; rest are warm orange/red puffs.
+  // Core ember (hottest)
+  particles.push({
+    x: x + (Math.random() - 0.5) * 3, y: y + 14,
+    vx: (Math.random() - 0.5) * 30, vy: 180 + Math.random() * 60,
+    color: '#ffffff',
+    life: 0.18 + Math.random() * 0.08, t: 0, size: 2 + Math.random() * 1.5,
+  });
+  // Warm flame puffs
   for (let i = 0; i < 4; i++) {
     const ang = Math.PI / 2 + (Math.random() - 0.5) * 0.8;
     const sp = 140 + Math.random() * 140;
@@ -1236,6 +1316,15 @@ function spawnJet(x, y) {
       vx: Math.cos(ang) * sp * 0.5, vy: Math.sin(ang) * sp,
       color: cols[Math.floor(Math.random() * cols.length)],
       life: 0.4 + Math.random() * 0.15, t: 0, size: 3 + Math.random() * 4,
+    });
+  }
+  // A wider, dimmer smoke puff that fades slower for depth
+  if (Math.random() < 0.5) {
+    particles.push({
+      x: x + (Math.random() - 0.5) * 14, y: y + 18,
+      vx: (Math.random() - 0.5) * 60, vy: 60 + Math.random() * 40,
+      color: 'rgba(200,200,210,0.35)',
+      life: 0.6 + Math.random() * 0.3, t: 0, size: 5 + Math.random() * 4,
     });
   }
 }
@@ -1677,12 +1766,35 @@ function render() {
     ctx.fillRect(p.x - 18, p.y - 28, 36, 4);
     ctx.fillStyle = p.hp > 50 ? '#5ef38c' : (p.hp > 25 ? '#ffd23f' : '#ff3a3a');
     ctx.fillRect(p.x - 18, p.y - 28, 36 * Math.max(0, p.hp) / p.maxHp, 4);
-    // jetpack flame (bigger, glowy)
+    // jetpack flame (bigger, glowy) — v1.8: layered cone + flicker tongues
     if (p === pug && pug.jetT > 0) {
+      const flick = 1 + 0.25 * Math.sin(performance.now() * 0.04);
+      // Outer red glow halo
+      const grd = ctx.createRadialGradient(p.x, p.y + 22, 2, p.x, p.y + 22, 22 * flick);
+      grd.addColorStop(0, 'rgba(255,210,63,0.9)');
+      grd.addColorStop(0.4, 'rgba(255,90,58,0.55)');
+      grd.addColorStop(1, 'rgba(255,90,58,0)');
+      ctx.fillStyle = grd;
+      ctx.fillRect(p.x - 24, p.y + 12, 48, 28);
+      // Main flame body (orange cone)
       ctx.fillStyle = '#ff8e3c';
-      ctx.fillRect(p.x - 4, p.y + 16, 8, 14);
+      ctx.beginPath();
+      ctx.moveTo(p.x - 4, p.y + 16);
+      ctx.lineTo(p.x + 4, p.y + 16);
+      ctx.lineTo(p.x + 2, p.y + 30 * flick);
+      ctx.lineTo(p.x - 2, p.y + 30 * flick);
+      ctx.closePath(); ctx.fill();
+      // Inner yellow flame
       ctx.fillStyle = '#ffd23f';
-      ctx.fillRect(p.x - 2, p.y + 16, 4, 8);
+      ctx.beginPath();
+      ctx.moveTo(p.x - 2, p.y + 16);
+      ctx.lineTo(p.x + 2, p.y + 16);
+      ctx.lineTo(p.x + 1, p.y + 22 * flick);
+      ctx.lineTo(p.x - 1, p.y + 22 * flick);
+      ctx.closePath(); ctx.fill();
+      // White hot core
+      ctx.fillStyle = '#fff1b0';
+      ctx.fillRect(p.x - 1, p.y + 16, 2, 4);
     }
     // INFINITE-AMMO POWER OUTLET aura (Polish R2)
     if (p === pug && infiniteAmmoT > 0) {

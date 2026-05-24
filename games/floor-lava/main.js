@@ -1226,6 +1226,11 @@ function render() {
     ctx.fillStyle = color; ctx.fillRect(pX, pY, pW, pH);
     ctx.fillStyle = topColor; ctx.fillRect(pX, pY, pW, 3);
     ctx.fillStyle = grassColor; ctx.fillRect(pX, pY - 3, pW, 3);
+    // v1.8 polish — bottom edge darker rim gives a 3D bevel
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.fillRect(pX, pY + pH - 1, pW, 1);
+    // Right-edge form shadow (tiny vertical sliver)
+    ctx.fillRect(pX + pW - 1, pY, 1, pH);
     // SPIKE on top (kills on landing)
     if (p.hasSpike) {
       const sx = p.x + p.w / 2;
@@ -1262,11 +1267,29 @@ function render() {
         ctx.fillRect(gx, p.y + 4, 1, p.h - 6);
       }
     }
-    // Moss tufts on top of normal platforms
+    // Moss tufts on top of normal platforms — v1.8 polish: multi-blade tufts
     if (!isBouncy && !isCrumble && p.w > 80) {
+      // Left tuft (3 blades)
       ctx.fillStyle = '#3a8e4c';
-      ctx.fillRect(p.x + 8, p.y - 4, 3, 1);
-      ctx.fillRect(p.x + p.w - 14, p.y - 4, 3, 1);
+      ctx.fillRect(p.x + 8, p.y - 5, 1, 2);
+      ctx.fillRect(p.x + 10, p.y - 6, 1, 3);
+      ctx.fillRect(p.x + 12, p.y - 5, 1, 2);
+      ctx.fillStyle = '#5ef38c';
+      ctx.fillRect(p.x + 10, p.y - 7, 1, 1);
+      // Tiny flower
+      if (p.w > 120) {
+        ctx.fillStyle = '#ff8aa8';
+        ctx.fillRect(p.x + p.w / 2 - 1, p.y - 5, 2, 2);
+        ctx.fillStyle = '#ffd23f';
+        ctx.fillRect(p.x + p.w / 2, p.y - 4, 1, 1);
+      }
+      // Right tuft (mirror)
+      ctx.fillStyle = '#3a8e4c';
+      ctx.fillRect(p.x + p.w - 14, p.y - 5, 1, 2);
+      ctx.fillRect(p.x + p.w - 12, p.y - 6, 1, 3);
+      ctx.fillRect(p.x + p.w - 10, p.y - 5, 1, 2);
+      ctx.fillStyle = '#5ef38c';
+      ctx.fillRect(p.x + p.w - 12, p.y - 7, 1, 1);
     }
     // crumble indicator: cracks if started crumbling
     if (isCrumble && p.crumbleStartT) {
@@ -1388,24 +1411,46 @@ function render() {
     ctx.fillRect(b.x + 1, b.y - 3, 2, 2);
   }
   // Bats — pixel-art shape (body + flapping wings). Dying bats roll over.
+  // v1.8 polish: layered membrane shading + wing bones + fangs.
   for (const b of bats) {
     const flap = Math.sin(b.ampT * 4) * 6;
     ctx.save();
     ctx.translate(b.x, b.y);
     if (!b.alive) ctx.rotate(Math.PI); // upside-down on death
-    // Wings
-    ctx.fillStyle = '#3a1a4a';
+    // Wing membranes (darker outer) — same triangles but anchor curve
+    ctx.fillStyle = '#2a1240';
     ctx.beginPath();
-    ctx.moveTo(-3, 0); ctx.lineTo(-14, -2 - flap); ctx.lineTo(-12, 4); ctx.closePath(); ctx.fill();
+    ctx.moveTo(-3, 0); ctx.lineTo(-15, -2 - flap); ctx.lineTo(-13, 4); ctx.closePath(); ctx.fill();
     ctx.beginPath();
-    ctx.moveTo(3, 0); ctx.lineTo(14, -2 - flap); ctx.lineTo(12, 4); ctx.closePath(); ctx.fill();
+    ctx.moveTo(3, 0); ctx.lineTo(15, -2 - flap); ctx.lineTo(13, 4); ctx.closePath(); ctx.fill();
+    // Wing inner highlights (lighter purple, smaller triangle inside)
+    ctx.fillStyle = '#6a3a8a';
+    ctx.beginPath();
+    ctx.moveTo(-4, 0); ctx.lineTo(-10, -1 - flap * 0.7); ctx.lineTo(-8, 3); ctx.closePath(); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(4, 0); ctx.lineTo(10, -1 - flap * 0.7); ctx.lineTo(8, 3); ctx.closePath(); ctx.fill();
+    // Wing bone lines
+    ctx.strokeStyle = '#1a0a30'; ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(-3, 0); ctx.lineTo(-13, -1 - flap); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(3, 0); ctx.lineTo(13, -1 - flap); ctx.stroke();
     // Body
     ctx.fillStyle = b.alive ? '#2a0a3a' : '#5a3a5a';
     ctx.beginPath(); ctx.arc(0, 0, 6, 0, Math.PI * 2); ctx.fill();
-    // Glowing eyes
+    // Body highlight
+    ctx.fillStyle = b.alive ? '#5a2a6a' : '#7a5a7a';
+    ctx.beginPath(); ctx.arc(-1, -2, 2, 0, Math.PI * 2); ctx.fill();
+    // Glowing eyes (sharper)
     if (b.alive) {
       ctx.fillStyle = '#ff3a3a';
       ctx.fillRect(-3, -1, 2, 2); ctx.fillRect(1, -1, 2, 2);
+      // Pupil glint
+      ctx.fillStyle = '#ffd23f';
+      ctx.fillRect(-2, 0, 1, 1); ctx.fillRect(2, 0, 1, 1);
+      // Tiny fangs
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(-2, 3, 1, 2); ctx.fillRect(1, 3, 1, 2);
     } else {
       // Dead bat: white "x"s for eyes — use a tiny readable font instead of
       // relying on whatever previous ctx.font was leaked in.
@@ -1413,29 +1458,52 @@ function render() {
       ctx.font = "6px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
       ctx.fillText('x', -2, 1); ctx.fillText('x', 2, 1);
     }
-    // Tiny pointy ears
+    // Tiny pointy ears (with inner highlight)
     ctx.fillStyle = b.alive ? '#2a0a3a' : '#5a3a5a';
     ctx.fillRect(-4, -7, 2, 3); ctx.fillRect(2, -7, 2, 3);
+    ctx.fillStyle = b.alive ? '#5a2a6a' : '#7a5a7a';
+    ctx.fillRect(-4, -7, 1, 1); ctx.fillRect(2, -7, 1, 1);
     ctx.restore();
   }
   // Fireballs — pulsing red/orange ball with trail
+  // v1.8 polish: layered halo + smoke wisps + harder white-hot center.
   for (const f of fireballs) {
-    const t = performance.now() * 0.01;
-    // Tail behind
+    const tNow = performance.now() * 0.01;
+    // Outer glow halo (radial gradient)
+    const grd = ctx.createRadialGradient(f.x, f.y, 1, f.x, f.y, f.r * 2.2);
+    grd.addColorStop(0, 'rgba(255,210,63,0.65)');
+    grd.addColorStop(0.5, 'rgba(255,90,58,0.35)');
+    grd.addColorStop(1, 'rgba(255,90,58,0)');
+    ctx.fillStyle = grd;
+    ctx.beginPath(); ctx.arc(f.x, f.y, f.r * 2.2, 0, Math.PI * 2); ctx.fill();
+    // Tail behind (longer + dimmer)
     ctx.fillStyle = 'rgba(255,180,60,0.45)';
-    for (let i = 1; i <= 4; i++) {
+    for (let i = 1; i <= 5; i++) {
       const tx = f.x - (f.vx / 220) * i * 5;
       const ty = f.y - (f.vy / 220) * i * 5;
-      ctx.beginPath(); ctx.arc(tx, ty, f.r - i * 1.5, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(tx, ty, Math.max(0.5, f.r - i * 1.3), 0, Math.PI * 2); ctx.fill();
     }
-    // Core
+    // Smoke puff behind
+    ctx.fillStyle = 'rgba(80,40,30,0.4)';
+    for (let i = 5; i <= 7; i++) {
+      const tx = f.x - (f.vx / 220) * i * 6;
+      const ty = f.y - (f.vy / 220) * i * 6;
+      ctx.beginPath(); ctx.arc(tx, ty, 2 + (i - 5), 0, Math.PI * 2); ctx.fill();
+    }
+    // Core (red)
     ctx.fillStyle = '#ff3a3a';
     ctx.beginPath(); ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2); ctx.fill();
+    // Yellow inner
     ctx.fillStyle = '#ffd23f';
     ctx.beginPath(); ctx.arc(f.x - 1, f.y - 1, f.r * 0.55, 0, Math.PI * 2); ctx.fill();
-    // Flicker highlight
+    // White hot center
     ctx.fillStyle = '#fff';
-    ctx.fillRect(f.x - 2, f.y - 3, 2, 2);
+    ctx.beginPath(); ctx.arc(f.x - 1.5, f.y - 1.5, f.r * 0.25, 0, Math.PI * 2); ctx.fill();
+    // Flicker pixel
+    if ((tNow | 0) % 2) {
+      ctx.fillStyle = '#fff7d0';
+      ctx.fillRect(f.x - 2, f.y - 3, 2, 2);
+    }
   }
   // ICE DROPS — light-blue droplets falling
   for (const d of iceDrops) {
@@ -1458,13 +1526,25 @@ function render() {
     ctx.strokeRect(d.x - d.sz / 2, d.y - d.sz / 2, d.sz, d.sz);
   }
   // HAUNTS — translucent ghosts with shimmer + flowing wisp tail (Round 2)
+  // v1.8 polish: two-tone glow ring, inner highlight crescent, jagged-edge
+  // mouth + dripping ectoplasm trail behind the ghost.
   for (const h of haunts) {
     ctx.save();
-    // Outer glow halo
-    ctx.globalAlpha = h.alpha * 0.22;
+    // Outer cyan glow ring (bigger, layered for depth)
+    const ghostGrd = ctx.createRadialGradient(h.x, h.y, 5, h.x, h.y, 26);
+    ghostGrd.addColorStop(0, `rgba(202,240,255,${h.alpha * 0.35})`);
+    ghostGrd.addColorStop(1, 'rgba(76,201,240,0)');
+    ctx.fillStyle = ghostGrd;
+    ctx.beginPath(); ctx.arc(h.x, h.y, 26, 0, Math.PI * 2); ctx.fill();
+    // Ectoplasm tail behind/below
+    ctx.globalAlpha = h.alpha * 0.25;
     ctx.fillStyle = '#caf0ff';
-    ctx.beginPath(); ctx.arc(h.x, h.y, 20, 0, Math.PI * 2); ctx.fill();
-    // Ghost body — more translucent (0.55 vs old 0.75) for ghostly read
+    for (let i = 0; i < 4; i++) {
+      const ty = h.y + 20 + i * 4;
+      const tw = 14 - i * 2;
+      ctx.beginPath(); ctx.ellipse(h.x + Math.sin(h.ampT + i) * 3, ty, tw, 3, 0, 0, Math.PI * 2); ctx.fill();
+    }
+    // Ghost body — more translucent
     ctx.globalAlpha = h.alpha * 0.55;
     ctx.fillStyle = '#fff';
     ctx.beginPath();
@@ -1478,16 +1558,28 @@ function render() {
     ctx.lineTo(h.x - 8, h.y + 14 - wobble);
     ctx.lineTo(h.x - 12, h.y + 8 + wobble);
     ctx.closePath(); ctx.fill();
-    // Inner shimmer
-    ctx.globalAlpha = h.alpha * 0.4;
+    // Inner shimmer (lighter crescent on body upper-left)
+    ctx.globalAlpha = h.alpha * 0.45;
     ctx.fillStyle = '#caf0ff';
-    ctx.beginPath(); ctx.arc(h.x - 3, h.y - 3, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(h.x - 4, h.y - 4, 5, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = h.alpha * 0.6;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath(); ctx.arc(h.x - 5, h.y - 6, 2.5, 0, Math.PI * 2); ctx.fill();
     // Eyes — empty sockets with red pinpricks
-    ctx.globalAlpha = h.alpha * 0.85;
+    ctx.globalAlpha = h.alpha * 0.95;
     ctx.fillStyle = '#000';
     ctx.fillRect(h.x - 5, h.y - 2, 3, 5); ctx.fillRect(h.x + 3, h.y - 2, 3, 5);
     ctx.fillStyle = '#ff3a3a';
     ctx.fillRect(h.x - 4, h.y - 1, 1, 1); ctx.fillRect(h.x + 4, h.y - 1, 1, 1);
+    // Tiny tear of light from each eye
+    ctx.fillStyle = 'rgba(202,240,255,0.5)';
+    ctx.fillRect(h.x - 4, h.y + 3, 1, 1); ctx.fillRect(h.x + 4, h.y + 3, 1, 1);
+    // Jagged grimace mouth
+    ctx.fillStyle = '#000';
+    ctx.fillRect(h.x - 2, h.y + 4, 4, 2);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(h.x - 2, h.y + 4, 1, 1);
+    ctx.fillRect(h.x + 1, h.y + 4, 1, 1);
     ctx.restore();
   }
   // METEORS — VOIDSPACE purple flame ball with violet trail
@@ -1576,11 +1668,29 @@ function render() {
     ctx.beginPath(); ctx.arc(x, lavaY + 4 + Math.sin(t * 2 + i) * 2, 3, 0, Math.PI * 2); ctx.fill();
   }
   // depth3D drop shadow under the pug — anchors him to the platform he's on.
+  // v1.8 polish: 2-layer shadow (broader fainter outer, tighter darker inner).
   _depthShadow(ctx, pug.x, pug.y + 14, 14, { alpha: 0.4 });
+  ctx.fillStyle = 'rgba(0,0,0,0.25)';
+  ctx.beginPath(); ctx.ellipse(pug.x, pug.y + 15, 9, 2, 0, 0, Math.PI * 2); ctx.fill();
   // Round 2: Pug — squash/stretch + idle bob
+  // v1.8 polish: airborne squash is stronger to give jump character; a faint
+  // motion blur trail rotated by velocity hints momentum when launching.
   const _pugBob = pug.onGround ? Math.sin(pugBobT * 4) * 1.2 : 0;
-  const _pugSX = 1 + pugSquashT * 0.35 - pugStretchT * 0.18;
-  const _pugSY = 1 - pugSquashT * 0.3 + pugStretchT * 0.22;
+  // Boost stretch when shooting upward; boost squash when falling.
+  const vySign = pug.vy ? Math.sign(pug.vy) : 0;
+  const airStretchBoost = (!pug.onGround && vySign < 0) ? Math.min(0.18, -pug.vy * 0.0006) : 0;
+  const airSquashBoost  = (!pug.onGround && vySign > 0) ? Math.min(0.12, pug.vy * 0.0004) : 0;
+  const _pugSX = 1 + pugSquashT * 0.35 - pugStretchT * 0.18 - airStretchBoost + airSquashBoost;
+  const _pugSY = 1 - pugSquashT * 0.3 + pugStretchT * 0.22 + airStretchBoost - airSquashBoost;
+  // Motion-blur ghost trail when launching upward fast
+  if (!pug.onGround && pug.vy < -380) {
+    ctx.save();
+    ctx.globalAlpha = 0.18;
+    ctx.translate(pug.x, pug.y - pug.vy * 0.015);
+    ctx.scale(_pugSX * 0.95, _pugSY * 1.05);
+    drawPug(ctx, 0, 0, { size: 30 });
+    ctx.restore();
+  }
   ctx.save();
   ctx.translate(pug.x, pug.y + _pugBob);
   ctx.scale(_pugSX, _pugSY);
@@ -1592,9 +1702,30 @@ function render() {
     drawPug(ctx, 0, 0, { size: 30 });
   }
   ctx.restore();
-  // Outfit overlays
-  if (pugOutfit === 'jumpsuit') { ctx.fillStyle = '#ff8e3c'; ctx.fillRect(pug.x - 10, pug.y - 4, 20, 14); ctx.fillStyle = '#fff'; ctx.fillRect(pug.x - 1, pug.y - 4, 2, 14); }
-  else if (pugOutfit === 'hat') { ctx.fillStyle = '#4cc9f0'; ctx.fillRect(pug.x - 10, pug.y - 22, 20, 5); ctx.fillRect(pug.x - 6, pug.y - 30, 12, 8); }
+  // Outfit overlays — v1.8 polish: jumpsuit gets buttons + stripes; hat gets band trim + brim shadow.
+  if (pugOutfit === 'jumpsuit') {
+    ctx.fillStyle = '#ff8e3c'; ctx.fillRect(pug.x - 10, pug.y - 4, 20, 14);
+    ctx.fillStyle = '#fff'; ctx.fillRect(pug.x - 1, pug.y - 4, 2, 14);
+    // Buttons
+    ctx.fillStyle = '#ffd23f';
+    ctx.fillRect(pug.x + 1, pug.y - 1, 2, 2);
+    ctx.fillRect(pug.x + 1, pug.y + 4, 2, 2);
+    // Stripe trim
+    ctx.fillStyle = '#b35a1c';
+    ctx.fillRect(pug.x - 10, pug.y + 9, 20, 1);
+  } else if (pugOutfit === 'hat') {
+    ctx.fillStyle = '#4cc9f0'; ctx.fillRect(pug.x - 10, pug.y - 22, 20, 5);
+    ctx.fillRect(pug.x - 6, pug.y - 30, 12, 8);
+    // Hat band (darker)
+    ctx.fillStyle = '#2a8aaa';
+    ctx.fillRect(pug.x - 10, pug.y - 20, 20, 2);
+    // Hat crown highlight
+    ctx.fillStyle = '#9aebff';
+    ctx.fillRect(pug.x - 6, pug.y - 30, 12, 1);
+    // Tiny propeller dot
+    ctx.fillStyle = '#ffd23f';
+    ctx.fillRect(pug.x - 1, pug.y - 32, 2, 2);
+  }
   // ROCKETBOOT visual aura
   if (rocketBootT > 0) {
     ctx.strokeStyle = `rgba(255,247,208,${0.5 + 0.5 * Math.sin(performance.now() / 100)})`;

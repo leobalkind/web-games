@@ -53,13 +53,22 @@ body.is-playing #vignette { display: block; }
   opacity: 0;
   transition: opacity 0.4s ease-out;
 }
-#flash.is-lightning { opacity: 0.85; transition: opacity 0.07s linear; }
+#flash.is-lightning     { background: #fff; opacity: 0.90; transition: opacity 0.07s linear; }
+/* Dim re-strobe of the lightning multi-flash — softer and bluer. */
+#flash.is-lightning-dim { background: #b8c4dc; opacity: 0.55; transition: opacity 0.06s linear; }
 #flash.is-red       { background: #6a0a0a; opacity: 0.78; }
 #flash.is-black     { background: #000;    opacity: 1.0; transition: opacity 1.0s ease-in; }
 #flash.is-sunrise   {
   background: radial-gradient(ellipse at 50% 70%, #ffd680 0%, #ff8e3c 40%, #c83410 100%);
   opacity: 0.88;
   transition: opacity 1.4s ease-out;
+}
+/* Flashlight-cutout darkening at critical battery — overlays a soft black
+   tint whose alpha is driven by --cutout-alpha (set from JS each frame). */
+#flash.is-cutout {
+  background: #000;
+  opacity: var(--cutout-alpha, 0);
+  transition: opacity 0.18s ease-out;
 }
 
 /* =============================================================================
@@ -90,97 +99,574 @@ body.is-playing #vignette { display: block; }
 #kill-cam.is-on canvas { transform: scale(1.15); }
 
 /* =============================================================================
-   HUD — bare minimum so we don't break the immersion.
+   VISUAL-EFFECTS LAYER (Agent C). Sits between canvas and HUD. All purely
+   CSS-driven opacity transitions / keyframes — keeps the per-frame canvas
+   work to zero. Z-index 5 (above #vignette which is 4, below #hud which is 10).
+   ============================================================================= */
+#vfx-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+#vfx-layer > div {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+/* Red edge throb — driven by --throb-alpha set from JS based on clown distance.
+   Soft inward radial that pulses subtly when alpha > 0. */
+#vfx-throb {
+  background: radial-gradient(ellipse at center,
+              rgba(0,0,0,0) 50%,
+              rgba(120, 14, 18, 0.55) 85%,
+              rgba(160, 10, 10, 0.85) 100%);
+  opacity: var(--throb-alpha, 0);
+  animation: vfx-throb-pulse 0.85s ease-in-out infinite;
+  transition: opacity 0.5s ease;
+}
+@keyframes vfx-throb-pulse {
+  0%, 100% { filter: brightness(0.85); }
+  50%      { filter: brightness(1.4); }
+}
+/* Critical-stamina red glow at bottom-left edge — pulses faster as stamina nears 0. */
+#vfx-stamina-crit {
+  background: radial-gradient(ellipse at 0% 100%,
+              rgba(180, 30, 30, 0.55) 0%,
+              rgba(180, 30, 30, 0.12) 25%,
+              rgba(0,0,0,0) 45%);
+  opacity: 0;
+  animation: vfx-stamcrit-pulse 0.6s ease-in-out infinite;
+}
+#vfx-stamina-crit.is-on { opacity: 0.85; }
+@keyframes vfx-stamcrit-pulse {
+  0%, 100% { filter: brightness(0.7); }
+  50%      { filter: brightness(1.5); }
+}
+/* Low-battery static — corner flickers; opacity flickers per JS to feel electrical. */
+#vfx-battery-static {
+  background:
+    radial-gradient(circle at 0% 0%,    rgba(200,200,210,0.18) 0%, rgba(0,0,0,0) 15%),
+    radial-gradient(circle at 100% 0%,  rgba(200,200,210,0.18) 0%, rgba(0,0,0,0) 15%),
+    radial-gradient(circle at 0% 100%,  rgba(200,200,210,0.18) 0%, rgba(0,0,0,0) 15%),
+    radial-gradient(circle at 100% 100%,rgba(200,200,210,0.18) 0%, rgba(0,0,0,0) 15%);
+  mix-blend-mode: screen;
+  opacity: 0;
+}
+#vfx-battery-static.is-on { opacity: var(--static-alpha, 0.6); }
+/* Hit-flash for kill — instant red, fades over ~700ms. */
+#vfx-hit-flash {
+  background: radial-gradient(ellipse at center, rgba(220,30,30,0.8) 0%, rgba(80,0,0,0.5) 50%, rgba(0,0,0,0.3) 100%);
+  opacity: 0;
+  transition: opacity 0.7s ease-out;
+}
+#vfx-hit-flash.is-on { opacity: 0.95; transition: opacity 0.06s linear; }
+/* Heart-rate breath vignette — extra dark vignette layer that throbs to the
+   heartbeat. Intensity controlled by --breath-alpha. */
+#vfx-heart-breath {
+  background: radial-gradient(ellipse at center,
+              rgba(0,0,0,0) 35%,
+              rgba(0,0,0,0.45) 80%,
+              rgba(0,0,0,0.75) 100%);
+  opacity: var(--breath-alpha, 0);
+}
+/* Screen-flash target for Agent B's lightning + generic full-screen strobes. */
+#screen-flash {
+  background: #fff;
+  opacity: 0;
+  transition: opacity 0.4s ease-out;
+}
+#screen-flash.is-lightning { opacity: 0.9;  transition: opacity 0.06s linear; }
+#screen-flash.is-white     { opacity: 0.7;  transition: opacity 0.18s linear; }
+#screen-flash.is-red       { background: #6a0a0a; opacity: 0.8; transition: opacity 0.12s linear; }
+
+/* When sanity-equivalent drops, tilt + chromatic aberration intensify.
+   The tilt is applied via the canvas wrapper (Agent A territory); we add a
+   chromatic shadow to the vignette to compound the wooziness. */
+body.is-sanity-low #vignette {
+  filter: drop-shadow(2px 0 0 rgba(180, 20, 20, 0.35)) drop-shadow(-2px 0 0 rgba(20, 80, 200, 0.25));
+}
+
+/* =============================================================================
+   HUD — corner-anchored, minimal center clutter. Thin serif for horror tone.
+   Translucent dark glass backdrops for legibility against fog. Agent C owns.
    ============================================================================= */
 #hud {
   position: fixed;
   inset: 0;
   z-index: 10;
   pointer-events: none;
-  font-family: var(--font-display, 'Press Start 2P', monospace);
+  /* Horror typography: thin desaturated serif. Falls back to system serif. */
+  font-family: 'Cormorant Garamond', 'EB Garamond', 'Times New Roman', serif;
+  font-weight: 400;
+  letter-spacing: 0.12em;
 }
 #hud[hidden] { display: none; }
 
-/* Items badge (top-right). Fades in/out via JS toggling .is-shown. */
+/* Reusable translucent-glass token (kept short so other rules can compose). */
+.hud-glass {
+  background: rgba(8, 10, 14, 0.62);
+  border: 1px solid rgba(120, 60, 40, 0.28);
+  box-shadow: inset 0 0 16px rgba(0,0,0,0.45), 0 1px 0 rgba(180,40,40,0.04);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  border-radius: 2px;
+}
+
+/* ---- Heart-rate (top-left). Beats faster as clown closes. -------------- */
+.hud-heart {
+  position: absolute;
+  top: max(14px, env(safe-area-inset-top, 0));
+  left: max(14px, env(safe-area-inset-left, 0));
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px 7px 9px;
+  background: rgba(8, 10, 14, 0.62);
+  border: 1px solid rgba(120, 60, 40, 0.28);
+  box-shadow: inset 0 0 16px rgba(0,0,0,0.45);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  border-radius: 2px;
+  opacity: 0.78;
+  transition: opacity 0.4s ease, border-color 0.4s ease, box-shadow 0.4s ease;
+}
+.hud-heart.is-spiked {
+  opacity: 1;
+  border-color: rgba(200, 40, 40, 0.65);
+  box-shadow: inset 0 0 18px rgba(80,10,10,0.6), 0 0 20px rgba(160, 20, 20, 0.35);
+}
+.hud-heart__icon {
+  position: relative;
+  width: 16px;
+  height: 16px;
+}
+.hud-heart__icon::before,
+.hud-heart__icon::after {
+  content: '';
+  position: absolute;
+  width: 10px;
+  height: 14px;
+  background: #a0282a;
+  border-radius: 8px 8px 0 0;
+  top: 0;
+  left: 3px;
+}
+.hud-heart__icon::after {
+  transform-origin: bottom right;
+  transform: rotate(-45deg);
+  left: -1px;
+}
+.hud-heart__icon::before {
+  transform-origin: bottom left;
+  transform: rotate(45deg);
+  left: 7px;
+}
+.hud-heart__pulse {
+  position: absolute;
+  inset: -3px;
+  border-radius: 3px;
+  box-shadow: 0 0 8px rgba(200, 30, 30, 0.55);
+  animation: hud-heart-beat var(--heart-period, 0.95s) ease-in-out infinite;
+}
+@keyframes hud-heart-beat {
+  0%, 60%, 100% { transform: scale(1); }
+  20%           { transform: scale(1.18); }
+  35%           { transform: scale(1.05); }
+}
+.hud-heart__wave {
+  width: 140px;
+  height: 28px;
+  overflow: hidden;
+  position: relative;
+}
+.hud-heart__wave svg {
+  width: 100%;
+  height: 100%;
+}
+.hud-heart__wave polyline {
+  fill: none;
+  stroke: #c83a3a;
+  stroke-width: 1.4;
+  stroke-linejoin: miter;
+  stroke-linecap: square;
+  filter: drop-shadow(0 0 4px rgba(200, 30, 30, 0.6));
+  opacity: 0.85;
+}
+
+/* ---- Items badge (top-right) — brief fade-in on pickup. ---------------- */
 .hud-items {
   position: absolute;
   top: max(14px, env(safe-area-inset-top, 0));
   right: max(14px, env(safe-area-inset-right, 0));
-  font-size: 0.55rem;
-  letter-spacing: 0.18em;
+  font-size: 0.95rem;
+  letter-spacing: 0.22em;
   color: #c8b890;
-  background: rgba(8, 10, 14, 0.78);
-  border: 1px solid rgba(120, 100, 60, 0.4);
-  padding: 7px 12px;
-  border-radius: 3px;
+  background: rgba(8, 10, 14, 0.62);
+  border: 1px solid rgba(120, 60, 40, 0.28);
+  box-shadow: inset 0 0 16px rgba(0,0,0,0.45);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  padding: 8px 14px;
+  border-radius: 2px;
   opacity: 0;
-  transition: opacity 0.6s ease;
+  transform: translateY(-4px);
+  transition: opacity 0.5s ease, transform 0.5s ease;
   text-shadow: 0 0 6px rgba(0, 0, 0, 0.8);
+  font-style: italic;
 }
-.hud-items.is-shown { opacity: 0.95; }
-.hud-items b, .hud-items span { color: #ffd680; font-weight: normal; }
+.hud-items.is-shown { opacity: 0.95; transform: translateY(0); }
+.hud-items b, .hud-items span { color: #ffd680; font-weight: 500; font-style: normal; }
 
-/* Stamina bar (bottom-left). Opaque only when sprinting. */
-.hud-stamina {
+/* ---- Vitals stack (bottom-left): stamina + battery. -------------------- */
+.hud-vitals {
   position: absolute;
-  bottom: max(18px, env(safe-area-inset-bottom, 0));
-  left: max(18px, env(safe-area-inset-left, 0));
-  width: 140px;
-  opacity: 0;
-  transition: opacity 0.5s ease;
+  bottom: max(16px, env(safe-area-inset-bottom, 0));
+  left: max(16px, env(safe-area-inset-left, 0));
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  background: rgba(8, 10, 14, 0.55);
+  border: 1px solid rgba(120, 60, 40, 0.22);
+  box-shadow: inset 0 0 12px rgba(0,0,0,0.4);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  border-radius: 2px;
 }
-.hud-stamina.is-shown { opacity: 0.85; }
+.hud-vitals__label {
+  font-size: 0.62rem;
+  letter-spacing: 0.18em;
+  color: #8a7a5a;
+  font-style: italic;
+  font-variant: small-caps;
+  min-width: 32px;
+  text-shadow: 0 0 4px rgba(0,0,0,0.9);
+}
+
+/* Stamina row (red-tinged bar, thin). */
+.hud-stamina {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  opacity: 0.55;
+  transition: opacity 0.4s ease;
+}
+.hud-stamina.is-shown { opacity: 0.95; }
 .hud-stamina__bar {
-  width: 100%;
-  height: 5px;
-  background: rgba(14, 12, 18, 0.85);
-  border: 1px solid rgba(80, 60, 40, 0.6);
+  width: 140px;
+  height: 3px;
+  background: rgba(20, 12, 12, 0.85);
+  border: 1px solid rgba(80, 40, 40, 0.5);
   overflow: hidden;
+  position: relative;
 }
 .hud-stamina__bar > i {
   display: block;
   height: 100%;
   width: 100%;
-  background: linear-gradient(90deg, #8a6a3a, #c89c50);
+  background: linear-gradient(90deg, #7a2828, #c83a3a);
   transition: width 0.15s linear;
 }
 .hud-stamina.is-low > .hud-stamina__bar > i {
-  background: linear-gradient(90deg, #6a3030, #c83a3a);
+  background: linear-gradient(90deg, #c81818, #ff3030);
+  animation: hud-stam-flash 0.42s linear infinite;
+}
+.hud-stamina.is-crit > .hud-stamina__bar > i {
+  animation: hud-stam-flash 0.20s linear infinite;
+}
+@keyframes hud-stam-flash {
+  0%, 100% { filter: brightness(0.85); }
+  50%      { filter: brightness(1.5); }
 }
 
-/* Battery (bottom-center, small, fades in only when flashlight on). */
+/* Battery row (small icon + thin bar + percent). */
 .hud-battery {
-  position: absolute;
-  bottom: max(18px, env(safe-area-inset-bottom, 0));
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 0.45rem;
-  letter-spacing: 0.18em;
-  color: #c8b890;
-  opacity: 0;
-  transition: opacity 0.5s ease;
-  text-shadow: 0 0 6px rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  opacity: 0.55;
+  transition: opacity 0.4s ease;
 }
-.hud-battery.is-shown { opacity: 0.7; }
-.hud-battery.is-low   { color: #c84040; opacity: 0.95; }
+.hud-battery.is-shown { opacity: 0.95; }
+.hud-battery__bar {
+  width: 100px;
+  height: 3px;
+  background: rgba(14, 14, 14, 0.85);
+  border: 1px solid rgba(80, 80, 80, 0.5);
+  overflow: hidden;
+  position: relative;
+}
+.hud-battery__bar > i {
+  display: block;
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(90deg, #8a8a8a, #d8d4c0);
+  transition: width 0.15s linear;
+}
+.hud-battery.is-low > .hud-battery__bar > i {
+  background: linear-gradient(90deg, #c84040, #ff5050);
+  animation: hud-bat-flicker 0.18s steps(2, end) infinite;
+}
+@keyframes hud-bat-flicker {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.4; }
+}
+.hud-battery__pct {
+  font-size: 0.62rem;
+  letter-spacing: 0.16em;
+  color: #b8a878;
+  min-width: 38px;
+  font-style: italic;
+}
+.hud-battery.is-low .hud-battery__pct { color: #ff7070; }
 
-/* Subtitle line for proximity hints + objective beats. */
+/* ---- Subtitle (bottom-center) — italicized audio cues. ----------------- */
 .hud-subtitle {
   position: absolute;
-  top: 26%;
+  /* Bottom-center, above mobile controls but well clear of vitals stack. */
+  bottom: calc(max(48px, env(safe-area-inset-bottom, 0)) + 70px);
   left: 50%;
   transform: translateX(-50%);
-  font-size: 0.5rem;
-  letter-spacing: 0.18em;
-  color: #b8a878;
+  font-size: 0.85rem;
+  letter-spacing: 0.16em;
+  color: #d8c898;
   opacity: 0;
-  transition: opacity 1.2s ease;
+  transition: opacity 0.6s ease;
   text-shadow: 0 0 8px rgba(0, 0, 0, 0.95);
   pointer-events: none;
   text-align: center;
   font-style: italic;
+  max-width: 80vw;
+  line-height: 1.4;
+  padding: 6px 14px;
+  background: rgba(6, 8, 12, 0.45);
+  border-radius: 2px;
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
 }
-.hud-subtitle.is-shown { opacity: 0.9; }
+.hud-subtitle.is-shown { opacity: 0.92; }
+
+/* ---- Crosshair — invisible by default. Pale dot only on look-at item. -- */
+.hud-crosshair {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: rgba(240, 230, 200, 0.7);
+  box-shadow: 0 0 6px rgba(255, 240, 200, 0.55);
+  transform: translate(-50%, -50%) scale(0.6);
+  opacity: 0;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.hud-crosshair.is-shown {
+  opacity: 0.88;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+/* ---- Compass (top-center, only when all items collected). -------------- */
+.hud-compass {
+  position: absolute;
+  top: max(20px, env(safe-area-inset-top, 0));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 14px;
+  background: rgba(20, 8, 8, 0.55);
+  border: 1px solid rgba(180, 30, 30, 0.42);
+  box-shadow: inset 0 0 12px rgba(60,10,10,0.5), 0 0 18px rgba(180, 30, 30, 0.25);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  border-radius: 2px;
+  opacity: 0;
+  transition: opacity 0.6s ease;
+}
+.hud-compass.is-shown { opacity: 0.92; }
+.hud-compass__arrow {
+  width: 22px;
+  height: 22px;
+  position: relative;
+  transform: rotate(0deg);
+  transition: transform 0.18s ease;
+}
+.hud-compass__arrow::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, #ff4040 0%, #a0181a 70%, rgba(160,24,26,0) 100%);
+  clip-path: polygon(50% 0%, 100% 70%, 50% 55%, 0% 70%);
+  filter: drop-shadow(0 0 5px rgba(220, 30, 30, 0.75));
+}
+.hud-compass__label {
+  font-size: 0.55rem;
+  letter-spacing: 0.32em;
+  color: #c8a070;
+  font-style: italic;
+}
+
+/* ---- Popups (top-right slide-in). -------------------------------------- */
+.hud-popups {
+  position: absolute;
+  top: calc(max(14px, env(safe-area-inset-top, 0)) + 52px);
+  right: max(14px, env(safe-area-inset-right, 0));
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-end;
+  max-width: 280px;
+}
+.hud-popup {
+  font-size: 0.78rem;
+  letter-spacing: 0.14em;
+  color: #d8c8a0;
+  background: rgba(8, 10, 14, 0.78);
+  border: 1px solid rgba(120, 60, 40, 0.4);
+  box-shadow: inset 0 0 12px rgba(0,0,0,0.5);
+  padding: 8px 14px;
+  border-radius: 2px;
+  font-style: italic;
+  text-shadow: 0 0 6px rgba(0, 0, 0, 0.85);
+  transform: translateX(120%);
+  opacity: 0;
+  transition: transform 0.45s cubic-bezier(0.2, 0.7, 0.3, 1), opacity 0.4s ease;
+  white-space: nowrap;
+}
+.hud-popup.is-in {
+  transform: translateX(0);
+  opacity: 0.95;
+}
+.hud-popup.is-out {
+  transform: translateX(20%);
+  opacity: 0;
+}
+.hud-popup b { color: #ffd680; font-weight: 500; font-style: normal; }
+
+/* ---- Objective beat (mid-screen lower-center) — large red glow. -------- */
+.hud-objective {
+  position: absolute;
+  left: 50%;
+  bottom: 36%;
+  transform: translate(-50%, 20px);
+  font-size: 1.5rem;
+  letter-spacing: 0.32em;
+  color: #ff6060;
+  text-shadow: 0 0 18px rgba(220, 30, 30, 0.85), 0 0 36px rgba(120, 10, 10, 0.65), 0 2px 0 #000;
+  font-style: italic;
+  text-align: center;
+  opacity: 0;
+  transition: opacity 0.6s ease, transform 0.6s ease;
+  font-weight: 500;
+}
+.hud-objective.is-shown {
+  opacity: 0.95;
+  transform: translate(-50%, 0);
+}
+
+/* ---- Top-center warning blinker. --------------------------------------- */
+.hud-warning {
+  position: absolute;
+  top: calc(max(14px, env(safe-area-inset-top, 0)) + 60px);
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.78rem;
+  letter-spacing: 0.32em;
+  color: #ff5050;
+  text-shadow: 0 0 8px rgba(200, 20, 20, 0.85), 0 0 22px rgba(160, 10, 10, 0.45);
+  padding: 5px 12px;
+  background: rgba(8, 4, 4, 0.55);
+  border: 1px solid rgba(180, 30, 30, 0.4);
+  border-radius: 2px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  font-style: italic;
+  font-variant: small-caps;
+  text-align: center;
+  white-space: nowrap;
+}
+.hud-warning.is-shown { opacity: 0.95; animation: hud-warn-blink 0.7s ease-in-out infinite; }
+@keyframes hud-warn-blink {
+  0%, 100% { opacity: 0.4; }
+  50%      { opacity: 1; }
+}
+
+/* ---- Pause-hint flash. -------------------------------------------------- */
+.hud-pause-hint {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 0.85rem;
+  letter-spacing: 0.32em;
+  color: #ff8080;
+  font-style: italic;
+  text-shadow: 0 0 10px rgba(0,0,0,0.95), 0 0 24px rgba(160,30,30,0.45);
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+.hud-pause-hint.is-shown { opacity: 0.95; }
+
+/* ---- Tutorial bubbles. ------------------------------------------------- */
+.hud-tut {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+}
+.hud-tut[hidden] { display: none; }
+.hud-tut__bubble {
+  pointer-events: auto;
+  background: rgba(8, 10, 14, 0.92);
+  border: 1px solid rgba(180, 60, 40, 0.55);
+  box-shadow: 0 0 24px rgba(80, 10, 10, 0.45), inset 0 0 18px rgba(0,0,0,0.6);
+  padding: 18px 22px 16px;
+  border-radius: 3px;
+  max-width: 380px;
+  min-width: 240px;
+  text-align: center;
+  color: #d8c8a0;
+  font-style: italic;
+}
+.hud-tut__bubble p {
+  margin: 0 0 14px;
+  font-size: 1rem;
+  letter-spacing: 0.14em;
+  line-height: 1.5;
+}
+.hud-tut__row {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+.hud-tut__btn,
+.hud-tut__skip {
+  font-family: 'Cormorant Garamond', 'EB Garamond', serif;
+  font-size: 0.85rem;
+  letter-spacing: 0.18em;
+  color: #ffd0a0;
+  background: linear-gradient(180deg, #5a1a14, #2a0808);
+  border: 1px solid rgba(180, 60, 40, 0.55);
+  padding: 6px 16px;
+  cursor: pointer;
+  font-style: italic;
+  transition: transform 0.1s ease, background 0.2s ease;
+}
+.hud-tut__skip {
+  background: transparent;
+  color: #8a7a5a;
+  border-color: rgba(80, 60, 40, 0.4);
+}
+.hud-tut__btn:hover { transform: translateY(-1px); background: linear-gradient(180deg, #7a2820, #3a0c0c); }
+.hud-tut__skip:hover { color: #c8a070; }
 
 /* =============================================================================
    OVERLAYS — clown variant. Cold, dim, oxidized red border.
@@ -246,10 +732,677 @@ body.is-playing #vignette { display: block; }
   color: #ffd0a0;
 }
 
+/* =============================================================================
+   MOBILE — HUD elements scale up for legibility + thumb-zone clearance.
+   Bottom-center subtitle is lifted higher so the mobile joystick + buttons
+   (~140px tall in mc-root) don't obscure it.
+   ============================================================================= */
 @media (max-width: 540px) {
   .overlay__panel--clown { padding: 22px 18px; max-width: 92vw; }
-  .hud-items { font-size: 0.45rem; }
-  .hud-stamina { width: 110px; }
+
+  /* Heart-rate compacts to leave room for settings gear. */
+  .hud-heart            { padding: 6px 10px 6px 8px; gap: 7px; }
+  .hud-heart__wave      { width: 96px; height: 24px; }
+
+  /* Items badge — larger for thumbs / smaller phones; sits clear of gear. */
+  .hud-items            { font-size: 0.85rem; padding: 9px 14px; letter-spacing: 0.18em; }
+
+  /* Stamina + battery — wider so they read in cluttered mobile views. */
+  .hud-vitals           { padding: 9px 11px; gap: 7px; }
+  .hud-vitals__label    { font-size: 0.7rem; }
+  .hud-stamina__bar     { width: 130px; height: 5px; }
+  .hud-battery__bar     { width: 90px; height: 5px; }
+  .hud-battery__pct     { font-size: 0.7rem; }
+
+  /* Subtitle: bigger AND lifted way clear of joystick + action buttons. */
+  .hud-subtitle         { font-size: 0.95rem; bottom: calc(env(safe-area-inset-bottom, 0) + 200px); padding: 7px 12px; }
+
+  /* Compass — slightly larger arrow for mobile glanceability. */
+  .hud-compass__arrow   { width: 26px; height: 26px; }
+  .hud-compass__label   { font-size: 0.6rem; }
+
+  /* Popups full-width on small phones (still slide in from right). */
+  .hud-popups           { max-width: 70vw; top: calc(env(safe-area-inset-top, 0) + 56px); }
+  .hud-popup            { font-size: 0.88rem; padding: 10px 14px; white-space: normal; }
+
+  /* Objective beat slightly smaller so it fits on tiny phones. */
+  .hud-objective        { font-size: 1.1rem; letter-spacing: 0.24em; }
+
+  /* Warning blinker — keep clear of compass when both are visible. */
+  .hud-warning          { font-size: 0.85rem; top: calc(env(safe-area-inset-top, 0) + 84px); }
+
+  /* Tutorial bubble: bigger touch targets, more padding. */
+  .hud-tut__bubble      { padding: 22px 20px 20px; max-width: 86vw; }
+  .hud-tut__bubble p    { font-size: 1.05rem; }
+  .hud-tut__btn,
+  .hud-tut__skip        { font-size: 0.95rem; padding: 10px 18px; min-height: 44px; min-width: 88px; }
 }
 
 body { background: #000; }
+
+/* =============================================================================
+   AGENT D — overlays (START / END / PAUSE / INTRO / LOADING / CONTROLS /
+   CONFIRM). Horror-tone consistent. Tall thin serif title, blood-red, drop
+   shadow. Uses Cormorant Garamond when available; falls back to Times.
+   ============================================================================= */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.65);
+  padding: 24px;
+}
+.overlay[hidden] { display: none; }
+
+/* Reuse-friendly tag chip (used by START header). */
+.overlay__tag {
+  display: inline-block;
+  border: 1px solid #5a1a14;
+  color: #c84a4a;
+  background: rgba(60, 20, 20, 0.25);
+  letter-spacing: 0.22em;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.45rem;
+  padding: 5px 10px;
+  margin-bottom: 18px;
+  border-radius: 2px;
+}
+
+/* === Flash sunrise-white tier (escape brightening) === */
+#flash.is-white { background: #fff; opacity: 1.0; transition: opacity 2.4s ease-in; }
+
+/* === LOADING overlay === */
+.loading-panel {
+  text-align: center;
+  font-family: 'Cormorant Garamond', 'Times New Roman', serif;
+  color: #c8b890;
+  max-width: 420px;
+}
+.loading-text {
+  font-size: 1.35rem;
+  letter-spacing: 0.22em;
+  margin-bottom: 18px;
+  font-style: italic;
+  color: #8a8270;
+}
+.loading-dots::after {
+  content: '...';
+  display: inline-block;
+  animation: clown-loading-dots 1.4s steps(4, jump-none) infinite;
+}
+@keyframes clown-loading-dots {
+  0%   { content: ''; }
+  25%  { content: '.'; }
+  50%  { content: '..'; }
+  75%  { content: '...'; }
+}
+.loading-bar {
+  width: 320px;
+  max-width: 80vw;
+  height: 4px;
+  background: rgba(40, 14, 14, 0.35);
+  border: 1px solid rgba(120, 30, 30, 0.5);
+  margin: 0 auto;
+  overflow: hidden;
+}
+.loading-bar > i {
+  display: block;
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #5a1414, #c84a4a, #5a1414);
+  background-size: 200% 100%;
+  animation: clown-loading-shimmer 2s linear infinite;
+  transition: width 0.4s ease;
+}
+@keyframes clown-loading-shimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: 0% 0; }
+}
+.loading-ready {
+  margin-top: 28px;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.55rem;
+  letter-spacing: 0.3em;
+  color: #c84a4a;
+  text-shadow: 0 0 12px rgba(120, 30, 30, 0.75);
+  animation: clown-pulse 1.5s ease-in-out infinite;
+  cursor: pointer;
+  pointer-events: auto;
+}
+@keyframes clown-pulse {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1.0; }
+}
+
+/* === INTRO cutscene === */
+#intro-overlay { background: #000; padding: 0; }
+.intro-bg {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg,
+      rgba(0,0,0,1) 0%,
+      rgba(0,0,0,1) 75%,
+      rgba(8, 8, 12, 1) 85%,
+      rgba(8, 8, 12, 1) 100%);
+  pointer-events: none;
+}
+.intro-bg::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 22%;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1600 200' preserveAspectRatio='none'><path d='M0 200 L0 130 L40 90 L70 60 L100 100 L140 50 L180 110 L220 70 L260 130 L300 80 L340 100 L380 60 L420 110 L460 80 L500 40 L540 90 L580 70 L620 110 L660 50 L700 100 L740 70 L780 130 L820 60 L860 100 L900 50 L940 80 L980 110 L1020 70 L1060 130 L1100 90 L1140 60 L1180 100 L1220 50 L1260 110 L1300 70 L1340 130 L1380 80 L1420 100 L1460 60 L1500 110 L1540 80 L1580 130 L1600 100 L1600 200 Z' fill='%23030404'/></svg>");
+  background-size: 100% 100%;
+  opacity: 0.95;
+}
+.intro-skip {
+  position: absolute;
+  top: max(18px, env(safe-area-inset-top, 0));
+  right: max(18px, env(safe-area-inset-right, 0));
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid #5a1a14;
+  color: #c8b890;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.5rem;
+  letter-spacing: 0.22em;
+  padding: 10px 14px;
+  border-radius: 2px;
+  cursor: pointer;
+  z-index: 2;
+  transition: background 0.2s, color 0.2s;
+}
+.intro-skip:hover { background: rgba(60, 20, 20, 0.55); color: #ffd0a0; }
+.intro-stage {
+  position: relative;
+  z-index: 1;
+  text-align: center;
+  max-width: 720px;
+  padding: 24px;
+}
+.intro-line {
+  font-family: 'Cormorant Garamond', 'Times New Roman', serif;
+  font-style: italic;
+  font-size: clamp(1.4rem, 4vw, 2.6rem);
+  line-height: 1.45;
+  letter-spacing: 0.04em;
+  color: #c8b890;
+  text-shadow: 0 0 16px rgba(0, 0, 0, 0.95);
+  min-height: 2.2em;
+  white-space: pre-wrap;
+}
+.intro-line::after {
+  content: '_';
+  display: inline-block;
+  margin-left: 4px;
+  animation: clown-caret 0.85s steps(2) infinite;
+  color: #c84a4a;
+}
+.intro-line.is-done::after { content: ''; }
+@keyframes clown-caret {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+.intro-enter {
+  margin-top: 36px;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.65rem;
+  letter-spacing: 0.3em;
+  color: #c84a4a;
+  text-shadow: 0 0 14px rgba(120, 30, 30, 0.7);
+  animation: clown-pulse 1.4s ease-in-out infinite;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+/* === START overlay === */
+#start-overlay { background: #000; padding: 0; }
+.start-fog {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at 30% 80%, rgba(60, 60, 80, 0.18), transparent 50%),
+    radial-gradient(ellipse at 75% 90%, rgba(40, 30, 30, 0.18), transparent 55%),
+    linear-gradient(180deg, rgba(0,0,0,0) 50%, rgba(20, 18, 24, 0.5) 100%);
+}
+.start-fog::before {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: -20%;
+  right: -20%;
+  height: 45%;
+  background: radial-gradient(ellipse at 50% 100%, rgba(120, 90, 90, 0.18) 0%, transparent 70%);
+  animation: clown-fog-drift 22s ease-in-out infinite alternate;
+}
+@keyframes clown-fog-drift {
+  from { transform: translateX(-4%); }
+  to   { transform: translateX(4%); }
+}
+.start-trees {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1600 200' preserveAspectRatio='none'><path d='M0 200 L0 140 L30 100 L60 60 L90 110 L120 50 L160 100 L190 70 L230 130 L270 80 L300 110 L340 60 L380 100 L420 80 L460 40 L500 90 L540 70 L580 110 L620 50 L660 100 L700 70 L740 130 L780 60 L820 100 L860 50 L900 80 L940 110 L980 70 L1020 130 L1060 90 L1100 60 L1140 100 L1180 50 L1220 110 L1260 70 L1300 130 L1340 80 L1380 100 L1420 60 L1460 110 L1500 80 L1540 130 L1580 100 L1600 130 L1600 200 Z' fill='%23050608'/></svg>");
+  background-position: bottom center;
+  background-repeat: no-repeat;
+  background-size: 100% 22%;
+  bottom: 0;
+  opacity: 0.95;
+}
+.start-panel {
+  position: relative;
+  z-index: 1;
+  text-align: center;
+  max-width: 580px;
+  padding: 24px;
+}
+.start-title {
+  font-family: 'Cormorant Garamond', 'Times New Roman', serif;
+  font-weight: 700;
+  font-size: clamp(3.5rem, 11vw, 6.5rem);
+  line-height: 0.95;
+  letter-spacing: 0.08em;
+  color: #9a1414;
+  margin: 0 0 6px 0;
+  text-shadow:
+    0 0 16px rgba(40, 8, 8, 0.95),
+    0 0 36px rgba(120, 16, 16, 0.55),
+    0 3px 0 #000,
+    0 6px 22px rgba(0, 0, 0, 0.95);
+  text-transform: uppercase;
+}
+.start-subtitle {
+  font-family: 'Cormorant Garamond', 'Times New Roman', serif;
+  font-size: clamp(1rem, 3vw, 1.6rem);
+  color: #c8b890;
+  letter-spacing: 0.18em;
+  margin: 0 0 28px 0;
+  text-shadow: 0 0 10px rgba(0, 0, 0, 0.85);
+}
+.start-tagline {
+  font-family: 'Cormorant Garamond', 'Times New Roman', serif;
+  font-style: italic;
+  font-size: clamp(0.9rem, 2.2vw, 1.15rem);
+  color: #8a8270;
+  letter-spacing: 0.08em;
+  margin: 0 0 20px 0;
+  line-height: 1.6;
+}
+.start-best {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.45rem;
+  letter-spacing: 0.22em;
+  color: #7a5a30;
+  margin: 0 0 24px 0;
+}
+.start-best span { color: #c8b890; }
+.start-btn {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.75rem;
+  letter-spacing: 0.24em;
+  color: #ffd0a0;
+  background: linear-gradient(180deg, #5a1a14, #2a0808);
+  border: 2px solid #8a3030;
+  padding: 22px 36px;
+  min-height: 56px;
+  border-radius: 3px;
+  cursor: pointer;
+  box-shadow:
+    0 4px 0 #200404,
+    0 0 30px rgba(120, 30, 30, 0.45);
+  transition: transform 0.15s, box-shadow 0.15s, background 0.15s;
+  display: inline-block;
+}
+.start-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 0 #200404, 0 0 44px rgba(180, 40, 40, 0.75);
+  background: linear-gradient(180deg, #7a1a14, #3a0808);
+}
+.start-btn:active { transform: translateY(2px); box-shadow: 0 2px 0 #200404, 0 0 24px rgba(120, 30, 30, 0.5); }
+.start-back {
+  display: block;
+  margin-top: 22px;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.48rem;
+  letter-spacing: 0.18em;
+  color: #6a6a72;
+  text-decoration: none;
+  transition: color 0.2s;
+}
+.start-back:hover { color: #c8b890; }
+
+/* === END overlay === */
+#end-overlay { background: rgba(0, 0, 0, 0.85); padding: 0; }
+.end-bg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+#end-overlay.is-escape .end-bg {
+  background:
+    radial-gradient(ellipse at 50% 80%, rgba(255, 200, 130, 0.35), transparent 50%),
+    linear-gradient(180deg, #2a1a18 0%, #4a2818 50%, #6a3818 85%, #c87838 100%);
+  animation: clown-dawn-rise 4s ease-out forwards;
+}
+@keyframes clown-dawn-rise {
+  from { opacity: 0.0; }
+  to   { opacity: 1.0; }
+}
+.end-panel {
+  position: relative;
+  z-index: 1;
+  text-align: center;
+  max-width: 560px;
+  padding: 28px 24px;
+}
+.end-title {
+  font-family: 'Cormorant Garamond', 'Times New Roman', serif;
+  font-weight: 700;
+  font-size: clamp(2.6rem, 8vw, 4.6rem);
+  line-height: 1.05;
+  letter-spacing: 0.08em;
+  color: #9a1414;
+  margin: 0 0 12px 0;
+  text-shadow:
+    0 0 18px rgba(40, 8, 8, 0.95),
+    0 0 40px rgba(120, 16, 16, 0.65),
+    0 3px 0 #000;
+  text-transform: uppercase;
+  animation: clown-end-fade-in 1.5s ease-out;
+}
+#end-overlay.is-escape .end-title {
+  color: #ffd680;
+  text-shadow:
+    0 0 24px rgba(255, 200, 120, 0.85),
+    0 0 48px rgba(255, 140, 60, 0.55),
+    0 3px 0 #1a0a04;
+}
+@keyframes clown-end-fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.end-sub {
+  font-family: 'Cormorant Garamond', 'Times New Roman', serif;
+  font-style: italic;
+  font-size: clamp(1rem, 2.5vw, 1.4rem);
+  color: #c8b890;
+  letter-spacing: 0.06em;
+  margin: 0 0 24px 0;
+  text-shadow: 0 0 10px rgba(0, 0, 0, 0.95);
+}
+#end-overlay.is-escape .end-sub { color: #ffd0a0; }
+.end-stats {
+  list-style: none;
+  padding: 0;
+  margin: 0 auto 24px auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.5rem;
+  letter-spacing: 0.18em;
+  color: #6a6a72;
+}
+.end-stats li {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  border-bottom: 1px solid rgba(120, 30, 30, 0.18);
+  padding: 8px 4px;
+}
+.end-stats b { color: #c8b890; font-weight: normal; }
+#end-overlay.is-escape .end-stats b { color: #ffd0a0; }
+.end-buttons {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: 18px;
+}
+.end-btn {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.55rem;
+  letter-spacing: 0.22em;
+  padding: 14px 22px;
+  min-height: 44px;
+  border-radius: 2px;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.12s, background 0.18s, box-shadow 0.18s;
+}
+.end-btn--primary {
+  background: linear-gradient(180deg, #5a1a14, #2a0808);
+  border: 2px solid #8a3030;
+  color: #ffd0a0;
+  box-shadow: 0 3px 0 #200404, 0 0 22px rgba(120, 30, 30, 0.5);
+}
+.end-btn--primary:hover { transform: translateY(-2px); background: linear-gradient(180deg, #7a1a14, #3a0808); }
+.end-btn--ghost {
+  background: transparent;
+  border: 1px solid #5a1a14;
+  color: #c8b890;
+}
+.end-btn--ghost:hover { background: rgba(60, 20, 20, 0.35); color: #ffd0a0; }
+.end-hint {
+  margin-top: 18px;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.4rem;
+  letter-spacing: 0.2em;
+  color: #5a5a62;
+}
+.end-hint b { color: #c8b890; font-weight: normal; }
+
+/* === PAUSE overlay === */
+#pause-overlay { background: rgba(0, 0, 0, 0.78); }
+.pause-panel {
+  position: relative;
+  text-align: center;
+  max-width: 360px;
+  padding: 30px 24px;
+  background: linear-gradient(135deg, #0a0c14 0%, #06080d 100%);
+  border: 1px solid #5a1a14;
+  border-radius: 4px;
+  box-shadow: 0 0 0 3px #000, 0 0 60px rgba(40, 10, 10, 0.5);
+}
+.pause-title {
+  font-family: 'Cormorant Garamond', 'Times New Roman', serif;
+  font-weight: 700;
+  font-size: 3rem;
+  letter-spacing: 0.14em;
+  color: #c8b890;
+  margin: 0 0 6px 0;
+  text-shadow:
+    0 0 14px rgba(40, 10, 10, 0.85),
+    0 0 30px rgba(120, 30, 30, 0.45),
+    0 2px 0 #000;
+}
+.pause-sub {
+  font-family: 'Cormorant Garamond', serif;
+  font-style: italic;
+  font-size: 0.95rem;
+  color: #8a8270;
+  letter-spacing: 0.06em;
+  margin: 0 0 22px 0;
+}
+.pause-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: stretch;
+}
+.pause-btn {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.55rem;
+  letter-spacing: 0.22em;
+  color: #c8b890;
+  background: rgba(20, 14, 10, 0.55);
+  border: 1px solid #5a1a14;
+  padding: 14px 18px;
+  min-height: 44px;
+  border-radius: 2px;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.12s, background 0.18s, color 0.18s;
+}
+.pause-btn:hover { background: rgba(60, 20, 20, 0.55); color: #ffd0a0; transform: translateY(-1px); }
+.pause-btn--primary {
+  background: linear-gradient(180deg, #5a1a14, #2a0808);
+  border-color: #8a3030;
+  color: #ffd0a0;
+  box-shadow: 0 3px 0 #200404, 0 0 22px rgba(120, 30, 30, 0.4);
+}
+.pause-btn--primary:hover { background: linear-gradient(180deg, #7a1a14, #3a0808); }
+.pause-btn--ghost { opacity: 0.85; }
+.pause-hint {
+  margin-top: 18px;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.4rem;
+  letter-spacing: 0.2em;
+  color: #5a5a62;
+}
+.pause-hint b { color: #c8b890; font-weight: normal; }
+
+/* === CONTROLS overlay === */
+.controls-panel {
+  text-align: center;
+  max-width: 440px;
+  padding: 26px 24px;
+  background: linear-gradient(135deg, #0a0c14 0%, #06080d 100%);
+  border: 1px solid #5a1a14;
+  border-radius: 4px;
+  box-shadow: 0 0 0 3px #000, 0 0 60px rgba(40, 10, 10, 0.5);
+}
+.controls-title {
+  font-family: 'Cormorant Garamond', serif;
+  font-weight: 700;
+  font-size: 1.8rem;
+  letter-spacing: 0.16em;
+  color: #c8b890;
+  margin: 0 0 18px 0;
+  text-shadow: 0 0 14px rgba(40, 10, 10, 0.85), 0 2px 0 #000;
+}
+.controls-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 22px 0;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.48rem;
+  letter-spacing: 0.16em;
+  color: #8a8270;
+  text-align: left;
+}
+.controls-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 7px 4px;
+  border-bottom: 1px solid rgba(120, 30, 30, 0.15);
+}
+.controls-list b { color: #c8b890; font-weight: normal; min-width: 110px; }
+.controls-list span { color: #6a6a72; flex: 1; text-align: right; }
+.controls-btn {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.55rem;
+  letter-spacing: 0.22em;
+  color: #ffd0a0;
+  background: linear-gradient(180deg, #5a1a14, #2a0808);
+  border: 2px solid #8a3030;
+  padding: 14px 22px;
+  min-height: 44px;
+  border-radius: 2px;
+  cursor: pointer;
+  box-shadow: 0 3px 0 #200404, 0 0 22px rgba(120, 30, 30, 0.4);
+  transition: transform 0.12s, background 0.18s;
+}
+.controls-btn:hover { transform: translateY(-2px); background: linear-gradient(180deg, #7a1a14, #3a0808); }
+
+/* === CONFIRM restart === */
+.confirm-panel {
+  text-align: center;
+  max-width: 340px;
+  padding: 26px 24px;
+  background: linear-gradient(135deg, #0a0c14 0%, #06080d 100%);
+  border: 1px solid #5a1a14;
+  border-radius: 4px;
+  box-shadow: 0 0 0 3px #000, 0 0 60px rgba(40, 10, 10, 0.5);
+}
+.confirm-title {
+  font-family: 'Cormorant Garamond', serif;
+  font-weight: 700;
+  font-size: 1.6rem;
+  letter-spacing: 0.14em;
+  color: #c8b890;
+  margin: 0 0 8px 0;
+  text-shadow: 0 0 14px rgba(40, 10, 10, 0.85), 0 2px 0 #000;
+}
+.confirm-sub {
+  font-family: 'Cormorant Garamond', serif;
+  font-style: italic;
+  font-size: 0.95rem;
+  color: #8a8270;
+  margin: 0 0 20px 0;
+}
+.confirm-buttons {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.confirm-btn {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.5rem;
+  letter-spacing: 0.2em;
+  color: #c8b890;
+  background: rgba(20, 14, 10, 0.55);
+  border: 1px solid #5a1a14;
+  padding: 12px 18px;
+  min-height: 44px;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: transform 0.12s, background 0.18s, color 0.18s;
+}
+.confirm-btn:hover { background: rgba(60, 20, 20, 0.55); color: #ffd0a0; }
+.confirm-btn--danger {
+  background: linear-gradient(180deg, #5a1a14, #2a0808);
+  border-color: #8a3030;
+  color: #ffd0a0;
+  box-shadow: 0 3px 0 #200404;
+}
+.confirm-btn--danger:hover { background: linear-gradient(180deg, #7a1a14, #3a0808); }
+
+/* Reduced-motion: skip Agent D overlay animations. */
+body.reduced-motion .start-fog::before,
+body.reduced-motion .loading-bar > i,
+body.reduced-motion .loading-dots::after,
+body.reduced-motion .intro-line::after,
+body.reduced-motion .end-title,
+body.reduced-motion .loading-ready,
+body.reduced-motion .intro-enter,
+body.reduced-motion #end-overlay.is-escape .end-bg {
+  animation: none !important;
+}
+
+/* Mobile overlay tweaks (Agent D). */
+@media (max-width: 540px) {
+  .pause-panel, .controls-panel, .confirm-panel { padding: 22px 16px; max-width: 92vw; }
+  .start-panel, .end-panel { padding: 18px 14px; max-width: 92vw; }
+  .controls-list b { min-width: 90px; }
+  .controls-list span { font-size: 0.42rem; }
+  .intro-line { font-size: clamp(1.2rem, 5vw, 2rem); }
+  .start-title { font-size: clamp(3rem, 13vw, 5rem); }
+  .end-title   { font-size: clamp(2.2rem, 9vw, 3.6rem); }
+}

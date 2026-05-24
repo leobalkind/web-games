@@ -32,125 +32,439 @@ const BOT_SKILL_PROFILES = {
   elite:   { aimNoise: 0.025, fireRateMult: 1.25, leadMult: 1.5, dodgeChance: 0.4 },
 };
 
-// === BOT TYPE COSMETICS (Round 2 polish) ===
-// 12 cosmetic types — hat color/shape lets player identify bots at a glance.
+// === BOT TYPE COSMETICS (Round 2 polish; v1.8 sprite-quality pass) ===
+// 17 cosmetic types — hat color/shape lets player identify bots at a glance.
 // Each type is a pure-visual layer applied on top of the existing form sprite.
 // Drawn ONCE at spawn into `bot._cosmeticLayer`, attached to bot.container.
 // subtype `roller` and `medic` also flip gameplay flags handled in Bot.think.
+// v1.8 polish: every hat refined with extra shading rim / highlight pixel, plus
+// 5 brand-new variants (astronaut, jester, halo, beanie, headphones).
 const BOT_TYPES = [
-  { id: 'punk',     hatColor: 0xff3aa1, hatStyle: 'mohawk',  rarity: 1 },
-  { id: 'sailor',   hatColor: 0xfafaff, hatStyle: 'sailor',  rarity: 1 },
-  { id: 'rancher',  hatColor: 0xc8854a, hatStyle: 'cowboy',  rarity: 1 },
-  { id: 'cyclops',  hatColor: 0x4cc9f0, hatStyle: 'visor',   rarity: 1 },
-  { id: 'chef',     hatColor: 0xfafaff, hatStyle: 'chef',    rarity: 1 },
-  { id: 'soldier',  hatColor: 0x4a6a3a, hatStyle: 'helmet',  rarity: 1 },
-  { id: 'wizard',   hatColor: 0x4a2aaa, hatStyle: 'wizard',  rarity: 1 },
-  { id: 'pirate',   hatColor: 0x222232, hatStyle: 'pirate',  rarity: 1 },
-  { id: 'ninja',    hatColor: 0x000000, hatStyle: 'ninja',   rarity: 1 },
-  { id: 'roller',   hatColor: 0xff8e3c, hatStyle: 'ball',    rarity: 1, subtype: 'roller' },
-  { id: 'medic',    hatColor: 0xff3a3a, hatStyle: 'medCross', rarity: 1, subtype: 'medic' },
-  { id: 'queen',    hatColor: 0xffd23f, hatStyle: 'crown',   rarity: 1 },
+  { id: 'punk',       hatColor: 0xff3aa1, hatStyle: 'mohawk',     rarity: 1 },
+  { id: 'sailor',     hatColor: 0xfafaff, hatStyle: 'sailor',     rarity: 1 },
+  { id: 'rancher',    hatColor: 0xc8854a, hatStyle: 'cowboy',     rarity: 1 },
+  { id: 'cyclops',    hatColor: 0x4cc9f0, hatStyle: 'visor',      rarity: 1 },
+  { id: 'chef',       hatColor: 0xfafaff, hatStyle: 'chef',       rarity: 1 },
+  { id: 'soldier',    hatColor: 0x4a6a3a, hatStyle: 'helmet',     rarity: 1 },
+  { id: 'wizard',     hatColor: 0x4a2aaa, hatStyle: 'wizard',     rarity: 1 },
+  { id: 'pirate',     hatColor: 0x222232, hatStyle: 'pirate',     rarity: 1 },
+  { id: 'ninja',      hatColor: 0x000000, hatStyle: 'ninja',      rarity: 1 },
+  { id: 'roller',     hatColor: 0xff8e3c, hatStyle: 'ball',       rarity: 1, subtype: 'roller' },
+  { id: 'medic',      hatColor: 0xff3a3a, hatStyle: 'medCross',   rarity: 1, subtype: 'medic' },
+  { id: 'queen',      hatColor: 0xffd23f, hatStyle: 'crown',      rarity: 1 },
+  // v1.8 — 5 new cosmetic variants (rarity 1 like the rest; even rotation)
+  { id: 'astronaut',  hatColor: 0xcacad6, hatStyle: 'astronaut',  rarity: 1 },
+  { id: 'jester',     hatColor: 0xb055ff, hatStyle: 'jester',     rarity: 1 },
+  { id: 'angel',      hatColor: 0xffd23f, hatStyle: 'halo',       rarity: 1 },
+  { id: 'beanie',     hatColor: 0xff5a3a, hatStyle: 'beanie',     rarity: 1 },
+  { id: 'dj',         hatColor: 0xff3aa1, hatStyle: 'headphones', rarity: 1 },
 ];
 // Draw the cosmetic hat/visor/badge layered on top of the bot's body sprite.
 // All shapes are pixel-art rects to match the existing pug art style.
+// v1.8 polish: each hat gets a rim-shadow + highlight pixel for depth, and
+// 5 new variants (astronaut/jester/halo/beanie/headphones) layered in.
 function drawBotCosmetic(g, type) {
   const c = type.hatColor;
-  const dark = Math.floor(((c >> 16) & 0xff) * 0.5) << 16
-             | Math.floor(((c >> 8) & 0xff) * 0.5) << 8
-             | Math.floor((c & 0xff) * 0.5);
+  // dark = 50% of c; hi = blend c toward white 35%.
+  const cr = (c >> 16) & 0xff, cg = (c >> 8) & 0xff, cb = c & 0xff;
+  const dark = (Math.floor(cr * 0.5) << 16) | (Math.floor(cg * 0.5) << 8) | Math.floor(cb * 0.5);
+  const hi   = (Math.min(255, cr + ((255 - cr) * 0.35) | 0) << 16)
+             | (Math.min(255, cg + ((255 - cg) * 0.35) | 0) << 8)
+             |  Math.min(255, cb + ((255 - cb) * 0.35) | 0);
   switch (type.hatStyle) {
     case 'mohawk':
-      // 3 vertical pink spikes
+      // 3 vertical spikes with shaded sides
       g.rect(-6, -42, 3, 8).fill(c);
       g.rect(-1, -44, 2, 10).fill(c);
       g.rect(3, -42, 3, 8).fill(c);
+      // bleached tips + dark roots
       g.rect(-6, -42, 3, 2).fill(0xffffff);
+      g.rect(-1, -44, 2, 2).fill(0xffffff);
+      g.rect(3, -42, 3, 2).fill(0xffffff);
+      g.rect(-6, -36, 3, 2).fill(dark);
+      g.rect(-1, -36, 2, 2).fill(dark);
+      g.rect(3, -36, 3, 2).fill(dark);
+      // base shave-line band
+      g.rect(-8, -34, 16, 1).fill(0x111111);
       break;
     case 'sailor':
-      // White sailor cap with blue band
+      // White sailor cap with blue band + brim shadow + center badge
       g.rect(-9, -36, 18, 4).fill(c);
       g.rect(-7, -38, 14, 4).fill(c);
       g.rect(-9, -34, 18, 2).fill(0x2a4aaa);
+      g.rect(-9, -34, 18, 1).fill(0x4a6acc); // band highlight
+      g.rect(-9, -33, 18, 1).fill(0x1a3a8a); // shadow under band
+      g.rect(-9, -36, 18, 1).fill(0xc8c8d0); // brim shadow
+      g.rect(-7, -38, 14, 1).fill(0xffffff); // top crease highlight
+      // anchor badge
       g.rect(-2, -38, 4, 2).fill(0x222238);
+      g.rect(-1, -39, 2, 1).fill(0x222238);
+      g.rect(-3, -37, 6, 1).fill(0x222238);
       break;
     case 'cowboy':
-      // Wide brim + crown
+      // Wide brim + crown + leather band + buckle
       g.rect(-12, -34, 24, 2).fill(c);
       g.rect(-7, -40, 14, 6).fill(c);
-      g.rect(-12, -34, 24, 1).fill(0xffd23f);
-      g.rect(-7, -40, 14, 1).fill(dark);
+      g.rect(-12, -34, 24, 1).fill(0xffd23f); // top edge of brim hi
+      g.rect(-12, -33, 24, 1).fill(dark);     // brim shadow underside
+      g.rect(-7, -40, 14, 1).fill(hi);        // crown top hi
+      g.rect(-7, -35, 14, 1).fill(dark);      // crown bottom shadow
+      // leather band around base
+      g.rect(-7, -36, 14, 1).fill(0x3a1a05);
+      g.rect(-1, -36, 2, 1).fill(0xffd23f); // buckle
+      // tilt notch on top
+      g.rect(-1, -41, 2, 2).fill(dark);
       break;
     case 'visor':
-      // Cyber visor across the eyes (glowing)
+      // Cyber visor across the eyes (glowing) — multi-row gradient
       g.rect(-9, -22, 18, 4).fill(c);
-      g.rect(-9, -22, 18, 1).fill(0xffffff);
-      g.rect(-9, -20, 18, 2).fill(dark);
+      g.rect(-9, -22, 18, 1).fill(0xffffff);     // top hot edge
+      g.rect(-9, -20, 18, 2).fill(dark);         // bottom shadow
+      // scan-line glints
+      g.rect(-7, -21, 3, 1).fill(0xffffff);
+      g.rect(0, -21, 3, 1).fill(0xffffff);
+      g.rect(5, -21, 3, 1).fill(0xffffff);
+      // temple housing
+      g.rect(-10, -22, 1, 4).fill(0x222232);
+      g.rect(9, -22, 1, 4).fill(0x222232);
+      // small power LED
+      g.rect(9, -19, 1, 1).fill(0xff3a3a);
       break;
     case 'chef':
-      // Tall white chef poof
+      // Tall white chef poof — multi-puff bun + button band
       g.rect(-6, -42, 12, 6).fill(c);
       g.rect(-8, -38, 16, 4).fill(c);
-      g.rect(-7, -42, 10, 1).fill(0xdcdcdc);
+      g.rect(-7, -42, 10, 1).fill(0xdcdcdc); // crease shadow
+      g.rect(-6, -42, 12, 1).fill(0xffffff); // top hi
+      // extra little puff at top
+      g.rect(-3, -44, 6, 2).fill(c);
+      g.rect(-3, -44, 6, 1).fill(0xffffff);
+      // brim band + button
+      g.rect(-8, -34, 16, 1).fill(0xdcdcdc);
+      g.rect(-1, -36, 2, 2).fill(0x222232);
       break;
     case 'helmet':
-      // Combat helmet
+      // Combat helmet — rim + dome shading + strap + chip
       g.rect(-9, -36, 18, 6).fill(c);
-      g.rect(-9, -36, 18, 1).fill(dark);
+      g.rect(-9, -36, 18, 1).fill(dark);   // top shadow band
       g.rect(-7, -38, 14, 3).fill(c);
-      g.rect(-2, -39, 4, 2).fill(dark);  // strap
+      g.rect(-7, -38, 14, 1).fill(hi);     // dome highlight
+      g.rect(-9, -31, 18, 1).fill(dark);   // brim underside shadow
+      g.rect(-2, -39, 4, 2).fill(dark);    // strap mount
+      // antenna nub
+      g.rect(5, -41, 1, 4).fill(dark);
+      g.rect(5, -42, 1, 1).fill(0xff3a3a);
       break;
     case 'wizard':
-      // Pointy purple cone
+      // Pointy purple cone — sharper tip + brim
       g.rect(-2, -46, 4, 4).fill(c);
+      g.rect(-1, -48, 2, 2).fill(c);
+      g.rect(-1, -48, 2, 1).fill(hi); // tip hi
       g.rect(-4, -42, 8, 4).fill(c);
       g.rect(-6, -38, 12, 4).fill(c);
       g.rect(-7, -34, 14, 2).fill(c);
-      g.rect(-7, -34, 14, 1).fill(0xffd23f);
-      // star
+      g.rect(-7, -34, 14, 1).fill(0xffd23f); // brim
+      g.rect(-7, -33, 14, 1).fill(0xb88e1c); // brim shadow
+      // 2 stars + crescent
       g.rect(-1, -44, 2, 2).fill(0xffd23f);
+      g.rect(2, -40, 1, 1).fill(0xffd23f);
+      g.rect(-3, -38, 1, 1).fill(0xfff7d0);
+      // cone-side shadow stripe
+      g.rect(-5, -41, 1, 7).fill(dark);
       break;
     case 'pirate':
-      // Tricorn black
+      // Tricorn black — 3-point silhouette + skull
       g.rect(-10, -36, 20, 4).fill(c);
       g.rect(-6, -40, 12, 4).fill(c);
-      g.rect(-10, -36, 20, 1).fill(0xffd23f);
-      g.rect(-4, -42, 8, 2).fill(0xffd23f);  // skull mark
+      g.rect(-10, -36, 20, 1).fill(0xffd23f);    // gold trim top
+      g.rect(-10, -33, 20, 1).fill(0x111111);    // shadow under brim
+      g.rect(-6, -40, 12, 1).fill(hi);           // crown top hi
+      // little skull symbol
+      g.rect(-4, -42, 8, 2).fill(0xffd23f);
+      g.rect(-3, -43, 6, 1).fill(0xffd23f);
+      g.rect(-2, -41, 1, 1).fill(0x000000);
+      g.rect(1, -41, 1, 1).fill(0x000000);
+      // cocked-tip flair
+      g.rect(-11, -36, 1, 1).fill(c);
+      g.rect(10, -36, 1, 1).fill(c);
       break;
     case 'ninja':
-      // Black headband + eye slit
+      // Black headband + eye slit — knot detail
       g.rect(-10, -28, 20, 4).fill(c);
-      g.rect(-10, -28, 20, 1).fill(0xff3a3a);
-      // dangling ends
+      g.rect(-10, -28, 20, 1).fill(0xff3a3a);   // red top stripe
+      g.rect(-10, -25, 20, 1).fill(0x222222);   // shadow under
+      // dangling ends with frayed tips
       g.rect(-12, -28, 2, 6).fill(c);
       g.rect(10, -28, 2, 6).fill(c);
+      g.rect(-12, -22, 2, 1).fill(0xff3a3a);
+      g.rect(10, -22, 2, 1).fill(0xff3a3a);
+      // knot at temple
+      g.rect(-13, -26, 2, 2).fill(c);
+      g.rect(11, -26, 2, 2).fill(c);
       break;
     case 'ball':
-      // ROLLER — hamster ball outline around the head
-      g.circle(0, -28, 16).stroke({ color: c, width: 2, alpha: 0.8 });
-      g.circle(0, -28, 14).stroke({ color: 0xffffff, width: 1, alpha: 0.5 });
-      // little hex-pattern dots
+      // ROLLER — hamster ball outline around the head + cap + air-vent
+      g.circle(0, -28, 16).stroke({ color: c, width: 2, alpha: 0.85 });
+      g.circle(0, -28, 14).stroke({ color: 0xffffff, width: 1, alpha: 0.55 });
+      // hex pattern (existing) plus an extra ring of inner dots
       for (let a = 0; a < 6; a++) {
         const ang = (a / 6) * Math.PI * 2;
         g.rect(Math.cos(ang) * 12 - 1, -28 + Math.sin(ang) * 12 - 1, 2, 2)
           .fill({ color: c, alpha: 0.6 });
       }
+      for (let a = 0; a < 4; a++) {
+        const ang = (a / 4) * Math.PI * 2 + 0.4;
+        g.rect(Math.cos(ang) * 6 - 1, -28 + Math.sin(ang) * 6 - 1, 1, 1)
+          .fill({ color: hi, alpha: 0.7 });
+      }
+      // cap-screw top
+      g.rect(-2, -45, 4, 2).fill(c);
+      g.rect(-2, -45, 4, 1).fill(hi);
       break;
     case 'medCross':
-      // White medic cap with red cross
+      // White medic cap with red cross + visor + side stripes
       g.rect(-9, -36, 18, 6).fill(0xfafaff);
-      g.rect(-9, -36, 18, 1).fill(0xc8c8d0);
-      g.rect(-2, -35, 4, 4).fill(c);  // vertical bar of cross
-      g.rect(-4, -33, 8, 2).fill(c);  // horizontal bar
+      g.rect(-9, -36, 18, 1).fill(0xc8c8d0);   // top shadow
+      g.rect(-9, -31, 18, 1).fill(0x888894);   // bottom shadow
+      // brim
+      g.rect(-10, -32, 20, 1).fill(0xeeeeee);
+      g.rect(-10, -31, 20, 1).fill(0x6a6a72);
+      // red cross
+      g.rect(-2, -35, 4, 4).fill(c);
+      g.rect(-4, -33, 8, 2).fill(c);
+      g.rect(-1, -34, 2, 1).fill(0xff8a8a);  // cross hi
+      // red stripe sides
+      g.rect(-9, -34, 2, 1).fill(c);
+      g.rect(7, -34, 2, 1).fill(c);
       break;
     case 'crown':
-      // Gold crown with 3 points
+      // Gold crown with 3 points + jewels + base velvet
       g.rect(-8, -36, 16, 4).fill(c);
       g.rect(-8, -38, 3, 4).fill(c);
       g.rect(-2, -40, 4, 6).fill(c);
       g.rect(5, -38, 3, 4).fill(c);
-      g.rect(-8, -36, 16, 1).fill(0xffffff);
+      g.rect(-8, -36, 16, 1).fill(0xffffff); // shine band
+      g.rect(-8, -33, 16, 1).fill(dark);     // bottom shadow
       // jewel
       g.rect(-1, -38, 2, 2).fill(0xff3aa1);
+      g.rect(-1, -38, 2, 1).fill(0xffaad6);  // jewel hi
+      // smaller side jewels
+      g.rect(-7, -36, 1, 1).fill(0x4cc9f0);
+      g.rect(6, -36, 1, 1).fill(0x5ef38c);
+      // red velvet under-band
+      g.rect(-8, -32, 16, 1).fill(0x8a1010);
+      break;
+    // ---------- v1.8 NEW VARIANTS ----------
+    case 'astronaut':
+      // Space helmet — dome glass over head with antenna + visor reflection
+      g.rect(-13, -34, 26, 14).fill(c);                  // outer ring
+      g.rect(-13, -34, 26, 1).fill(0xffffff);            // top rim hi
+      g.rect(-13, -21, 26, 1).fill(dark);                // bottom shadow
+      // tinted glass dome over the eyes
+      g.rect(-10, -32, 20, 9).fill({ color: 0x0a1430, alpha: 0.7 });
+      g.rect(-10, -32, 20, 1).fill({ color: 0x4cc9f0, alpha: 0.9 }); // reflection top
+      g.rect(-9, -28, 4, 1).fill({ color: 0xffffff, alpha: 0.8 });   // glint
+      g.rect(5, -25, 3, 1).fill({ color: 0xffffff, alpha: 0.5 });    // sub-glint
+      // antenna + blinker
+      g.rect(-1, -38, 2, 4).fill(0xc8c8d0);
+      g.rect(-1, -39, 2, 1).fill(0xff3a3a);
+      // side comms boxes
+      g.rect(-13, -28, 2, 4).fill(dark);
+      g.rect(11, -28, 2, 4).fill(dark);
+      g.rect(11, -27, 1, 1).fill(0x5ef38c);              // green LED
+      break;
+    case 'jester':
+      // Two-floppy-point jester hat with bells
+      // Cap base
+      g.rect(-9, -36, 18, 4).fill(c);
+      g.rect(-9, -36, 18, 1).fill(hi);
+      g.rect(-9, -33, 18, 1).fill(dark);
+      // Left horn (curling up + left)
+      g.rect(-13, -40, 4, 4).fill(0xfff7d0);
+      g.rect(-15, -38, 3, 3).fill(c);
+      g.rect(-13, -40, 4, 1).fill(0xffffff);
+      // Right horn
+      g.rect(9, -40, 4, 4).fill(c);
+      g.rect(12, -38, 3, 3).fill(0xfff7d0);
+      g.rect(9, -40, 4, 1).fill(0xffffff);
+      // Bells
+      g.circle(-15, -36, 2).fill(0xffd23f);
+      g.circle(15, -36, 2).fill(0xffd23f);
+      g.rect(-15, -37, 1, 1).fill(0xffffff);
+      g.rect(15, -37, 1, 1).fill(0xffffff);
+      // diamond pattern across cap
+      g.rect(-5, -35, 2, 2).fill(0xfff7d0);
+      g.rect(3, -35, 2, 2).fill(0xfff7d0);
+      g.rect(-1, -34, 2, 2).fill(0xfff7d0);
+      break;
+    case 'halo':
+      // Angelic halo + tiny feather wings on temples
+      // Halo ring — concentric ellipses
+      g.ellipse(0, -36, 12, 4).stroke({ color: c, width: 2, alpha: 0.9 });
+      g.ellipse(0, -36, 10, 3).stroke({ color: 0xffffff, width: 1, alpha: 0.8 });
+      // glow underneath the halo
+      g.ellipse(0, -36, 14, 5).stroke({ color: c, width: 1, alpha: 0.3 });
+      // small feather wings on either side of head
+      g.rect(-13, -28, 2, 3).fill(0xffffff);
+      g.rect(-15, -26, 2, 2).fill(0xffffff);
+      g.rect(-11, -25, 1, 2).fill(0xcccccc);
+      g.rect(11, -28, 2, 3).fill(0xffffff);
+      g.rect(13, -26, 2, 2).fill(0xffffff);
+      g.rect(10, -25, 1, 2).fill(0xcccccc);
+      // tiny sparkles
+      g.rect(-6, -41, 1, 1).fill(0xfff7d0);
+      g.rect(5, -41, 1, 1).fill(0xfff7d0);
+      break;
+    case 'beanie':
+      // Slouchy knit beanie with cuff and pom-pom
+      g.rect(-9, -36, 18, 5).fill(c);
+      g.rect(-7, -39, 14, 3).fill(c);
+      g.rect(-7, -39, 14, 1).fill(hi);
+      g.rect(-9, -31, 18, 2).fill(dark);   // cuff fold
+      g.rect(-9, -30, 18, 1).fill(0x111111); // cuff bottom shadow
+      // knit stripes (horizontal)
+      g.rect(-7, -37, 14, 1).fill(dark);
+      g.rect(-7, -34, 14, 1).fill(dark);
+      // pom-pom on top
+      g.circle(0, -41, 3).fill(0xfff7d0);
+      g.rect(-1, -42, 2, 1).fill(0xffffff);
+      // logo patch
+      g.rect(-3, -33, 6, 2).fill(hi);
+      g.rect(-2, -32, 4, 1).fill(0xffffff);
+      break;
+    case 'headphones':
+      // Big DJ-style headphones over ears + cable
+      // Headband arc
+      g.rect(-10, -38, 20, 2).fill(c);
+      g.rect(-10, -38, 20, 1).fill(hi);
+      g.rect(-12, -37, 2, 2).fill(c);
+      g.rect(10, -37, 2, 2).fill(c);
+      // Left earcup
+      g.rect(-15, -34, 5, 8).fill(c);
+      g.rect(-15, -34, 5, 1).fill(hi);
+      g.rect(-15, -27, 5, 1).fill(dark);
+      g.rect(-13, -32, 1, 4).fill(0xffffff);   // mesh hi
+      g.circle(-12, -30, 2).fill(0x111111);
+      g.rect(-12, -30, 1, 1).fill(0xfff7d0);
+      // Right earcup
+      g.rect(10, -34, 5, 8).fill(c);
+      g.rect(10, -34, 5, 1).fill(hi);
+      g.rect(10, -27, 5, 1).fill(dark);
+      g.rect(12, -32, 1, 4).fill(0xffffff);
+      g.circle(12, -30, 2).fill(0x111111);
+      g.rect(12, -30, 1, 1).fill(0xfff7d0);
+      // dangling cable
+      g.rect(-15, -25, 1, 4).fill(0x111111);
+      g.rect(-14, -22, 2, 1).fill(0x111111);
+      break;
+  }
+}
+
+// =============================================================================
+// HELD-WEAPON OVERLAY (v1.8 sprite-quality pass)
+//
+// Draws a small pixel-art weapon held by the pug, rotated to follow `aim`.
+// One Graphics per pug — rebuilt only when weapon id changes. Drawn into
+// `pug._weaponLayer` (child of pug.container, added once during _ensureWeapon).
+//
+// Visuals are tuned to read at 32px scale:
+//   PISTOL  — short barrel + grip + muzzle bead
+//   AR      — longer barrel, mag, sight rail
+//   SHOTGUN — wide barrel, pump grip
+//   SNIPER  — extra long barrel, scope, bipod
+// =============================================================================
+function drawHeldWeapon(g, weaponId) {
+  g.clear();
+  // Weapon is anchored at pug center; pug "holds" it forward along +x.
+  // We render at y=-12 (paw line) and x=10..24 forward of pug center.
+  // Drop shadow under barrel
+  switch (weaponId) {
+    case 'pistol': {
+      // grip
+      g.rect(8, -10, 4, 6).fill(0x222232);
+      g.rect(8, -10, 4, 1).fill(0x4a4a52);
+      // barrel
+      g.rect(10, -13, 12, 4).fill(0x444454);
+      g.rect(10, -13, 12, 1).fill(0x6a6a72);
+      g.rect(10, -10, 12, 1).fill(0x222232);
+      // muzzle
+      g.rect(22, -12, 2, 2).fill(0x111111);
+      g.rect(22, -12, 1, 1).fill(0xffd23f);
+      // hammer
+      g.rect(9, -14, 2, 2).fill(0x4a4a52);
+      // trigger
+      g.rect(11, -7, 2, 2).fill(0x222232);
+      break;
+    }
+    case 'ar': {
+      // stock
+      g.rect(4, -11, 4, 4).fill(0x222232);
+      g.rect(4, -11, 4, 1).fill(0x4a4a52);
+      // body
+      g.rect(8, -12, 6, 6).fill(0x3a3a4a);
+      g.rect(8, -12, 6, 1).fill(0x5a5a6a);
+      // mag
+      g.rect(10, -6, 4, 4).fill(0x222232);
+      g.rect(10, -6, 4, 1).fill(0x4a4a52);
+      // barrel — long
+      g.rect(14, -12, 14, 3).fill(0x444454);
+      g.rect(14, -12, 14, 1).fill(0x6a6a72);
+      // muzzle
+      g.rect(28, -12, 2, 3).fill(0x111111);
+      g.rect(28, -12, 1, 1).fill(0xffd23f);
+      // sight rail
+      g.rect(8, -14, 6, 2).fill(0x222232);
+      g.rect(9, -15, 1, 1).fill(0x6a6a72);
+      g.rect(12, -15, 1, 1).fill(0x6a6a72);
+      break;
+    }
+    case 'shotgun': {
+      // stock
+      g.rect(4, -10, 5, 5).fill(0x6a3a1c);
+      g.rect(4, -10, 5, 1).fill(0xa86a3a);
+      // receiver
+      g.rect(9, -11, 5, 6).fill(0x3a3a4a);
+      g.rect(9, -11, 5, 1).fill(0x5a5a6a);
+      // pump grip
+      g.rect(14, -10, 4, 4).fill(0x6a3a1c);
+      g.rect(14, -10, 4, 1).fill(0xa86a3a);
+      // wide barrel
+      g.rect(18, -13, 12, 5).fill(0x444454);
+      g.rect(18, -13, 12, 1).fill(0x6a6a72);
+      g.rect(18, -9, 12, 1).fill(0x222232);
+      // bigger muzzle
+      g.rect(30, -13, 2, 5).fill(0x111111);
+      g.rect(30, -13, 1, 1).fill(0xffd23f);
+      break;
+    }
+    case 'sniper': {
+      // stock
+      g.rect(2, -10, 6, 4).fill(0x6a3a1c);
+      g.rect(2, -10, 6, 1).fill(0xa86a3a);
+      // receiver
+      g.rect(8, -11, 6, 5).fill(0x3a3a4a);
+      g.rect(8, -11, 6, 1).fill(0x5a5a6a);
+      // long, thin barrel
+      g.rect(14, -12, 18, 3).fill(0x444454);
+      g.rect(14, -12, 18, 1).fill(0x6a6a72);
+      // muzzle brake
+      g.rect(32, -13, 3, 5).fill(0x111111);
+      g.rect(33, -13, 1, 1).fill(0xffd23f);
+      // big scope
+      g.rect(11, -16, 8, 3).fill(0x222232);
+      g.rect(11, -16, 8, 1).fill(0x4a4a52);
+      g.circle(15, -14, 2).fill(0x000000);
+      g.rect(14, -15, 1, 1).fill(0x4cc9f0); // scope glint
+      // bipod
+      g.rect(20, -8, 1, 4).fill(0x222232);
+      g.rect(22, -8, 1, 4).fill(0x222232);
+      g.rect(19, -4, 4, 1).fill(0x111111);
+      break;
+    }
+    default:
+      // unknown weapon — small stub
+      g.rect(10, -12, 8, 3).fill(0x4a4a52);
+      g.rect(18, -12, 2, 3).fill(0x111111);
       break;
   }
 }
@@ -706,6 +1020,8 @@ export class Game {
 
     // Pug visual sync
     for (const p of this.pugs) p.syncVisual(dt);
+    // v1.8 — held-weapon overlay (pixel-art gun rotated to aim)
+    for (const p of this.pugs) this._syncWeaponLayer(p);
 
     // Particles
     this._updateParticles(dt);
@@ -1930,6 +2246,39 @@ export class Game {
       life: 1.5, t: 0,
     });
     this._spawnTextBurst(x, y, 'Y E E T', COLORS.cyan, 18);
+  }
+
+  // v1.8 — Ensure pug.container has a held-weapon Graphics + rotate by aim.
+  // Cheap: only rebuild the graphics geometry when weapon id changes (dirty flag).
+  _syncWeaponLayer(pug) {
+    if (!pug.alive) {
+      if (pug._weaponLayer) pug._weaponLayer.visible = false;
+      return;
+    }
+    if (!pug.weapon) return;
+    let layer = pug._weaponLayer;
+    if (!layer) {
+      try {
+        layer = new Graphics();
+        // Put weapon ABOVE body sprite but BELOW HP bar/name tag.
+        // pug.container children: [visual(0), hpBar(1), nameTag(2), ?cosmetic, ?bark]
+        // Insert at index 1 so it draws over the visual but under the hpBar.
+        pug.container.addChildAt(layer, 1);
+        pug._weaponLayer = layer;
+      } catch (e) { return; }
+    }
+    layer.visible = true;
+    if (pug._weaponDirty || pug._weaponLayerId !== pug.weapon.id) {
+      drawHeldWeapon(layer, pug.weapon.id);
+      pug._weaponLayerId = pug.weapon.id;
+      pug._weaponDirty = false;
+    }
+    // Rotate around pug center to follow aim. If facing left (cos < 0), flip
+    // vertically so the gun barrel still reads upright.
+    layer.rotation = pug.aim;
+    layer.scale.y = (Math.cos(pug.aim) < 0) ? -1 : 1;
+    // Slight pull-back during reload so it's readable
+    layer.x = pug.reloading ? -2 : 0;
   }
 
   _updateParticles(dt) {
