@@ -111,8 +111,8 @@ export const ZOMBIE_TYPES = {
     cloakRange: 110,
     desc: 'Invisible at range. Strikes from shadows.',
   },
-  // STEALTHED — briefly invisible (alpha drops to 0.05) on a 4-second cycle.
-  // Players must time their shots / wait for the reveal phase.
+  // STEALTHED — briefly invisible on a cycle. v1.7 round-2 tune:
+  // shortened invisible phase from 1.5s → 1.0s so kiting feels less frustrating.
   stealthed: {
     name: 'Stealthed',
     hpBase: 50, dmgBase: 24, speedBase: 110,
@@ -123,7 +123,7 @@ export const ZOMBIE_TYPES = {
     isRanged: false,
     explodes: false,
     isStealthed: true,
-    stealthInterval: 4.0,       // full cycle (visible 2.5s + invis 1.5s)
+    stealthInterval: 3.5,       // visible 2.5s + invis 1.0s (was 4.0 cycle)
     stealthVisibleDur: 2.5,
     desc: 'Phases in and out. Time your shots.',
   },
@@ -141,6 +141,39 @@ export const ZOMBIE_TYPES = {
     hasShield: true,
     shieldArc: Math.PI * 0.55,  // 99°-wide frontal arc absorbs damage
     desc: 'Frontal riot shield. Hit from BEHIND.',
+  },
+  // NINJA — full cloak (dark grey body), short blinky teleport-dashes every
+  // few seconds. Different visual language from STEALTHED (which just fades)
+  // — ninja has a hooded silhouette + visible katana.
+  ninja: {
+    name: 'Ninja',
+    hpBase: 38, dmgBase: 26, speedBase: 140,
+    scale: 0.95,
+    color: 0x2a2a36,
+    colorShade: 0x101018,
+    radius: 14,
+    isRanged: false,
+    explodes: false,
+    isNinja: true,
+    dashInterval: 3.0,
+    dashDistance: 90,
+    desc: 'Hooded ninja. Teleports forward in short dashes.',
+  },
+  // JESTER — chaotic patroller that wanders unpredictably (zig-zags). Colorful
+  // pixel-art jester hat + bell tip. Visually loud — pink/teal striped body.
+  jester: {
+    name: 'Jester',
+    hpBase: 42, dmgBase: 20, speedBase: 105,
+    scale: 1.0,
+    color: 0xc8285a,            // bright magenta-red
+    colorShade: 0x6a0a2a,
+    radius: 15,
+    isRanged: false,
+    explodes: false,
+    isJester: true,
+    jesterAmp: 90,              // sideways wander amplitude
+    jesterFreq: 1.4,
+    desc: 'Chaotic. Zig-zags wildly. Hard to predict.',
   },
 };
 
@@ -475,6 +508,59 @@ export class Zombie {
       this.visual.addChild(phase);
     }
 
+    // ===== NINJA — dark hood + katana strap. Distinctive from STEALTHED's
+    // phasing aura: ninja is OPAQUE but dark, with a visible weapon.
+    if (d.isNinja) {
+      const ninja = new Graphics();
+      // Dark hooded cowl over entire head
+      ninja.rect(-9, -12, 18, 7).fill(0x101018);
+      ninja.rect(-9, -12, 18, 2).fill(0x2a2a36);
+      ninja.rect(-9, -6, 18, 2).fill(0x000000);
+      // Eye slit — single horizontal red glow band
+      ninja.rect(-5, -8, 10, 2).fill({ color: 0xff3a3a, alpha: 0.85 });
+      ninja.rect(-5, -7, 10, 1).fill({ color: 0xffd0d0, alpha: 0.9 });
+      // Katana scabbard slung across back (diagonal)
+      ninja.rect(-12, -2, 24, 2).fill(0x222228);
+      ninja.rect(-12, -2, 24, 1).fill(0x6a6a72);
+      // Katana hilt (right side, gold)
+      ninja.rect(8, -3, 2, 4).fill(0xffd23f);
+      ninja.rect(8, -3, 2, 1).fill(0xfff0a8);
+      // Pointed hood tail
+      ninja.rect(-2, -14, 4, 4).fill(0x101018);
+      // Shuriken on belt (tiny X)
+      ninja.rect(-5, 4, 3, 1).fill(0xc8c8d0);
+      ninja.rect(-4, 3, 1, 3).fill(0xc8c8d0);
+      this.visual.addChild(ninja);
+    }
+    // ===== JESTER — colorful clown hat (3 spiky tips), checkered jersey,
+    // tiny bell on cap. Loud + chaotic — opposite of the dark zombies.
+    if (d.isJester) {
+      const jester = new Graphics();
+      // Triple-spike jester hat (alternating magenta + teal)
+      jester.rect(-7, -14, 14, 4).fill(0xc8285a);
+      jester.rect(-7, -14, 14, 1).fill(0xff5a8a);
+      // 3 spiky tips
+      jester.rect(-6, -18, 3, 4).fill(0x4cc9f0);
+      jester.rect(-1, -19, 3, 5).fill(0xc8285a);
+      jester.rect(4, -18, 3, 4).fill(0x4cc9f0);
+      // Bell on center tip (tiny yellow circle)
+      jester.circle(0, -20, 1.5).fill(0xffd23f);
+      jester.rect(0, -21, 1, 1).fill(0xffffff);
+      // Checkered jersey on chest (pink + teal squares)
+      for (let i = 0; i < 3; i++) {
+        const cx = -6 + i * 4;
+        jester.rect(cx, 2, 4, 4).fill(i % 2 === 0 ? 0xff5a8a : 0x4cc9f0);
+      }
+      // Ruff collar (white frilled fan)
+      jester.rect(-8, -3, 16, 2).fill(0xeeeeee);
+      jester.rect(-8, -3, 2, 2).fill(0xdddddd);
+      jester.rect(0, -3, 2, 2).fill(0xdddddd);
+      jester.rect(6, -3, 2, 2).fill(0xdddddd);
+      // Painted clown cheek dots
+      jester.circle(-6, -4, 1).fill(0xff3aa1);
+      jester.circle(6, -4, 1).fill(0xff3aa1);
+      this.visual.addChild(jester);
+    }
     // ===== SHIELDED — riot shield mounted on the FRONT (right side, +X)
     // The arc test in takeDamage uses the zombie's aim/facing to decide if a
     // hit lands in the protected zone.
@@ -541,6 +627,11 @@ export class Zombie {
     if (!target || !target.alive) return;
 
     const d = this.def;
+    // Tick wire-slow timer (re-applied each frame the zombie touches wire).
+    if (this._wireSlowT > 0) {
+      this._wireSlowT -= dt;
+      if (this._wireSlowT <= 0) { this._wireSlowMul = 1; }
+    }
     const dx = target.x - this.x;
     const dy = target.y - this.y;
     const dist = Math.hypot(dx, dy);
@@ -555,16 +646,46 @@ export class Zombie {
       }
     }
 
+    // NINJA dash: every dashInterval seconds, the ninja blinks forward toward
+    // the target. Visualized by Game via wantsToDash flag (puff + ring).
+    if (d.isNinja) {
+      this._dashT = (this._dashT || 0) - dt;
+      if (this._dashT <= 0 && dist > 30) {
+        this._dashT = d.dashInterval;
+        const dashDist = Math.min(d.dashDistance, dist - 16);
+        if (dashDist > 4) {
+          const oldX = this.x, oldY = this.y;
+          this.x += (dx / dist) * dashDist;
+          this.y += (dy / dist) * dashDist;
+          this._dashFromX = oldX;
+          this._dashFromY = oldY;
+          this.wantsToDashPoof = true; // Game will spawn a teleport puff
+        }
+      }
+    }
     if (dist > 0.1) {
       this.aim = Math.atan2(dy, dx);
 
       // Ranged (Spitter): stop at attackRange, fire instead of moving close
       const shouldStop = d.isRanged && dist < d.attackRange;
       if (!shouldStop) {
-        const ux = dx / dist;
-        const uy = dy / dist;
-        const nextX = this.x + ux * this.speed * dt;
-        const nextY = this.y + uy * this.speed * dt;
+        let ux = dx / dist;
+        let uy = dy / dist;
+        // JESTER zig-zag: oscillate movement angle sideways using a sine
+        // perpendicular to the target vector. Amp + freq from def.
+        if (d.isJester) {
+          const t = performance.now() / 1000;
+          const sway = Math.sin(t * d.jesterFreq + this.id * 0.7) * 0.65;
+          // Perpendicular vector
+          const perpX = -uy, perpY = ux;
+          ux = ux + perpX * sway;
+          uy = uy + perpY * sway;
+          const L = Math.hypot(ux, uy) || 1;
+          ux /= L; uy /= L;
+        }
+        const wireMul = (this._wireSlowMul && this._wireSlowT > 0) ? this._wireSlowMul : 1;
+        const nextX = this.x + ux * this.speed * wireMul * dt;
+        const nextY = this.y + uy * this.speed * wireMul * dt;
         // Digger ignores walls entirely
         if (d.ignoresWalls) {
           this.x = nextX; this.y = nextY;
@@ -665,12 +786,14 @@ export function pickZombieType(nightIdx) {
   // (Was 60/25/10/5 walker/runner/cloaker/digger — too punishing for first-time players.)
   const compositions = {
     1: [['walker', 0.80], ['runner', 0.20]],
-    2: [['walker', 0.35], ['runner', 0.25], ['tank', 0.09], ['spitter', 0.08],
-        ['cloaker', 0.06], ['digger', 0.05], ['screamer', 0.03],
-        ['stealthed', 0.05], ['shielded', 0.04]],
-    3: [['walker', 0.16], ['runner', 0.16], ['tank', 0.12], ['spitter', 0.10],
-        ['exploder', 0.09], ['cloaker', 0.09], ['digger', 0.07], ['screamer', 0.07],
-        ['stealthed', 0.07], ['shielded', 0.07]],
+    2: [['walker', 0.32], ['runner', 0.22], ['tank', 0.08], ['spitter', 0.07],
+        ['cloaker', 0.05], ['digger', 0.04], ['screamer', 0.03],
+        ['stealthed', 0.05], ['shielded', 0.04],
+        ['jester', 0.06], ['ninja', 0.04]],
+    3: [['walker', 0.14], ['runner', 0.14], ['tank', 0.10], ['spitter', 0.08],
+        ['exploder', 0.08], ['cloaker', 0.07], ['digger', 0.06], ['screamer', 0.06],
+        ['stealthed', 0.07], ['shielded', 0.07],
+        ['jester', 0.07], ['ninja', 0.06]],
   };
   // Nights 4+ inherit night 3 composition (endless mode keeps using it).
   const comp = compositions[nightIdx] || compositions[3];

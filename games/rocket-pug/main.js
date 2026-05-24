@@ -104,7 +104,9 @@ const WEAPONS = [
   { id: 'sausage', name: 'Sausage', drawIconFn: drawSausage,         cooldown: 0.55, speed: 380, dmg: 22, color: '#ff8e3c', shape: 'sausage', recoil: 0.12, desc: 'Solid hit.' },
   { id: 'toaster', name: 'Toast',   drawIconFn: drawToast,           cooldown: 0.8,  speed: 320, dmg: 30, color: '#ffd23f', shape: 'toast',   recoil: 0.22, desc: 'Slow but heavy.' },
   { id: 'bubble',  name: 'Bubble',  drawIconFn: drawBubble,          cooldown: 0.3,  speed: 240, dmg: 8,  color: '#4cc9f0', shape: 'bubble',  recoil: 0.02, desc: 'Spam at range.' },
-  { id: 'bfg',     name: 'BFG',     drawIconFn: drawSausage,         cooldown: 1.4,  speed: 260, dmg: 60, color: '#ff3aa1', shape: 'bfg',     recoil: 0.35, desc: 'BIG. RARE.', rare: true },
+  // BFG — Polish R2: cooldown now 4.0s (was 1.4) so it's punishingly slow
+  // between shots. Damage stays high so a clean hit still feels devastating.
+  { id: 'bfg',     name: 'BFG',     drawIconFn: drawSausage,         cooldown: 4.0,  speed: 260, dmg: 60, color: '#ff3aa1', shape: 'bfg',     recoil: 0.35, desc: 'BIG. RARE. SLOW.', rare: true },
 ];
 let activePerkId = 'tough';
 
@@ -120,7 +122,13 @@ let chopperT = 0, bgChefsT = 0;
 let flags = [], teamScore = 0, botScore = 0;
 let kothZone = null, kothMeter = { team: 0, bots: 0 };
 let seriesRound = 1, seriesTeam = 0, seriesBots = 0;
-const SERIES_TARGET = 3;
+// Best-of N. Default 5 (= first to 3). User can pick 3/5/7 in start screen
+// match settings. SERIES_TARGET = Math.ceil(seriesLen / 2).
+let seriesLen = 5;
+function getSeriesTarget() { return Math.ceil(seriesLen / 2); }
+// Backwards-compat alias for any string refs (we keep the name SERIES_TARGET
+// in the rest of the file via the helper above).
+const SERIES_TARGET = 3;  // unused, kept so external scripts don't crash
 let shotsFired = 0, shotsHit = 0, longestStreak = 0, matchStartT = 0, spectatorIdx = -1;
 // Round 2C polish: hit-pause window pauses physics for ~0.08s on big hits, and
 // ring shockwaves expand outward on detonation/kills (drawn under particles).
@@ -133,6 +141,24 @@ let pwnedVictim = null; // pug ref — banner anchor + camera zoom center
 let crowd = [];
 let weaponPickups = []; // {x, y, weapon, t, bob}
 let weaponSpawnT = 0;   // seconds until next spawn
+// Round 2 polish:
+let ragdollLimbs = [];  // {x, y, vx, vy, rot, rotV, color, kind, life, t, bounces}
+// CTF goal celebration (golden bread parade) — particles released on score
+let goalParade = [];    // {x, y, vx, vy, color, life, t, kind}
+let infiniteAmmoT = 0;  // POWER OUTLET pickup: when >0, player skips fire cooldown
+// Arena-specific hazards added in Polish R2:
+let kitchenOvenSpit = []; // {x, y, vx, vy, life, t} fireball blobs from a wall oven
+let kitchenOvenT = 0;     // cooldown for oven spit cycle
+let gymBag = null;        // swinging punching bag {x, y, angle, t}
+let rooftopWindT = 0;     // seconds since last gust
+let rooftopWindBlowing = 0; // seconds the wind is active (0 = no wind)
+let rooftopWindDir = 0;     // -1 / +1 horizontal
+// Match-settings overrides: chosen on the start screen, applied at match start.
+let mSettingsScoreLimit = 0; // 0 = use default DM rule; otherwise win on this many kills
+let mSettingsTimeLimit = 0;  // 0 = no time cap; otherwise auto-end at this many seconds
+// Spectator name + best-of replay info
+let lastBestKill = null;     // {ang, x, y, killer, victim, ts, weapon} — last "highlight"
+let endHighlightT = 0;       // seconds remaining for the end-screen highlight replay
 // --- Map decor & hazards (kitchen arena) ----------------------------------
 let stove = null;       // central hazard {x, y, w, h, burners[]}
 let obstacles = [];     // {x, y, w, h, kind, c1, c2}  blocks movement
@@ -241,11 +267,18 @@ function buildPedestal() {
 }
 function buildArenaProps() {
   treadmills = []; dumbbells = []; acUnits = []; trampolines = []; smashTables = [];
+  gymBag = null;
+  kitchenOvenT = 0;
+  kitchenOvenSpit = [];
+  rooftopWindT = 0;
+  rooftopWindBlowing = 0;
   if (activeArena === 'gym') {
     treadmills.push({ x: W * 0.22, y: H * 0.3, w: 100, h: 40, dir: 1, t: 0 });
     treadmills.push({ x: W * 0.78 - 100, y: H * 0.7, w: 100, h: 40, dir: -1, t: 0 });
     const gp = [[0.15, 0.55], [0.4, 0.18], [0.6, 0.82], [0.85, 0.45], [0.35, 0.7], [0.65, 0.25]];
     for (const [ax, ay] of gp) dumbbells.push({ x: ax * W - 18, y: ay * H - 10, w: 36, h: 20 });
+    // Polish R2: swinging punching bag centered above the arena center.
+    gymBag = { x: W / 2, y: H * 0.35, angle: 0, t: 0 };
   } else if (activeArena === 'rooftop') {
     const ap = [[0.18, 0.25], [0.45, 0.7], [0.75, 0.25], [0.3, 0.45], [0.7, 0.7]];
     for (const [ax, ay] of ap) acUnits.push({ x: ax * W - 22, y: ay * H - 18, w: 44, h: 36 });
@@ -260,7 +293,7 @@ function buildModeProps() {
   if (activeMode === 'ctf') {
     for (let i = 0; i < 3; i++) {
       const fx = (i + 1) * (W / 4), fy = H / 2 + (i % 2 === 0 ? -60 : 60);
-      flags.push({ x: fx, y: fy, baseX: fx, baseY: fy, holder: null, t: 0 });
+      flags.push({ x: fx, y: fy, baseX: fx, baseY: fy, holder: null, t: 0, dropT: 0 });
     }
   } else if (activeMode === 'koth') kothZone = { x: W / 2, y: H / 2, r: 70 };
 }
@@ -331,6 +364,12 @@ function reset() {
   shakeT = 0; shakeAmp = 0;
   shockwaves = []; hitPauseT = 0;
   weaponPickups = []; weaponSpawnT = 6; // first pickup after 6s
+  // Polish R2 resets
+  ragdollLimbs = [];
+  goalParade = [];
+  infiniteAmmoT = 0;
+  endHighlightT = 0;
+  lastBestKill = null;
   mouse = { x: W / 2, y: H / 2 };
   activeBuffs = new Map();
   // Reset PWNED freeze so a fresh match doesn't inherit a stuck freeze if the
@@ -352,6 +391,27 @@ function reset() {
   buildModeProps();
 }
 function spawnWeaponPickup() {
+  // Polish R2: 8% chance the spawn is a POWER OUTLET (infinite-ammo buff).
+  const isPower = Math.random() < 0.08;
+  if (isPower) {
+    for (let tries = 0; tries < 30; tries++) {
+      const x = 80 + Math.random() * (W - 160);
+      const y = 80 + Math.random() * (H - 160);
+      let ok = true;
+      for (const p of [pug, ...bots]) {
+        if (!p) continue;
+        if (Math.hypot(p.x - x, p.y - y) < 90) { ok = false; break; }
+      }
+      if (ok) {
+        weaponPickups.push({
+          x, y, t: 0, bob: Math.random() * Math.PI * 2,
+          weapon: { name: 'POWER', drawIconFn: drawBubble, color: '#4cc9f0' },
+          buff: 'infiniteAmmo',
+        });
+        return;
+      }
+    }
+  }
   // Pick a random non-current weapon for variety. BFG = rare (1-in-6) drop.
   const isBfg = Math.random() < 0.16;
   const pool = isBfg ? WEAPONS.filter((w) => w.id === 'bfg')
@@ -423,7 +483,12 @@ function fire(shooter, ang) {
   const w = shooter.weapon;
   // Perk: QUICKFIRE reduces shooter cooldown for player only
   const cdMul = (shooter === pug && activePerkId === 'quick') ? 0.85 : 1.0;
-  shooter.fireCd = w.cooldown * cdMul;
+  // POWER OUTLET (Polish R2): zero cooldown for the player while buff is active
+  if (shooter === pug && infiniteAmmoT > 0) {
+    shooter.fireCd = 0.04;  // tiny cooldown so we don't tank perf
+  } else {
+    shooter.fireCd = w.cooldown * cdMul;
+  }
   // Each weapon has unique recoil pattern (kicks the shooter back along -aim)
   if (w.recoil) {
     shooter.vx -= Math.cos(ang) * 60 * w.recoil;
@@ -471,7 +536,13 @@ function tick(dt) {
     wp.t += dt; wp.bob += dt * 3;
     // Player pickup
     if (pug.hp > 0 && Math.hypot(pug.x - wp.x, pug.y - wp.y) < 28) {
-      if (wp.buff) {
+      if (wp.buff === 'infiniteAmmo') {
+        // POWER OUTLET (Polish R2): 5s of zero-cooldown firing
+        infiniteAmmoT = 5.0;
+        popup(pug.x, pug.y - 20, 'INFINITE AMMO!', '#4cc9f0');
+        sfx.tone(740, 'triangle', 0.18, 0.3);
+        sfx.tone(1480, 'triangle', 0.12, 0.22);
+      } else if (wp.buff) {
         // Smash-table buff: instant 8s shield/damage/speed activation
         activeBuffs.set(pug, { type: wp.buff, t: 10 });
         popup(pug.x, pug.y - 20, wp.buff.toUpperCase() + '!', wp.weapon.color);
@@ -523,6 +594,26 @@ function tick(dt) {
     if (activePerkId === 'medic' && pug.hp < pug.maxHp) pug.hp = Math.min(pug.maxHp, pug.hp + dt);
     // Aim
     pug.ang = Math.atan2(mouse.y - pug.y, mouse.x - pug.x);
+    // === AIM ASSIST (Polish R2) ===
+    // Subtle pull toward nearest enemy within 220px of crosshair; off by default.
+    if (localStorage.getItem('wg:rp-aim-assist') === '1') {
+      let bestD = 220 * 220, target = null;
+      const ax = pug.x + Math.cos(pug.ang) * 200;
+      const ay = pug.y + Math.sin(pug.ang) * 200;
+      for (const b of bots) {
+        if (b.hp <= 0) continue;
+        const dx = b.x - ax, dy = b.y - ay;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < bestD) { bestD = d2; target = b; }
+      }
+      if (target) {
+        const desired = Math.atan2(target.y - pug.y, target.x - pug.x);
+        let diff = desired - pug.ang;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        pug.ang += diff * 0.25;  // 25% pull — feels subtle but helpful
+      }
+    }
     if (firing) fire(pug, pug.ang);
   }
   // Wave 1D: animated bg + arena props update
@@ -600,10 +691,19 @@ function tick(dt) {
         sfx.tone(880, 'sine', 0.12, 0.22);
       }
     }
-    // Treadmill (gym arena): push pugs along its direction while standing on it
+    // Treadmill (gym arena): push pugs along its direction while standing on it.
+    // Polish R2: SPRINTER perk would stack with treadmill into a slingshot
+    // (+20% move speed × treadmill push × jet burst could go ballistic), so
+    // we now halve the treadmill push for SPRINTER + cap max horizontal
+    // velocity from the treadmill so it can't snowball.
     for (const tm of treadmills) {
       if (p.x > tm.x && p.x < tm.x + tm.w && p.y > tm.y && p.y < tm.y + tm.h) {
-        p.vx += tm.dir * 240 * dt;
+        const tmPush = (p === pug && activePerkId === 'sprint') ? 120 : 240;
+        // Cap: if pug already moving fast in the treadmill direction, don't
+        // boost further (prevents the snowball with sprint+jet).
+        if (Math.abs(p.vx) < 360 || Math.sign(p.vx) !== Math.sign(tm.dir)) {
+          p.vx += tm.dir * tmPush * dt;
+        }
       }
     }
     p.x += p.vx * dt; p.y += p.vy * dt;
@@ -686,6 +786,31 @@ function tick(dt) {
   for (let i = projectiles.length - 1; i >= 0; i--) {
     const pr = projectiles[i];
     pr.x += pr.vx * dt; pr.y += pr.vy * dt; pr.life -= dt;
+    // === Rocket trails (Round 2 polish) ===
+    // Spawn 1-3 trail particles per frame behind heavier shots (sausage/toast/
+    // BFG). Color varies per weapon. Lighter shots (tennis/bubble) skip to
+    // keep particle budget healthy.
+    if (pr.shape !== 'bubble' && pr.shape !== 'ball' && particles.length < 200) {
+      const trailCount = pr.shape === 'bfg' ? 3 : (pr.shape === 'toast' ? 2 : 1);
+      for (let k = 0; k < trailCount; k++) {
+        const back = -1;
+        const jitter = (Math.random() - 0.5) * 6;
+        const trailX = pr.x + back * pr.vx * 0.012 + jitter;
+        const trailY = pr.y + back * pr.vy * 0.012 + jitter;
+        // Trail colors: white core for BFG; warm gradient for sausage/toast
+        const cols = pr.shape === 'bfg'
+          ? ['#ffffff', '#ff8aff', pr.color]
+          : ['#ff8e3c', '#ffd23f', '#fff1b0'];
+        particles.push({
+          x: trailX, y: trailY,
+          vx: (Math.random() - 0.5) * 30,
+          vy: (Math.random() - 0.5) * 30,
+          color: cols[Math.floor(Math.random() * cols.length)],
+          life: 0.4 + Math.random() * 0.18, t: 0,
+          size: 2 + Math.random() * 2,
+        });
+      }
+    }
     // Wall sparks if it flew offscreen
     if (pr.x < 8 || pr.x > W - 8 || pr.y < 8 || pr.y > H - 8) {
       spawnSpark(Math.max(4, Math.min(W - 4, pr.x)), Math.max(4, Math.min(H - 4, pr.y)));
@@ -749,6 +874,20 @@ function tick(dt) {
         if (target.hp <= 0) {
           if (pr.owner === pug && target !== pug) {
             kills++;
+            // Polish R2: track "best kill" for the end-of-match highlight reel.
+            // Heuristic: longest range player kill wins. We re-capture if a
+            // newer kill is at a longer distance.
+            const distFromPlayer = Math.hypot(target.x - pug.x, target.y - pug.y);
+            if (!lastBestKill || distFromPlayer > (lastBestKill.dist || 0)) {
+              lastBestKill = {
+                killerX: pug.x, killerY: pug.y, ang: pug.ang,
+                victimX: target.x, victimY: target.y,
+                victimColor: target.color,
+                weapon: pug.weapon ? pug.weapon.name : '?',
+                dist: distFromPlayer,
+                ts: performance.now(),
+              };
+            }
             // combo
             if (comboT > 0) comboN++; else comboN = 1;
             comboT = 3.0;
@@ -797,6 +936,118 @@ function tick(dt) {
     s.vx *= 0.86; s.vy *= 0.86;
     if (s.t >= s.life) sparks.splice(i, 1);
   }
+  // Ragdoll limbs (Round 2): gravity + tumble + wall bounce
+  for (let i = ragdollLimbs.length - 1; i >= 0; i--) {
+    const r = ragdollLimbs[i];
+    r.t += dt;
+    r.vy += 540 * dt;     // gravity
+    r.x += r.vx * dt;
+    r.y += r.vy * dt;
+    r.rot += r.rotV * dt;
+    // Wall bounce — once per side
+    if (r.bounces > 0) {
+      if (r.x < 12 || r.x > W - 12) {
+        r.vx = -r.vx * 0.45;
+        r.x = Math.max(12, Math.min(W - 12, r.x));
+        r.bounces -= 1;
+      }
+      if (r.y > H - 18) {
+        r.vy = -r.vy * 0.35;
+        r.y = H - 18;
+        r.bounces -= 1;
+      }
+    }
+    r.vx *= 0.985;
+    if (r.t >= r.life) ragdollLimbs.splice(i, 1);
+  }
+  // CTF goal parade (Round 2): golden bread loaves arcing across the field
+  for (let i = goalParade.length - 1; i >= 0; i--) {
+    const g = goalParade[i];
+    g.t += dt;
+    g.vy += 360 * dt;
+    g.x += g.vx * dt;
+    g.y += g.vy * dt;
+    if (g.t >= g.life) goalParade.splice(i, 1);
+  }
+  // Kitchen oven spit projectiles (Round 2 element)
+  for (let i = kitchenOvenSpit.length - 1; i >= 0; i--) {
+    const o = kitchenOvenSpit[i];
+    o.t += dt;
+    o.x += o.vx * dt;
+    o.y += o.vy * dt;
+    o.vy += 100 * dt;
+    // Damage player or bot on hit
+    for (const p of _fighters()) {
+      if (p.hp <= 0) continue;
+      if (Math.hypot(p.x - o.x, p.y - o.y) < 18) {
+        p.hp -= 12 * buffMod(p, 'damage_in');
+        if (p === pug) { lastHitT = Math.max(lastHitT, 0.18); shake(3, 0.15); }
+        spawnHit(o.x, o.y, '#ff5a3a');
+        o.t = o.life;  // mark for removal
+        break;
+      }
+    }
+    if (o.t >= o.life) kitchenOvenSpit.splice(i, 1);
+  }
+  // Kitchen oven — periodic fireball spit (every ~5s, only kitchen arena)
+  if (activeArena === 'kitchen') {
+    kitchenOvenT = (kitchenOvenT || 0) + dt;
+    if (kitchenOvenT > 5.0) {
+      kitchenOvenT = 0;
+      // Spit from a side-wall oven position
+      const ox = 30, oy = H * 0.3 + Math.random() * H * 0.4;
+      kitchenOvenSpit.push({ x: ox, y: oy, vx: 260, vy: -40, life: 2.6, t: 0 });
+      popup(ox + 20, oy - 18, 'WHOOSH!', '#ff5a3a');
+      sfx.tone(140, 'sawtooth', 0.18, 0.18);
+    }
+  }
+  // Gym punching bag — slow oscillation in arena; damages on contact when swinging
+  if (activeArena === 'gym' && gymBag) {
+    gymBag.t += dt;
+    gymBag.angle = Math.sin(gymBag.t * 1.4) * 0.7;
+    const bx = gymBag.x + Math.sin(gymBag.angle) * 30;
+    const by = gymBag.y + Math.abs(Math.sin(gymBag.angle)) * 8;
+    for (const p of _fighters()) {
+      if (p.hp <= 0) continue;
+      if (Math.hypot(p.x - bx, p.y - by) < 26) {
+        const swingV = Math.abs(Math.cos(gymBag.t * 1.4));
+        if (swingV > 0.5) {
+          // Knock back + small damage
+          const ang = Math.atan2(p.y - by, p.x - bx);
+          p.vx += Math.cos(ang) * 380;
+          p.vy += Math.sin(ang) * 380;
+          if (Math.random() < dt * 4) {
+            p.hp -= 8 * buffMod(p, 'damage_in');
+            if (p === pug) { lastHitT = Math.max(lastHitT, 0.15); }
+          }
+        }
+      }
+    }
+  }
+  // Rooftop wind gust — every 8s a 1.5s gust pushes pugs horizontally
+  if (activeArena === 'rooftop') {
+    rooftopWindT += dt;
+    if (rooftopWindBlowing > 0) {
+      rooftopWindBlowing -= dt;
+      // Apply push to all alive pugs
+      for (const p of _fighters()) {
+        if (p.hp <= 0) continue;
+        p.vx += rooftopWindDir * 320 * dt;
+      }
+      if (rooftopWindBlowing <= 0) rooftopWindT = 0;
+    } else if (rooftopWindT > 8.0) {
+      rooftopWindBlowing = 1.5;
+      rooftopWindDir = Math.random() < 0.5 ? -1 : 1;
+      popup(W / 2, 60, rooftopWindDir > 0 ? 'WIND →' : '← WIND', '#4cc9f0');
+      sfx.tone(200, 'sine', 0.14, 0.5);
+    }
+  }
+  // POWER OUTLET infinite-ammo buff timer
+  if (infiniteAmmoT > 0) {
+    infiniteAmmoT = Math.max(0, infiniteAmmoT - dt);
+    // While buff active, also reset fireCd to 0 so the pug shoots at max speed
+    if (pug && pug.hp > 0) pug.fireCd = 0;
+  }
   // shockwaves (ring detonations) — expand and fade independently
   for (let i = shockwaves.length - 1; i >= 0; i--) {
     const s = shockwaves[i];
@@ -821,23 +1072,53 @@ function tick(dt) {
   if (activeMode === 'ctf') {
     for (const fl of flags) {
       if (fl.holder) {
-        if (fl.holder.hp <= 0) { fl.x = fl.holder.x; fl.y = fl.holder.y; fl.holder = null; }
-        else {
+        if (fl.holder.hp <= 0) {
+          // Carrier died — drop flag at their position + start the auto-return
+          // timer so a dropped flag can't be stranded in inaccessible corners.
+          fl.x = fl.holder.x; fl.y = fl.holder.y; fl.holder = null;
+          fl.dropT = 0;
+        } else {
           fl.x = fl.holder.x; fl.y = fl.holder.y - 30;
           if (fl.holder === pug && pug.y > H - 100) {
-            teamScore++; fl.holder = null; fl.x = fl.baseX; fl.y = fl.baseY;
+            teamScore++; fl.holder = null; fl.x = fl.baseX; fl.y = fl.baseY; fl.dropT = 0;
             popup(pug.x, pug.y - 30, 'FLAG SCORE!', '#ffd23f');
             sfx.arp([523, 659, 784, 1047], 'triangle', 0.06, 0.2, 0.12); shake(7, 0.32);
+            // === GOLDEN BREAD PARADE (Polish R2) — 18 golden loaves arc skyward
+            // across the field to celebrate the score.
+            for (let bi = 0; bi < 18; bi++) {
+              const a = -Math.PI / 2 + (Math.random() - 0.5) * 1.4;
+              const sp = 280 + Math.random() * 220;
+              goalParade.push({
+                x: pug.x, y: pug.y - 20,
+                vx: Math.cos(a) * sp,
+                vy: Math.sin(a) * sp,
+                color: ['#ffd23f', '#ff8e3c', '#fff1b0'][bi % 3],
+                life: 2.0, t: 0,
+                kind: 'bread',
+              });
+            }
           } else if (fl.holder !== pug && fl.holder.y < 100) {
-            botScore++; fl.holder = null; fl.x = fl.baseX; fl.y = fl.baseY;
+            botScore++; fl.holder = null; fl.x = fl.baseX; fl.y = fl.baseY; fl.dropT = 0;
             popup(W / 2, 60, 'BOTS SCORED!', '#ff5a3a');
             sfx.tone(220, 'sawtooth', 0.18, 0.22);
           }
         }
       } else {
+        // Auto-return: dropped flags warp back to base after 8s so they
+        // can't be stranded in inaccessible corners. Pickup resets the timer.
+        if (fl.dropT == null) fl.dropT = 0;
+        if (fl.x !== fl.baseX || fl.y !== fl.baseY) {
+          fl.dropT += dt;
+          if (fl.dropT > 8) {
+            fl.x = fl.baseX; fl.y = fl.baseY; fl.dropT = 0;
+            popup(fl.baseX, fl.baseY - 16, 'FLAG RETURNED', '#4cc9f0');
+            sfx.tone(523, 'triangle', 0.08, 0.2);
+          }
+        }
         for (const p of _fighters()) {
           if (p.hp > 0 && Math.hypot(p.x - fl.x, p.y - fl.y) < 24) {
             fl.holder = p;
+            fl.dropT = 0;
             if (p === pug) popup(pug.x, pug.y - 30, 'FLAG!', '#ffd23f');
             break;
           }
@@ -858,8 +1139,19 @@ function tick(dt) {
   if (activeMode === 'dm') {
     if (pug.hp <= 0) return end(false);
     if (bots.every((b) => b.hp <= 0)) return end(true);
+    // Polish R2: optional kill-score limit
+    if (mSettingsScoreLimit > 0 && kills >= mSettingsScoreLimit) return end(true);
   } else if (pug.hp <= 0 && spectatorIdx === -1) {
     spectatorIdx = bots.findIndex((b) => b.hp > 0);
+  }
+  // Polish R2: optional time-limit auto-end (counts as win if player has the
+  // higher kill count vs bots-combined, else loss)
+  if (mSettingsTimeLimit > 0) {
+    const elapsed = (performance.now() - matchStartT) / 1000;
+    if (elapsed >= mSettingsTimeLimit) {
+      const botKills = bots.reduce((acc, b) => acc + (b.kills || 0), 0);
+      return end(kills >= botKills);
+    }
   }
   updateHud();
 }
@@ -905,6 +1197,24 @@ function spawnDeath(x, y, color) {
   }
   // ring shockwave on kill (red-orange detonation)
   spawnShockwave(x, y, '#ff5a3a', 90, 0.45);
+  // === RAGDOLL LIMBS (Round 2 polish) ===
+  // Throw 6 chunky body-part rectangles outward; they bounce off the screen
+  // edges (one bounce) and tumble with rotation. Lives ~1.6s.
+  for (let i = 0; i < 6; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const sp = 220 + Math.random() * 200;
+    const partKind = i % 3;  // 0=ear, 1=paw, 2=body chunk
+    ragdollLimbs.push({
+      x, y,
+      vx: Math.cos(a) * sp,
+      vy: Math.sin(a) * sp - 180,
+      rot: Math.random() * Math.PI * 2,
+      rotV: (Math.random() - 0.5) * 14,
+      color, kind: partKind,
+      life: 1.6, t: 0,
+      bounces: 1,  // one bounce off each wall before fade
+    });
+  }
 }
 function spawnSpark(x, y) {
   if (sparks.length > 60) return;
@@ -1192,7 +1502,35 @@ function render() {
         ctx.fillStyle = '#5a3a1c'; ctx.fillRect(fl.x - 1, fl.y - 22, 2, 30);
         ctx.fillStyle = '#ff8e3c'; ctx.fillRect(fl.x, fl.y - 22, 22, 12);
         ctx.fillStyle = '#ffd23f'; ctx.fillRect(fl.x + 2, fl.y - 20, 18, 4);
-      } else { ctx.fillStyle = '#ff8e3c'; ctx.fillRect(fl.holder.x - 8, fl.holder.y - 30, 16, 6); }
+      } else {
+        // Carrier flag icon (Polish R2): floating golden flag + bright arrow
+        // beacon above so all players can spot the carrier instantly.
+        ctx.fillStyle = '#ff8e3c'; ctx.fillRect(fl.holder.x - 8, fl.holder.y - 30, 16, 6);
+        // Big pulsing arrow above carrier
+        const pulse = 0.7 + 0.3 * Math.sin(performance.now() * 0.012);
+        ctx.save();
+        ctx.shadowColor = '#ffd23f';
+        ctx.shadowBlur = 16 * pulse;
+        ctx.fillStyle = '#ffd23f';
+        // Triangle pointing down
+        ctx.beginPath();
+        ctx.moveTo(fl.holder.x, fl.holder.y - 38);
+        ctx.lineTo(fl.holder.x - 8, fl.holder.y - 50);
+        ctx.lineTo(fl.holder.x + 8, fl.holder.y - 50);
+        ctx.closePath();
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        // "FLAG" label
+        ctx.fillStyle = '#1a0d05';
+        ctx.font = "bold 7px 'Press Start 2P', monospace";
+        ctx.textAlign = 'center';
+        ctx.fillText('FLAG', fl.holder.x, fl.holder.y - 56);
+        ctx.restore();
+        // Ring under the carrier so teammates can find them on the floor
+        ctx.strokeStyle = `rgba(255,210,63,${pulse * 0.7})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(fl.holder.x, fl.holder.y, 26, 0, Math.PI * 2); ctx.stroke();
+      }
     }
     ctx.fillStyle = 'rgba(94,243,140,0.12)'; ctx.fillRect(0, H - 100, W, 100);
     ctx.fillStyle = 'rgba(255,90,58,0.12)'; ctx.fillRect(0, 0, W, 100);
@@ -1201,12 +1539,35 @@ function render() {
     ctx.fillStyle = '#ff5a3a'; ctx.fillText('BOT BASE', W / 2, 90);
   }
   if (kothZone) {
-    const pulse = 0.6 + 0.4 * Math.sin(performance.now() * 0.002);
-    ctx.strokeStyle = '#ffd23f'; ctx.lineWidth = 3; ctx.globalAlpha = pulse * 0.8;
+    // Detect contested state: both player + bot are inside the zone simultaneously
+    let teamIn = pug && pug.hp > 0 && Math.hypot(pug.x - kothZone.x, pug.y - kothZone.y) < kothZone.r;
+    let botsIn = false;
+    for (const b of bots) if (b.hp > 0 && Math.hypot(b.x - kothZone.x, b.y - kothZone.y) < kothZone.r) { botsIn = true; break; }
+    const contested = teamIn && botsIn;
+    // Polish R2: ring color shifts red when contested; faster pulse + double-ring
+    const baseCol = contested ? '#ff3aa1' : '#ffd23f';
+    const pulse = 0.6 + 0.4 * Math.sin(performance.now() * (contested ? 0.008 : 0.002));
+    ctx.strokeStyle = baseCol; ctx.lineWidth = contested ? 4 : 3; ctx.globalAlpha = pulse * 0.8;
     ctx.beginPath(); ctx.arc(kothZone.x, kothZone.y, kothZone.r, 0, Math.PI * 2); ctx.stroke();
-    ctx.globalAlpha = 0.16; ctx.fillStyle = '#ffd23f';
+    if (contested) {
+      // outer expanding pulse ring
+      const pr = kothZone.r + (Math.sin(performance.now() * 0.012) * 6) + 8;
+      ctx.strokeStyle = '#ff3aa1';
+      ctx.lineWidth = 2;
+      ctx.globalAlpha = (1 - (pr - kothZone.r) / 14) * 0.6;
+      ctx.beginPath(); ctx.arc(kothZone.x, kothZone.y, pr, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.globalAlpha = contested ? 0.22 : 0.16;
+    ctx.fillStyle = baseCol;
     ctx.beginPath(); ctx.arc(kothZone.x, kothZone.y, kothZone.r, 0, Math.PI * 2); ctx.fill();
     ctx.globalAlpha = 1;
+    // CONTESTED label
+    if (contested) {
+      ctx.fillStyle = '#ff3aa1';
+      ctx.font = "bold 10px 'Press Start 2P', monospace";
+      ctx.textAlign = 'center';
+      ctx.fillText('★ CONTESTED ★', kothZone.x, kothZone.y - kothZone.r - 14);
+    }
     ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(kothZone.x - 80, kothZone.y + kothZone.r + 8, 160, 8);
     ctx.fillStyle = '#5ef38c'; ctx.fillRect(kothZone.x - 80, kothZone.y + kothZone.r + 8, 80 * (kothMeter.team / 10), 8);
     ctx.fillStyle = '#ff5a3a'; ctx.fillRect(kothZone.x, kothZone.y + kothZone.r + 8, 80 * (kothMeter.bots / 10), 8);
@@ -1323,6 +1684,172 @@ function render() {
       ctx.fillStyle = '#ffd23f';
       ctx.fillRect(p.x - 2, p.y + 16, 4, 8);
     }
+    // INFINITE-AMMO POWER OUTLET aura (Polish R2)
+    if (p === pug && infiniteAmmoT > 0) {
+      const pulse = 0.6 + 0.4 * Math.sin(performance.now() * 0.018);
+      ctx.save();
+      ctx.shadowColor = '#4cc9f0'; ctx.shadowBlur = 18 * pulse;
+      ctx.strokeStyle = `rgba(76,201,240,${pulse})`; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(p.x, p.y, 26, 0, Math.PI * 2); ctx.stroke();
+      // tiny lightning bolts
+      for (let i = 0; i < 3; i++) {
+        const ang = (performance.now() * 0.004 + i * Math.PI * 2 / 3) % (Math.PI * 2);
+        const ex = p.x + Math.cos(ang) * 30;
+        const ey = p.y + Math.sin(ang) * 30;
+        ctx.strokeStyle = '#ffd23f'; ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(ex - 2, ey - 4); ctx.lineTo(ex + 1, ey - 1);
+        ctx.lineTo(ex - 1, ey + 1); ctx.lineTo(ex + 2, ey + 4);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
+  // === ARENA HAZARDS RENDERING (Polish R2) ===
+  // Kitchen oven on the left wall + spit fireballs
+  if (activeArena === 'kitchen') {
+    // Oven cabinet on left wall, ~middle of arena vertically
+    const oy = H * 0.5 - 30;
+    ctx.fillStyle = '#2a2a3a';
+    ctx.fillRect(0, oy, 22, 60);
+    ctx.fillStyle = '#1a0d05';
+    ctx.fillRect(2, oy + 6, 18, 18);  // window
+    // glowing interior
+    const ovenFlick = 0.6 + 0.4 * Math.sin(performance.now() * 0.012);
+    ctx.fillStyle = `rgba(255,90,58,${0.5 + 0.3 * ovenFlick})`;
+    ctx.fillRect(4, oy + 8, 14, 14);
+    ctx.fillStyle = `rgba(255,210,63,${0.4 + 0.3 * ovenFlick})`;
+    ctx.fillRect(6, oy + 10, 10, 10);
+    // chrome trim
+    ctx.fillStyle = '#5a5a72';
+    ctx.fillRect(0, oy, 22, 3);
+    ctx.fillRect(0, oy + 56, 22, 4);
+    // ⚠ label
+    ctx.fillStyle = '#ffd23f';
+    ctx.font = "bold 6px 'Press Start 2P', monospace";
+    ctx.textAlign = 'center';
+    ctx.fillText('⚠', 11, oy + 36);
+    // Fireball projectiles
+    for (const o of kitchenOvenSpit) {
+      ctx.save();
+      const grad = ctx.createRadialGradient(o.x, o.y, 2, o.x, o.y, 14);
+      grad.addColorStop(0, '#fff');
+      grad.addColorStop(0.4, '#ffd23f');
+      grad.addColorStop(1, 'rgba(255,90,58,0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath(); ctx.arc(o.x, o.y, 14, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#ff8e3c';
+      ctx.beginPath(); ctx.arc(o.x, o.y, 5, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
+  }
+  // Gym swinging punching bag
+  if (activeArena === 'gym' && gymBag) {
+    const bx = gymBag.x + Math.sin(gymBag.angle) * 30;
+    const by = gymBag.y + Math.abs(Math.sin(gymBag.angle)) * 8;
+    ctx.save();
+    // chain
+    ctx.strokeStyle = '#5a5a72'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(gymBag.x, gymBag.y - 18); ctx.lineTo(bx, by - 18); ctx.stroke();
+    // bag body
+    ctx.fillStyle = '#8a3a3a';
+    ctx.fillRect(bx - 14, by - 18, 28, 40);
+    ctx.fillStyle = '#5a1a1a';
+    ctx.fillRect(bx - 14, by + 18, 28, 4);
+    ctx.fillRect(bx - 14, by - 18, 28, 3);
+    // stripes
+    ctx.fillStyle = '#fafaff';
+    ctx.fillRect(bx - 14, by - 6, 28, 2);
+    ctx.fillRect(bx - 14, by + 6, 28, 2);
+    // shadow on ground
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.beginPath(); ctx.ellipse(bx, by + 24, 12, 4, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+  // Rooftop wind gust banner
+  if (activeArena === 'rooftop' && rooftopWindBlowing > 0) {
+    const wAlpha = Math.min(1, rooftopWindBlowing * 2);
+    ctx.save();
+    ctx.globalAlpha = wAlpha * 0.4;
+    // diagonal wind streaks
+    ctx.strokeStyle = rooftopWindDir > 0 ? '#4cc9f0' : '#b0e8ff';
+    ctx.lineWidth = 1.5;
+    for (let i = 0; i < 16; i++) {
+      const sy = (i / 16) * H + (performance.now() * 0.2) % 40;
+      const sx = (performance.now() * 0.6 * rooftopWindDir) % W;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(sx + rooftopWindDir * 36, sy);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+  // Ragdoll limbs (Polish R2) — body parts of dead pugs
+  for (const r of ragdollLimbs) {
+    ctx.save();
+    ctx.translate(r.x, r.y);
+    ctx.rotate(r.rot);
+    const alpha = Math.max(0, 1 - r.t / r.life);
+    ctx.globalAlpha = alpha;
+    if (r.kind === 0) {
+      // ear — small brown wedge
+      ctx.fillStyle = r.color;
+      ctx.fillRect(-4, -6, 8, 10);
+      ctx.fillStyle = '#1a0d05';
+      ctx.fillRect(-3, -5, 6, 3);
+    } else if (r.kind === 1) {
+      // paw — square w/ toes
+      ctx.fillStyle = r.color;
+      ctx.fillRect(-5, -5, 10, 10);
+      ctx.fillStyle = '#1a0d05';
+      ctx.fillRect(-4, 4, 2, 2);
+      ctx.fillRect(-1, 4, 2, 2);
+      ctx.fillRect(2, 4, 2, 2);
+    } else {
+      // body chunk — bigger rectangle
+      ctx.fillStyle = r.color;
+      ctx.fillRect(-8, -6, 16, 12);
+      ctx.fillStyle = '#1a0d05';
+      ctx.fillRect(-7, -5, 14, 2);
+    }
+    ctx.restore();
+  }
+  // Goal-parade golden bread loaves (Polish R2)
+  for (const g of goalParade) {
+    const alpha = Math.max(0, 1 - g.t / g.life);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    // little loaf
+    ctx.fillStyle = g.color;
+    ctx.fillRect(g.x - 6, g.y - 5, 12, 10);
+    ctx.fillStyle = '#8a5a2c';
+    ctx.fillRect(g.x - 6, g.y + 3, 12, 2);
+    // diagonal score lines
+    ctx.strokeStyle = '#8a5a2c'; ctx.lineWidth = 1;
+    for (let s = -3; s <= 3; s += 3) {
+      ctx.beginPath(); ctx.moveTo(g.x + s, g.y - 5); ctx.lineTo(g.x + s + 2, g.y); ctx.stroke();
+    }
+    ctx.restore();
+  }
+  // EXPLOSION RADIUS INDICATOR (Polish R2)
+  // When the player holds fire with the BFG, show a faint ring at the impact
+  // point ahead of them so they can aim the splash. Lasts as long as firing.
+  if (running && pug && pug.hp > 0 && pug.weapon && pug.weapon.id === 'bfg' && firing) {
+    const range = 220;
+    const ex = pug.x + Math.cos(pug.ang) * range;
+    const ey = pug.y + Math.sin(pug.ang) * range;
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() * 0.012);
+    ctx.save();
+    ctx.strokeStyle = `rgba(255,58,161,${0.4 + pulse * 0.3})`;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 4]);
+    ctx.beginPath(); ctx.arc(ex, ey, 32, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+    // crosshair
+    ctx.strokeStyle = `rgba(255,58,161,${pulse})`;
+    ctx.beginPath(); ctx.moveTo(ex - 6, ey); ctx.lineTo(ex + 6, ey); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(ex, ey - 6); ctx.lineTo(ex, ey + 6); ctx.stroke();
+    ctx.restore();
   }
   // Projectiles
   for (const pr of projectiles) {
@@ -1395,15 +1922,34 @@ function render() {
     ctx.setLineDash([]);
   }
 
-  // Spectator banner
+  // Spectator banner — Polish R2: clearer "YOU → BOT #N" indicator + arrow
   if (spectatorIdx >= 0 && pug.hp <= 0) {
     const tg = bots[spectatorIdx];
     if (tg && tg.hp > 0) {
-      ctx.strokeStyle = '#ffd23f'; ctx.lineWidth = 3; ctx.setLineDash([6, 6]);
+      const pulse = 0.5 + 0.5 * Math.sin(performance.now() * 0.008);
+      ctx.strokeStyle = `rgba(255,210,63,${pulse})`;
+      ctx.lineWidth = 3;
+      ctx.setLineDash([6, 6]);
       ctx.beginPath(); ctx.arc(tg.x, tg.y, 30, 0, Math.PI * 2); ctx.stroke();
       ctx.setLineDash([]);
-      ctx.fillStyle = '#ffd23f'; ctx.font = "8px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
-      ctx.fillText('SPECTATING', tg.x, tg.y - 38);
+      ctx.fillStyle = '#ffd23f';
+      ctx.font = "8px 'Press Start 2P', monospace";
+      ctx.textAlign = 'center';
+      ctx.fillText(`YOU → BOT #${spectatorIdx + 1}`, tg.x, tg.y - 50);
+      ctx.fillStyle = '#fff';
+      ctx.font = "6px 'Press Start 2P', monospace";
+      ctx.fillText('◀ ▶ swap', tg.x, tg.y - 38);
+      // big arrow above the spectated bot
+      ctx.save();
+      ctx.fillStyle = '#ffd23f';
+      ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 12 * pulse;
+      ctx.beginPath();
+      ctx.moveTo(tg.x, tg.y - 26);
+      ctx.lineTo(tg.x - 6, tg.y - 32);
+      ctx.lineTo(tg.x + 6, tg.y - 32);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
     }
   }
 
@@ -1437,7 +1983,7 @@ function render() {
   if (seriesRound > 1 || seriesTeam > 0 || seriesBots > 0) {
     ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(8, H - 30, 168, 22);
     ctx.fillStyle = '#fff'; ctx.font = "7px 'Press Start 2P', monospace"; ctx.textAlign = 'left';
-    ctx.fillText(`ROUND ${seriesRound}/5`, 14, H - 16);
+    ctx.fillText(`ROUND ${seriesRound}/${seriesLen}`, 14, H - 16);
     ctx.fillStyle = '#5ef38c'; ctx.fillText(`YOU ${seriesTeam}`, 80, H - 16);
     ctx.fillStyle = '#ff5a3a'; ctx.fillText(`BOTS ${seriesBots}`, 130, H - 16);
   }
@@ -1527,7 +2073,8 @@ function updateHud() {
 function end(won) {
   running = false;
   if (won) seriesTeam++; else seriesBots++;
-  const seriesEnded = seriesTeam >= SERIES_TARGET || seriesBots >= SERIES_TARGET || seriesRound >= 5;
+  const target = getSeriesTarget();
+  const seriesEnded = seriesTeam >= target || seriesBots >= target || seriesRound >= seriesLen;
   if (!seriesEnded) seriesRound++;
   if (seriesEnded) {
     const p = _loadSkillProfile();
@@ -1570,6 +2117,68 @@ function end(won) {
       onRestart: () => start(),
     });
   } catch {}
+  // Polish R2: end-of-match highlight reel — shows the best kill from this
+  // match as a small replay card inside the end overlay (5-second loop).
+  try { showHighlightReel(); } catch (e) { /* */ }
+}
+// Render a small "best kill" replay panel inside the end overlay. Replays the
+// shot 3 times over 5 seconds with a moving projectile + impact flash.
+function showHighlightReel() {
+  if (!lastBestKill) return;
+  const ov = document.getElementById('end-overlay');
+  if (!ov) return;
+  const panel = ov.querySelector('.overlay__panel');
+  if (!panel) return;
+  // Remove any prior reel
+  const old = panel.querySelector('.rp-highlight');
+  if (old) old.remove();
+  const reel = document.createElement('div');
+  reel.className = 'rp-highlight';
+  reel.style.cssText = 'margin:10px auto;width:260px;height:120px;border:2px solid #ffd23f;border-radius:6px;background:rgba(0,0,0,0.6);position:relative;overflow:hidden;';
+  reel.innerHTML = `
+    <div style="position:absolute;top:4px;left:6px;color:#ffd23f;font-size:0.42rem;letter-spacing:0.08em;">★ BEST KILL — ${lastBestKill.weapon}</div>
+    <canvas width="260" height="120" style="display:block;"></canvas>
+  `;
+  panel.insertBefore(reel, panel.querySelector('.wg-end-buttons') || panel.lastChild);
+  const c = reel.querySelector('canvas');
+  const ctx2 = c.getContext('2d');
+  let t = 0;
+  const DUR = 5.0;
+  const SHOT = 1.3;  // 1.3s per shot replay, loops ~3 times in 5s
+  // Scale source coords (W/H) to canvas 260x120
+  const sx = (x) => (x / W) * 260;
+  const sy = (y) => (y / H) * 120;
+  function frame() {
+    t += 1 / 60;
+    if (t >= DUR) { reel.remove(); return; }
+    const loopT = t % SHOT;
+    const k = loopT / SHOT;
+    ctx2.fillStyle = 'rgba(20,12,40,0.5)';
+    ctx2.fillRect(0, 0, 260, 120);
+    // killer pug (yellow square)
+    ctx2.fillStyle = '#ffd23f';
+    ctx2.fillRect(sx(lastBestKill.killerX) - 3, sy(lastBestKill.killerY) - 3, 6, 6);
+    // victim pug (red square)
+    ctx2.fillStyle = lastBestKill.victimColor;
+    ctx2.fillRect(sx(lastBestKill.victimX) - 3, sy(lastBestKill.victimX) - 3, 6, 6);
+    ctx2.fillRect(sx(lastBestKill.victimX) - 3, sy(lastBestKill.victimY) - 3, 6, 6);
+    // projectile traveling killer → victim
+    const px = sx(lastBestKill.killerX) + (sx(lastBestKill.victimX) - sx(lastBestKill.killerX)) * k;
+    const py = sy(lastBestKill.killerY) + (sy(lastBestKill.victimY) - sy(lastBestKill.killerY)) * k;
+    ctx2.fillStyle = '#fff';
+    ctx2.beginPath(); ctx2.arc(px, py, 2.5, 0, Math.PI * 2); ctx2.fill();
+    // impact ring near the end
+    if (k > 0.85) {
+      const ka = (k - 0.85) / 0.15;
+      ctx2.strokeStyle = `rgba(255,90,58,${1 - ka})`;
+      ctx2.lineWidth = 2;
+      ctx2.beginPath();
+      ctx2.arc(sx(lastBestKill.victimX), sy(lastBestKill.victimY), 6 + ka * 16, 0, Math.PI * 2);
+      ctx2.stroke();
+    }
+    requestAnimationFrame(frame);
+  }
+  frame();
 }
 
 // Wave 1D: arena/mode/perk pickers + skill rank
@@ -1586,6 +2195,78 @@ for (const id of ['pick-arena', 'pick-mode', 'pick-perk']) {
     else activePerkId = btn.dataset.v;
   });
 }
+
+// Polish R2: Match settings (rounds / time limit / score limit / aim assist)
+// Injected into the start overlay panel. Choices saved to localStorage so they
+// persist across reloads.
+(function _r2MatchSettings() {
+  const ov = document.getElementById('overlay');
+  const panel = ov && ov.querySelector('.overlay__panel');
+  if (!panel) return;
+  const startBtn = document.getElementById('start-btn');
+  const div = document.createElement('div');
+  div.className = 'r2-match-settings';
+  div.style.cssText = 'display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin:6px 0;font-size:0.45rem;';
+  div.innerHTML = `
+    <label style="display:flex;flex-direction:column;align-items:center;gap:2px;">
+      <span style="color:var(--neon-cyan)">SERIES</span>
+      <select id="r2-rounds" style="background:rgba(0,0,0,0.5);color:#fff;border:1px solid #2a2540;padding:3px 5px;font-family:var(--font-display);font-size:0.5rem;">
+        <option value="3">BO 3</option>
+        <option value="5" selected>BO 5</option>
+        <option value="7">BO 7</option>
+      </select>
+    </label>
+    <label style="display:flex;flex-direction:column;align-items:center;gap:2px;">
+      <span style="color:var(--neon-cyan)">TIME LIMIT</span>
+      <select id="r2-time" style="background:rgba(0,0,0,0.5);color:#fff;border:1px solid #2a2540;padding:3px 5px;font-family:var(--font-display);font-size:0.5rem;">
+        <option value="0" selected>NONE</option>
+        <option value="60">60s</option>
+        <option value="120">2m</option>
+        <option value="180">3m</option>
+      </select>
+    </label>
+    <label style="display:flex;flex-direction:column;align-items:center;gap:2px;">
+      <span style="color:var(--neon-cyan)">SCORE LIMIT</span>
+      <select id="r2-score" style="background:rgba(0,0,0,0.5);color:#fff;border:1px solid #2a2540;padding:3px 5px;font-family:var(--font-display);font-size:0.5rem;">
+        <option value="0" selected>OFF</option>
+        <option value="5">5</option>
+        <option value="10">10</option>
+        <option value="15">15</option>
+      </select>
+    </label>
+    <label style="display:flex;flex-direction:column;align-items:center;gap:2px;">
+      <span style="color:var(--neon-cyan)">AIM ASSIST</span>
+      <select id="r2-aim-assist" style="background:rgba(0,0,0,0.5);color:#fff;border:1px solid #2a2540;padding:3px 5px;font-family:var(--font-display);font-size:0.5rem;">
+        <option value="0" selected>OFF</option>
+        <option value="1">ON (SUBTLE)</option>
+      </select>
+    </label>
+  `;
+  // Place before the start button
+  if (startBtn) panel.insertBefore(div, startBtn);
+  else panel.appendChild(div);
+  const rs = document.getElementById('r2-rounds');
+  const tm = document.getElementById('r2-time');
+  const sc = document.getElementById('r2-score');
+  const aa = document.getElementById('r2-aim-assist');
+  rs.value = localStorage.getItem('rocket:rounds') || '5';
+  tm.value = localStorage.getItem('rocket:time-limit') || '0';
+  sc.value = localStorage.getItem('rocket:score-limit') || '0';
+  aa.value = localStorage.getItem('wg:rp-aim-assist') || '0';
+  rs.addEventListener('change', () => localStorage.setItem('rocket:rounds', rs.value));
+  tm.addEventListener('change', () => {
+    localStorage.setItem('rocket:time-limit', tm.value);
+    mSettingsTimeLimit = parseInt(tm.value, 10) || 0;
+  });
+  sc.addEventListener('change', () => {
+    localStorage.setItem('rocket:score-limit', sc.value);
+    mSettingsScoreLimit = parseInt(sc.value, 10) || 0;
+  });
+  aa.addEventListener('change', () => localStorage.setItem('wg:rp-aim-assist', aa.value));
+  // Apply persisted values on load
+  mSettingsTimeLimit = parseInt(tm.value, 10) || 0;
+  mSettingsScoreLimit = parseInt(sc.value, 10) || 0;
+})();
 function _loadSkillProfile() { try { return JSON.parse(localStorage.getItem('rocket:skillProfile')) || { results: [] }; } catch { return { results: [] }; } }
 function _saveSkillProfile(p) { try { localStorage.setItem('rocket:skillProfile', JSON.stringify(p)); } catch {} }
 function _refreshRank() {
@@ -1605,8 +2286,16 @@ function start() {
   // continue into the next round with the existing seriesRound count.
   const startOv = document.getElementById('overlay');
   const startVisible = startOv && !startOv.hidden && !startOv.classList.contains('is-hidden');
-  if (startVisible) { seriesRound = 1; seriesTeam = 0; seriesBots = 0; }
-  if (seriesTeam >= SERIES_TARGET || seriesBots >= SERIES_TARGET || seriesRound > 5) {
+  if (startVisible) {
+    seriesRound = 1; seriesTeam = 0; seriesBots = 0;
+    // Polish R2: Apply match-settings overrides from the picker.
+    seriesLen = parseInt(localStorage.getItem('rocket:rounds') || '5', 10);
+    if (![3, 5, 7].includes(seriesLen)) seriesLen = 5;
+    mSettingsTimeLimit = parseInt(localStorage.getItem('rocket:time-limit') || '0', 10);
+    mSettingsScoreLimit = parseInt(localStorage.getItem('rocket:score-limit') || '0', 10);
+  }
+  const target = getSeriesTarget();
+  if (seriesTeam >= target || seriesBots >= target || seriesRound > seriesLen) {
     seriesRound = 1; seriesTeam = 0; seriesBots = 0;
   }
   reset(); running = true;

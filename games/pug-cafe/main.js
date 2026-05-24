@@ -10,6 +10,7 @@ import { createSpeedToggle } from '../../src/shared/speedToggle.js';
 import { createKillFeed } from '../../src/shared/killFeed.js';
 import { createSettingsMenu } from '../../src/shared/settingsMenu.js';
 import { htmlVignette as _depthVignette } from '../../src/shared/depth3D.js';
+import { profileKey } from '../../src/shared/profile.js';
 
 // Cafe is click-only — shared module just adds a BACK chip + mute toggle.
 createMobileControls({ layout: 'single-tap', buttons: [] });
@@ -903,11 +904,22 @@ function reset() {
 }
 
 // === WAVE 1F: META PROGRESSION (persists between runs) ===
-const META_KEY = () => `wg:pugcafe:meta`;
+// profileKey() namespaces the key per active profile so totalTips / lastCafe
+// don't leak between local profiles or between local <-> cloud accounts.
+const META_KEY = () => profileKey('pugcafe:meta');
+const META_LEGACY_KEY = 'wg:pugcafe:meta'; // pre-fix unprefixed location
 let metaTotalTips = 0;
 function loadMeta() {
   try {
-    const raw = localStorage.getItem(META_KEY());
+    // One-time migration: if the new profile-scoped key is empty but the
+    // legacy unprefixed key has data, lift it over so existing users don't
+    // lose their totalTips when this bugfix lands.
+    const cur = META_KEY();
+    if (cur !== META_LEGACY_KEY && !localStorage.getItem(cur)) {
+      const legacy = localStorage.getItem(META_LEGACY_KEY);
+      if (legacy) localStorage.setItem(cur, legacy);
+    }
+    const raw = localStorage.getItem(cur);
     const m = raw ? JSON.parse(raw) : {};
     metaTotalTips = m.totalTips || 0;
     currentCafeId = m.lastCafe && CAFE_TYPES[m.lastCafe] ? m.lastCafe : 'cozy';
@@ -957,7 +969,7 @@ const DAILY_CHALLENGES = [
 function dailyChallenge() {
   return DAILY_CHALLENGES[_seededInt(todayUtcKey(), DAILY_CHALLENGES.length)];
 }
-const DAILY_DONE_KEY = () => `wg:pugcafe:dailyDone`;
+const DAILY_DONE_KEY = () => profileKey('pugcafe:dailyDone');
 function dailyDone() {
   try {
     const raw = localStorage.getItem(DAILY_DONE_KEY());

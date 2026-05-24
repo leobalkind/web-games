@@ -132,7 +132,7 @@ export class Hud {
   }
 
   setBuildActive(active, id = null) {
-    const ids = ['wall','sandbag','spike','mine','turret','sniperTurret','repair','acidTurret','genShield','flamethrower'];
+    const ids = ['wall','sandbag','spike','mine','turret','sniperTurret','repair','acidTurret','genShield','flamethrower','barbedWire','turretPlatform'];
     for (const sid of ids) {
       const el = document.getElementById(`slot-${sid}`);
       if (el) el.classList.remove('hud-slot--armed');

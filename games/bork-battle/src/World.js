@@ -319,6 +319,44 @@ export class World {
       captureRequired: 3, // seconds of standing
     };
     this.objectives.push(radio);
+
+    // === FLAG — new mini-objective. Capture and hold to earn +1 kill/sec.
+    // Game handles the "+1 kill/sec while held" logic in _tickObjectives.
+    const flagX = this.width * 0.6;
+    const flagY = this.height * 0.7;
+    const flag = {
+      x: flagX, y: flagY, r: 30, kind: 'flag',
+      state: 'inactive',
+      cooldown: 55,         // first spawn ~55s in
+      held: false,          // becomes true once player captures
+      heldT: 0,
+      heldSecs: 0,          // total seconds player has held (capped at 10)
+    };
+    this.objectives.push(flag);
+    const pedF = new Container();
+    pedF.x = flagX; pedF.y = flagY;
+    const pfg = new Graphics();
+    // Flag pole
+    pfg.rect(-1, -36, 2, 38).fill(0xfafaff);
+    pfg.rect(-2, 2, 4, 4).fill(0x3a3a4a);  // base
+    pedF.addChild(pfg);
+    // Flag visual (drawn into ob.visual so it can be cleared when consumed)
+    const flagG = new Graphics();
+    flagG.alpha = 0;
+    pedF.addChild(flagG);
+    flag.visual = flagG;
+    flag.container = pedF;
+    const flagLbl = new Text({
+      text: 'FLAG',
+      style: { fill: 0xff3aa1, fontFamily: 'monospace', fontSize: 9,
+        fontWeight: 'bold', stroke: { color: 0x000000, width: 2 } },
+    });
+    flagLbl.anchor.set(0.5, 1);
+    flagLbl.y = -44;
+    flagLbl.alpha = 0;
+    pedF.addChild(flagLbl);
+    flag.label = flagLbl;
+    this.objectivesLayer.addChild(pedF);
     const pedR = new Container();
     pedR.x = radioX; pedR.y = radioY;
     const prg = new Graphics();
@@ -884,6 +922,16 @@ export class World {
                 .fill(0x5ef38c);
             }
           }
+        } else if (ob.kind === 'flag' && ob.visual) {
+          // Pink waving flag — flap animated by sin
+          ob.visual.clear();
+          const wave = Math.sin(matchTimeSec * 5) * 2;
+          // flag rectangle
+          ob.visual.moveTo(1, -36).lineTo(1 + 18, -32 + wave).lineTo(1 + 18, -22 + wave).lineTo(1, -18).closePath().fill(0xff3aa1);
+          ob.visual.moveTo(1, -36).lineTo(8, -34 + wave * 0.5).lineTo(8, -26 + wave * 0.5).lineTo(1, -24).closePath().fill({ color: 0xffffff, alpha: 0.3 });
+          // glow ring
+          ob.visual.circle(0, -18, 28 + pulse * 4)
+            .stroke({ color: 0xff3aa1, width: 2, alpha: 0.4 + pulse * 0.3 });
         }
       }
     }
@@ -996,6 +1044,53 @@ export class World {
           const dx = z.x + z.w + 4 + ((matchTimeSec * 80 + i * 17) % 16);
           g.rect(dx, dy, 6, 2).fill({ color: 0xff3aa1, alpha: 0.6 * shrinkFraction });
         }
+      }
+    }
+    // === ELECTRIC ARCS (Round 2 polish) ===
+    // Random short pink lightning arcs running along the zone boundary.
+    // Only active during the shrink phase (so calm pre-game isn't busy).
+    // We draw 6 jagged 3-segment polylines per frame at pseudo-random spots
+    // along the perimeter. Driven by matchTimeSec for stable "flicker" feel.
+    if (shrinkFraction > 0.05) {
+      const arcCount = 6;
+      const perimeter = 2 * (z.w + z.h);
+      for (let i = 0; i < arcCount; i++) {
+        // Distribute starts around perimeter, offset by time
+        const phase = (i / arcCount + matchTimeSec * 0.7 + i * 0.137) % 1;
+        // Sub-flicker: only render about 50% of the time per arc
+        if ((Math.sin(matchTimeSec * 20 + i * 1.3) > 0.0) ? false : true) continue;
+        const dist = phase * perimeter;
+        // map dist around the rectangle perimeter to (x, y, dirX, dirY)
+        let sx, sy, dx, dy;
+        if (dist < z.w) {
+          // top edge → going right
+          sx = z.x + dist; sy = z.y; dx = 0; dy = -1;
+        } else if (dist < z.w + z.h) {
+          // right edge → going down
+          sx = z.x + z.w; sy = z.y + (dist - z.w); dx = 1; dy = 0;
+        } else if (dist < 2 * z.w + z.h) {
+          // bottom edge → going left
+          sx = z.x + (2 * z.w + z.h - dist); sy = z.y + z.h; dx = 0; dy = 1;
+        } else {
+          // left edge → going up
+          sx = z.x; sy = z.y + (2 * (z.w + z.h) - dist); dx = -1; dy = 0;
+        }
+        // Draw a 4-segment zigzag perpendicular to the edge (out into danger)
+        const segLen = 8;
+        const arcCol = i % 2 === 0 ? 0xff8aff : 0xb0e8ff;
+        const baseAlpha = 0.7 + Math.sin(matchTimeSec * 14 + i) * 0.3;
+        let px = sx, py = sy;
+        for (let s = 0; s < 4; s++) {
+          // small random kink each segment — seeded by matchTime so it shifts
+          const k = Math.sin(matchTimeSec * 30 + i * 2.7 + s * 0.4) * 4;
+          const tx = px + dx * segLen + (-dy) * k;
+          const ty = py + dy * segLen + (dx) * k;
+          g.moveTo(px, py).lineTo(tx, ty)
+            .stroke({ color: arcCol, width: 2, alpha: baseAlpha * 0.9 });
+          px = tx; py = ty;
+        }
+        // bright endpoint spark
+        g.circle(px, py, 2).fill({ color: 0xffffff, alpha: baseAlpha });
       }
     }
   }

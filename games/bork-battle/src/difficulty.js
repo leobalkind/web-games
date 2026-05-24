@@ -45,6 +45,8 @@ export const DIFFICULTIES = {
   },
   // MAYHEM — endgame chaos: 10 elite bots + faster shrinking zone + bonus XP/$.
   // Bot composition is enforced separately (see Game._spawnBot eliteRatio).
+  // Polish R2: bumped XP+money rewards (was 1.6) so the risk/reward feels
+  // worthwhile vs HARD difficulty (which is now closer in baseline difficulty).
   mayhem: {
     id: 'mayhem',
     name: 'MAYHEM',
@@ -54,11 +56,11 @@ export const DIFFICULTIES = {
     botDmgMult: 1.55,
     playerHpMult: 0.85,
     playerDmgMult: 1.0,
-    xpMult: 1.6,
-    moneyMult: 1.6,
+    xpMult: 2.0,        // was 1.6 — better risk/reward
+    moneyMult: 1.9,     // was 1.6 — better risk/reward
     eliteRatio: 0.8,    // 80% of bots will be elites
     zoneSpeedMult: 1.6, // shrink interval cut by 1/1.6
-    desc: '10 elite bots. Faster zone. Glory or pain.',
+    desc: '10 elite bots. Faster zone. 2× XP / 1.9× $.',
   },
 };
 

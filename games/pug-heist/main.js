@@ -21,7 +21,7 @@ sfx.applyButton(document.getElementById('mute-btn'));
 const _isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 createSettingsMenu({ gameId: 'pug-heist', getControlsHelp: () => _isTouch
   ? 'JOYSTICK sneak · BARK / SMOKE / TONGUE / DECOY / VASE buttons · 🛒 SHOP between floors. Saved to your profile.'
-  : 'WASD sneak · Q smoke · G tongue · T decoy · X throw vase · spend $$ between floors. Saved to your profile.' });
+  : 'WASD sneak · Q smoke · G tongue · T decoy · X throw vase · F crack safe · spend $$ between floors. Saved to your profile.' });
 
 let W = 0, H = 0, DPR = 1;
 function resize() {
@@ -54,7 +54,7 @@ const LOOT_TYPES = [
 ];
 
 // THEMED LOOT — per building: museum=gems(rare), bank=goldbars(slow),
-// mansion=paintings, office=laptops. Lives alongside generic LOOT_TYPES.
+// mansion=paintings, office=laptops, airport=luggage. Lives alongside generic LOOT_TYPES.
 const THEME_LOOT = {
   museum:  [ { kind: 'gem',     val: 220, color: '#ff3aa1', shape: 'gem' },
              { kind: 'artifact',val: 180, color: '#c89c20', shape: 'urn' } ],
@@ -64,8 +64,10 @@ const THEME_LOOT = {
              { kind: 'chandelier',val: 130,color: '#ffce5e', shape: 'chand' } ],
   office:  [ { kind: 'laptop',  val: 45,  color: '#4cc9f0', shape: 'laptop' },
              { kind: 'monitor', val: 35,  color: '#8a8aac', shape: 'monitor' } ],
+  airport: [ { kind: 'luggage', val: 140, color: '#5a3a82', shape: 'luggage' },
+             { kind: 'passport',val: 90,  color: '#a02828', shape: 'passport' } ],
 };
-const BUILDING_THEMES = ['museum', 'bank', 'mansion', 'office'];
+const BUILDING_THEMES = ['museum', 'bank', 'mansion', 'office', 'airport'];
 // DIFFICULTY — picked on the start overlay (defaults to MASTERMIND).
 const DIFFICULTY = {
   student:    { timeBonus: 1.4, guardSpeed: 0.7, lootTimer: 60, label: 'STUDENT',    hint: 'More time · slower guards' },
@@ -143,6 +145,21 @@ let _jumpT = 0;                   // brief jump arc (s) — lets pug clear laser
 let alarmTier = 0;                // 0 idle · 1 suspicion · 2 alert · 3 full alarm
 let _alarmAt = 0;                 // gate: throttles alarm sirens to ≥1/2s
 let _stealthPop = 0;              // last "+10 STEALTH" popup time
+let _stealthEstT = 0;             // seconds spent in shadow (resets on any suspicion)
+let _stealthBadgeT = 0;           // fade timer for "STEALTH ESTABLISHED" badge
+// SAFE crack mini-game — 5-tap rhythm. When pug stands on a safe and starts
+// cracking, a timing window opens with 5 sequential taps. Big reward if all hit.
+let safes = [];                   // {x, y, w, h, cracked:false, val:380, tapsHit, tapsNeeded:5}
+let activeSafe = null;            // currently cracking
+let safeMeter = 0;                // 0..1 — sweeping needle
+let safeMeterDir = 1;             // +1 / -1
+let safeStreak = 0;               // taps hit in current attempt
+let safeTotal = 5;                // taps required
+let safeFailT = 0;                // brief fail-flash duration
+// AIRPORT theme: X-ray scanner obstacles (animated, similar to laser but rectangle)
+let scanners = [];                // {x, y, w, h, phase, period, axis}
+// Decoy robot pug visual state
+let decoyBot = null;              // {x, y, t, life} — visible mini-bot during decoy
 function addShake(mag, dur) { shakeMag = Math.max(shakeMag, mag); shakeT = Math.max(shakeT, dur); }
 function addPopup(x, y, text, color) {
   // Spawn with small random horizontal drift + jitter so back-to-back popups
@@ -282,16 +299,58 @@ function genFloor(level) {
       }
     }
   }
-  // VENTS — shortcut pair: enter A → teleport to B. 1 pair/floor.
+  // VENTS — shortcut pair: enter A → teleport to B. RARE (1 pair every other floor).
+  // Drop frequency from 70% → 45% and only past floor 1 so early game stays clean.
   vents = [];
-  if (Math.random() < 0.7) {
+  if (level >= 2 && Math.random() < 0.45) {
     const ax = 50 + Math.random() * 80;
     const ay = H - 60 - Math.random() * 60;
     const bx = W - 90 - Math.random() * 80;
     const by = 60 + Math.random() * 60;
-    vents.push({ x: ax - 12, y: ay - 12, w: 24, h: 24, pair: 1, cd: 0 });
-    vents.push({ x: bx - 12, y: by - 12, w: 24, h: 24, pair: 1, cd: 0 });
+    // Direction vector from A→B is stored as `dirAng` so the renderer can draw
+    // a directional arrow on each pad pointing to the linked pad.
+    const aAng = Math.atan2(by - ay, bx - ax);
+    const bAng = aAng + Math.PI;
+    vents.push({ x: ax - 12, y: ay - 12, w: 24, h: 24, pair: 1, cd: 0, dirAng: aAng });
+    vents.push({ x: bx - 12, y: by - 12, w: 24, h: 24, pair: 1, cd: 0, dirAng: bAng });
   }
+  // SAFES — rare big-reward (per-theme 25% chance, 1 per floor max). Cracking
+  // is a 5-tap rhythm via the J-key timing window once the player is adjacent.
+  safes = [];
+  activeSafe = null; safeStreak = 0; safeMeter = 0; safeMeterDir = 1; safeFailT = 0;
+  if (level >= 2 && Math.random() < 0.4) {
+    for (let tries = 0; tries < 16; tries++) {
+      const x = 80 + Math.random() * (W - 160);
+      const y = 80 + Math.random() * (H - 160);
+      if (!isWallNear(x, y, 30) && Math.hypot(x - pug.x, y - pug.y) > 200) {
+        safes.push({ x: x - 18, y: y - 18, w: 36, h: 36, cracked: false, val: 380, tapsHit: 0, tapsNeeded: 5 });
+        break;
+      }
+    }
+  }
+  // X-RAY SCANNERS — airport-themed obstacle. Acts like a horizontal laser
+  // pulsing on/off; only spawned for the airport theme. 1-2 per floor.
+  scanners = [];
+  if (buildingTheme === 'airport' && level >= 1) {
+    const count = 1 + Math.floor(level / 3);
+    for (let i = 0; i < count; i++) {
+      for (let tries = 0; tries < 12; tries++) {
+        const horizontal = Math.random() < 0.5;
+        const len = 90 + Math.random() * 110;
+        const x = 60 + Math.random() * (W - 120 - (horizontal ? len : 8));
+        const y = 80 + Math.random() * (H - 160 - (horizontal ? 8 : len));
+        const sc = horizontal
+          ? { x, y, w: len, h: 14, axis: 'h', phase: Math.random() * Math.PI * 2, period: 2.5 + Math.random() * 2 }
+          : { x, y, w: 14, h: len, axis: 'v', phase: Math.random() * Math.PI * 2, period: 2.5 + Math.random() * 2 };
+        const cx = sc.x + sc.w / 2, cy = sc.y + sc.h / 2;
+        if (Math.hypot(cx - pug.x, cy - pug.y) < 140) continue;
+        if (isWallNear(cx, cy, 10)) continue;
+        scanners.push(sc);
+        break;
+      }
+    }
+  }
+  decoyBot = null;
   // LASERS — pulsing floor beams. Cross while not jumping (J) = full alarm.
   lasers = [];
   if (level >= 2 && difficulty !== 'student') {
@@ -516,7 +575,7 @@ window.addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   keys.add(k);
   // Block browser shortcuts (e.g. Quick Find on /, scroll on space) for keys we own.
-  if (e.code === 'Space' || ['q','g','t','x','j','r','m','w','a','s','d'].includes(k)) e.preventDefault();
+  if (e.code === 'Space' || ['q','g','t','x','j','r','m','w','a','s','d','f'].includes(k)) e.preventDefault();
   if (e.key === ' ' || e.code === 'Space') doBark();
   if (e.key === 'Shift' || k === 'shift') doFart();
   if (k === 'q') doSmoke();
@@ -526,6 +585,7 @@ window.addEventListener('keydown', (e) => {
   if (k === 'j') doJump();           // hop over lasers
   if (k === 'r') doQuickRestart();   // restart this floor (keep run progress)
   if (k === 'm') miniMapOn = !miniMapOn;
+  if (k === 'f') doSafeTap();        // safe-crack rhythm tap
 });
 window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 // Mobile controls — wasd-only joystick + action buttons. Buttons synth keys so
@@ -593,6 +653,39 @@ function doJump() {
   _jumpT = 0.45;
   sfx.tone(540, 'triangle', 0.06, 0.16);
 }
+// SAFE CRACK — press F to tap. Hit when the meter is in the green zone (0.4..0.6).
+// Five consecutive hits cracks it for the big reward; one miss resets the chain.
+function doSafeTap() {
+  if (!running || !activeSafe) return;
+  // Window is the center 22% of the sweep (tight but generous enough).
+  const inWindow = Math.abs(safeMeter - 0.5) < 0.11;
+  if (inWindow) {
+    safeStreak++;
+    sfx.tone(880 + safeStreak * 80, 'triangle', 0.05, 0.18);
+    addPopup(activeSafe.x + activeSafe.w / 2, activeSafe.y - 6, 'HIT ' + safeStreak + '/' + safeTotal, '#5ef38c');
+    if (safeStreak >= safeTotal) {
+      // Cracked! Big reward.
+      activeSafe.cracked = true;
+      const val = activeSafe.val;
+      lootValueThisFloor += val;
+      totalLootValue += val;
+      lootStolen++;
+      spawnParticles(activeSafe.x + activeSafe.w / 2, activeSafe.y + activeSafe.h / 2, '#ffd23f');
+      addPopup(activeSafe.x + activeSafe.w / 2, activeSafe.y - 18, 'SAFE CRACKED! +$' + val, '#ffd23f');
+      sfx.arp([523, 784, 1320, 1760], 'triangle', 0.06, 0.22, 0.18);
+      addShake(6, 0.25);
+      activeSafe = null;
+      safeStreak = 0;
+    }
+  } else {
+    // Miss = reset chain + small heat penalty (humans hear the bonk).
+    safeFailT = 0.4;
+    sfx.tone(140, 'sawtooth', 0.1, 0.2);
+    addPopup(activeSafe.x + activeSafe.w / 2, activeSafe.y - 6, 'MISS!', '#ff5a82');
+    pug.sound = Math.max(pug.sound, 0.6);
+    safeStreak = 0;
+  }
+}
 // QUICK RESTART (R) — reset current floor, keep run-totals.
 function doQuickRestart() {
   if (!running || quickRestartCd > 0) return;
@@ -639,12 +732,20 @@ function doDecoy() {
     const d = Math.hypot(h.x - pug.x, h.y - pug.y);
     if (d < bestD) { bestD = d; near = h; }
   }
+  // Spawn the visible decoy bot — tiny pug robot waddles toward the distraction
+  // target so the player can SEE what the guard is chasing (was invisible before).
+  let tx = pug.x + 220, ty = pug.y;
   if (near) {
     const ang = Math.atan2(near.y - pug.y, near.x - pug.x);
-    near.distractTarget = { x: near.x + Math.cos(ang) * 220, y: near.y + Math.sin(ang) * 220 };
+    tx = near.x + Math.cos(ang) * 220;
+    ty = near.y + Math.sin(ang) * 220;
+    near.distractTarget = { x: tx, y: ty };
     near.state = 'distracted'; near.alertT = 4.0;
   }
+  decoyBot = { x: pug.x, y: pug.y, tx, ty, t: 0, life: 4.0, wobble: 0 };
   sfx.tone(440, 'square', 0.1, 0.2);
+  sfx.tone(660, 'square', 0.06, 0.14);
+  addPopup(pug.x, pug.y - 18, 'DECOY BOT!', '#b0e8ff');
 }
 // Room furniture catalog — kinds rendered in render() below
 function roomPropList(type) {
@@ -731,11 +832,16 @@ function doThrow() {
 }
 
 function spawnParticles(x, y, color) {
-  for (let i = 0; i < 10; i++) {
+  // Bigger pickup burst — more particles, larger sizes, plus an expanding halo
+  // ring overlay (the renderer uses size>=8 + `halo:true` to draw rings).
+  for (let i = 0; i < 14; i++) {
     const a = Math.random() * Math.PI * 2;
-    const s = 60 + Math.random() * 80;
-    particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, color, life: 0.6, t: 0, size: 3 });
+    const s = 70 + Math.random() * 110;
+    particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, color, life: 0.7, t: 0, size: 3 + Math.random() * 2 });
   }
+  // Expanding ring halo — visual "pop" right at the pickup
+  particles.push({ x, y, vx: 0, vy: 0, color, life: 0.45, t: 0, size: 8, halo: true });
+  particles.push({ x, y, vx: 0, vy: 0, color, life: 0.6, t: 0, size: 12, halo: true });
 }
 
 function doFart() {
@@ -774,6 +880,42 @@ function tick(dt) {
   if (ghostReplay && ghostReplay.samples.length) _ghostT += dt;
   for (const cam of secCams) cam.phase += dt;
   for (const lz of lasers) lz.phase += dt;
+  for (const sc of scanners) sc.phase += dt;
+  // Safe-crack proximity check — auto-engages while standing on the safe pad.
+  // Sweeping meter ticks back-and-forth (period ~1.3s). The needle is what the
+  // F-key tap fires against in doSafeTap().
+  let inSafe = null;
+  for (const sf of safes) {
+    if (sf.cracked) continue;
+    if (pug.x > sf.x - 4 && pug.x < sf.x + sf.w + 4 && pug.y > sf.y - 4 && pug.y < sf.y + sf.h + 4) {
+      inSafe = sf; break;
+    }
+  }
+  if (inSafe && inSafe !== activeSafe) {
+    activeSafe = inSafe; safeStreak = 0; safeMeter = 0; safeMeterDir = 1;
+    addPopup(activeSafe.x + activeSafe.w / 2, activeSafe.y - 14, 'SAFE · F to crack', '#ffd23f');
+  } else if (!inSafe && activeSafe) {
+    activeSafe = null; safeStreak = 0;
+  }
+  if (activeSafe) {
+    const rate = 1.8;
+    safeMeter += safeMeterDir * rate * dt;
+    if (safeMeter > 1) { safeMeter = 1; safeMeterDir = -1; }
+    if (safeMeter < 0) { safeMeter = 0; safeMeterDir = 1; }
+  }
+  if (safeFailT > 0) safeFailT = Math.max(0, safeFailT - dt);
+  // Decoy bot waddles toward target then dissolves
+  if (decoyBot) {
+    decoyBot.t += dt;
+    decoyBot.wobble += dt * 9;
+    const dxx = decoyBot.tx - decoyBot.x, dyy = decoyBot.ty - decoyBot.y;
+    const dd = Math.hypot(dxx, dyy);
+    if (dd > 4) {
+      decoyBot.x += (dxx / dd) * 110 * dt;
+      decoyBot.y += (dyy / dd) * 110 * dt;
+    }
+    if (decoyBot.t >= decoyBot.life) decoyBot = null;
+  }
 
   // Move
   let mx = 0, my = 0;
@@ -1097,6 +1239,23 @@ function tick(dt) {
       }
     }
   }
+  // X-RAY SCANNERS — same behavior as lasers but on a separate cycle. Touch
+  // while active = full alarm. Slightly slower pulse so they're learnable.
+  if (_jumpT <= 0) {
+    for (const sc of scanners) {
+      const active = Math.sin(sc.phase * (Math.PI * 2 / sc.period)) > 0;
+      if (!active) continue;
+      const px = pug.x, py = pug.y;
+      if (px > sc.x - 6 && px < sc.x + sc.w + 6 && py > sc.y - 6 && py < sc.y + sc.h + 6) {
+        alertedThisFloor = true; perfectFloor = false; alarmTier = 3;
+        _trySiren(now_perf());
+        addShake(7, 0.32);
+        for (const h of humans) h.alertT = 4.5;
+        caught();
+        break;
+      }
+    }
+  }
   // VENTS — step on a pad → 0.4s crawl tween → teleport to paired pad.
   for (const v of vents) {
     if (v.cd > 0) { v.cd -= dt; continue; }
@@ -1121,6 +1280,23 @@ function tick(dt) {
     // any guard alerted bumps to ≥1
     for (const h of humans) if (h.alertT > 0) { alarmTier = Math.max(alarmTier, 2); break; }
   }
+  // STEALTH ESTABLISHED — fires once after 2 continuous seconds without
+  // any guard suspicion. Resets on any (_closeT > 0.5) or alertT > 0.
+  let anySus = false;
+  for (const h of humans) {
+    if ((h._closeT || 0) > 0.5 || (h.alertT || 0) > 0) { anySus = true; break; }
+  }
+  if (anySus) {
+    _stealthEstT = 0;
+  } else {
+    const prev = _stealthEstT;
+    _stealthEstT += dt;
+    if (prev < 2 && _stealthEstT >= 2 && _stealthBadgeT <= 0) {
+      _stealthBadgeT = 2.5;
+      sfx.tone(880, 'sine', 0.06, 0.16);
+    }
+  }
+  if (_stealthBadgeT > 0) _stealthBadgeT = Math.max(0, _stealthBadgeT - dt);
   updateHud();
 }
 // Throttled alarm siren.
@@ -1287,7 +1463,7 @@ function render() {
     ctx.fillStyle = grd;
     ctx.beginPath(); ctx.arc(tv.x, tv.y + 18, 80, 0, Math.PI * 2); ctx.fill();
   }
-  // VENTS — silver grate, recessed
+  // VENTS — silver grate, recessed, with directional arrow pointing to pair.
   for (const v of vents) {
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
     ctx.fillRect(v.x, v.y, v.w, v.h);
@@ -1297,6 +1473,25 @@ function render() {
     for (let i = 0; i < 4; i++) ctx.fillRect(v.x + 2, v.y + 4 + i * 5, v.w - 4, 2);
     ctx.fillStyle = '#b0e8ff'; ctx.font = "5px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
     ctx.fillText('VENT', v.x + v.w / 2, v.y - 2);
+    // Directional arrow — drawn 18px outside the pad in the direction of the
+    // linked pad. Pulses gently so it draws the eye.
+    if (v.dirAng != null && v.cd <= 0) {
+      const cx = v.x + v.w / 2, cy = v.y + v.h / 2;
+      const ox = cx + Math.cos(v.dirAng) * 22;
+      const oy = cy + Math.sin(v.dirAng) * 22;
+      const pulse = 0.55 + 0.45 * Math.sin(performance.now() / 220);
+      ctx.save();
+      ctx.translate(ox, oy);
+      ctx.rotate(v.dirAng);
+      ctx.fillStyle = `rgba(176,232,255,${pulse * 0.9})`;
+      ctx.beginPath();
+      ctx.moveTo(6, 0); ctx.lineTo(-4, -4); ctx.lineTo(-1, 0); ctx.lineTo(-4, 4); ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = `rgba(255,255,255,${pulse * 0.6})`;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.restore();
+    }
   }
   // LASERS — pulsing red beams (active = bright, inactive = faint)
   for (const lz of lasers) {
@@ -1314,19 +1509,110 @@ function render() {
     if (lz.axis === 'h') { ctx.fillRect(lz.x - 4, lz.y - 2, 4, 8); ctx.fillRect(lz.x + lz.w, lz.y - 2, 4, 8); }
     else { ctx.fillRect(lz.x - 2, lz.y - 4, 8, 4); ctx.fillRect(lz.x - 2, lz.y + lz.h, 8, 4); }
   }
-  // SECURITY CAMERAS — wall-bracket + lens + sweep beam (only renders if not in smoke)
+  // X-RAY SCANNERS (airport) — wider blue/violet field with scanning lines.
+  for (const sc of scanners) {
+    const active = Math.sin(sc.phase * (Math.PI * 2 / sc.period)) > 0;
+    // Field outline
+    ctx.fillStyle = active ? 'rgba(120,80,255,0.55)' : 'rgba(80,60,160,0.18)';
+    ctx.fillRect(sc.x, sc.y, sc.w, sc.h);
+    if (active) {
+      ctx.shadowColor = '#b080ff'; ctx.shadowBlur = 12;
+      ctx.fillStyle = 'rgba(220,200,255,0.85)';
+      ctx.fillRect(sc.x + 1, sc.y + 1, sc.w - 2, sc.h - 2);
+      ctx.shadowBlur = 0;
+      // Scanning line — moves across the field
+      const pct = (Math.sin(sc.phase * 4) + 1) / 2;
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      if (sc.axis === 'h') ctx.fillRect(sc.x + pct * (sc.w - 4), sc.y, 4, sc.h);
+      else ctx.fillRect(sc.x, sc.y + pct * (sc.h - 4), sc.w, 4);
+    }
+    // Frame caps
+    ctx.fillStyle = '#221a3a';
+    if (sc.axis === 'h') { ctx.fillRect(sc.x - 5, sc.y - 3, 5, sc.h + 6); ctx.fillRect(sc.x + sc.w, sc.y - 3, 5, sc.h + 6); }
+    else { ctx.fillRect(sc.x - 3, sc.y - 5, sc.w + 6, 5); ctx.fillRect(sc.x - 3, sc.y + sc.h, sc.w + 6, 5); }
+    ctx.fillStyle = '#b080ff'; ctx.font = "5px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText('X-RAY', sc.x + sc.w / 2, sc.y - 5);
+  }
+  // SAFES — heavy metal box; halo + meter sweep when actively cracking.
+  for (const sf of safes) {
+    if (sf.cracked) {
+      // Cracked open — door swung, shows the gold inside
+      ctx.fillStyle = '#1a1a22';
+      ctx.fillRect(sf.x, sf.y, sf.w, sf.h);
+      ctx.fillStyle = '#ffd23f';
+      ctx.fillRect(sf.x + 4, sf.y + 4, sf.w - 8, sf.h - 8);
+      ctx.fillStyle = '#c89c20';
+      ctx.fillRect(sf.x + 6, sf.y + sf.h - 8, sf.w - 12, 2);
+      continue;
+    }
+    // Body — dark steel with bolts
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(sf.x + 2, sf.y + sf.h - 2, sf.w, 4);
+    ctx.fillStyle = '#3a3a4a';
+    ctx.fillRect(sf.x, sf.y, sf.w, sf.h);
+    ctx.fillStyle = '#1a1a26';
+    ctx.fillRect(sf.x + 3, sf.y + 3, sf.w - 6, sf.h - 6);
+    // Dial in the middle
+    const cx = sf.x + sf.w / 2, cy = sf.y + sf.h / 2;
+    ctx.fillStyle = '#cacacf';
+    ctx.beginPath(); ctx.arc(cx, cy, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#3a3a3a'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(cx, cy, 6, 0, Math.PI * 2); ctx.stroke();
+    // Bolts
+    ctx.fillStyle = '#cacacf';
+    for (const [ox, oy] of [[6, 6], [sf.w - 6, 6], [6, sf.h - 6], [sf.w - 6, sf.h - 6]]) {
+      ctx.beginPath(); ctx.arc(sf.x + ox, sf.y + oy, 1.5, 0, Math.PI * 2); ctx.fill();
+    }
+    // Halo when active
+    if (activeSafe === sf) {
+      const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 180);
+      ctx.strokeStyle = `rgba(255,210,63,${0.6 * pulse})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(cx, cy, sf.w * 0.7, 0, Math.PI * 2); ctx.stroke();
+    }
+    // Label
+    ctx.fillStyle = '#ffd23f'; ctx.font = "5px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText('SAFE $' + sf.val, cx, sf.y - 3);
+  }
+  // SECURITY CAMERAS — wall-bracket + lens + sweep beam.
+  // Beam cone now uses a radial gradient (bright near the lens, faint at the
+  // far edge) + a brighter glow rim along the sweep edge for readability.
   for (const cam of secCams) {
     const ang = cam.baseAng + Math.sin(cam.phase * cam.sweep) * 1.0;
-    // beam cone
-    ctx.fillStyle = 'rgba(255,40,40,0.16)';
+    // Gradient cone — strongest at the lens, falls off to nothing at the rim.
+    const conGrd = ctx.createRadialGradient(cam.x, cam.y, 6, cam.x, cam.y, cam.range);
+    conGrd.addColorStop(0, 'rgba(255,40,40,0.42)');
+    conGrd.addColorStop(0.55, 'rgba(255,40,40,0.18)');
+    conGrd.addColorStop(1, 'rgba(255,40,40,0)');
+    ctx.fillStyle = conGrd;
     ctx.beginPath(); ctx.moveTo(cam.x, cam.y);
     ctx.arc(cam.x, cam.y, cam.range, ang - cam.fov, ang + cam.fov);
     ctx.closePath(); ctx.fill();
+    // Outer glow rim — bright thin arc along the sweep's far edge.
+    ctx.strokeStyle = 'rgba(255,80,80,0.55)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(cam.x, cam.y, cam.range - 1, ang - cam.fov, ang + cam.fov);
+    ctx.stroke();
+    // Side edges (faint dashed) — pulses if you're inside the cone
+    ctx.strokeStyle = 'rgba(255,40,40,0.35)';
+    ctx.setLineDash([6, 4]); ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(cam.x, cam.y);
+    ctx.lineTo(cam.x + Math.cos(ang - cam.fov) * cam.range, cam.y + Math.sin(ang - cam.fov) * cam.range);
+    ctx.moveTo(cam.x, cam.y);
+    ctx.lineTo(cam.x + Math.cos(ang + cam.fov) * cam.range, cam.y + Math.sin(ang + cam.fov) * cam.range);
+    ctx.stroke();
+    ctx.setLineDash([]);
     // bracket + body
     ctx.fillStyle = '#2a2a3a'; ctx.fillRect(cam.x - 6, cam.y - 5, 12, 4);
     ctx.save(); ctx.translate(cam.x, cam.y); ctx.rotate(ang);
     ctx.fillStyle = '#1a1a26'; ctx.fillRect(-7, -3, 14, 6);
+    // Glowing red LED — pulses with phase
+    const ledPulse = 0.5 + 0.5 * Math.sin(cam.phase * 4);
+    ctx.shadowColor = '#ff3a3a'; ctx.shadowBlur = 6 + ledPulse * 4;
     ctx.fillStyle = '#ff3a3a'; ctx.fillRect(4, -1, 4, 2);
+    ctx.shadowBlur = 0;
     ctx.restore();
   }
   // GHOST-REPLAY overlay — faint pug trail tracking last successful run
@@ -1360,22 +1646,37 @@ function render() {
     ctx.shadowBlur = 0;
   }
   // Loot-value tooltip — Monaco-style: hover/proximity reveals value BEFORE
-  // pickup, so the player can decide to skip the $30 sock vs grab the $200 crown.
+  // pickup. Now also shows WEIGHT (heavy = slows you) and NOISE (loud = guards
+  // hear). Helps decide $30 sock vs $200 crown that slows you down.
   for (const lt of loot) {
     if (lt.taken) continue;
     const d = Math.hypot(lt.x - pug.x, lt.y - pug.y);
     if (d > 80) continue;
     const alpha = Math.max(0.25, Math.min(1, (80 - d) / 50));
     const name = lt.iconName.replace(/([A-Z])/g, ' $1').toUpperCase();
+    // Weight + noise tags. goldBar = heavy + quiet, gem = light + quiet,
+    // chandelier = heavy + loud (clinky), laptop = light + loud (snap shut).
+    const heavy = lt.kind === 'goldBar' || lt.kind === 'chandelier' || lt.kind === 'painting' || lt.kind === 'luggage';
+    const loud = lt.kind === 'chandelier' || lt.kind === 'laptop' || lt.kind === 'monitor' || lt.iconName === 'camera';
+    const w = heavy ? 'HVY' : 'LT';
+    const n = loud ? 'LOUD' : 'QUIET';
     const label = `${name} · $${lt.val}`;
+    const sub = `${w} · ${n}`;
     ctx.font = "8px 'Press Start 2P', monospace";
     ctx.textAlign = 'center';
     const tw = ctx.measureText(label).width;
-    const ly = lt.y - 22;
+    const sw = ctx.measureText(sub).width;
+    const boxW = Math.max(tw, sw) + 8;
+    const ly = lt.y - 28;
     ctx.fillStyle = `rgba(0,0,0,${alpha * 0.82})`;
-    ctx.fillRect(lt.x - tw / 2 - 4, ly - 7, tw + 8, 11);
+    ctx.fillRect(lt.x - boxW / 2, ly - 7, boxW, 22);
     ctx.fillStyle = lt.rare ? `rgba(255,210,63,${alpha})` : `rgba(94,243,140,${alpha})`;
     ctx.fillText(label, lt.x, ly + 1);
+    // Sub line — orange if heavy or loud, grey if normal
+    const subColor = (heavy || loud) ? `rgba(255,142,60,${alpha})` : `rgba(180,180,200,${alpha * 0.85})`;
+    ctx.fillStyle = subColor;
+    ctx.font = "6px 'Press Start 2P', monospace";
+    ctx.fillText(sub, lt.x, ly + 11);
   }
   // Exit zone (only when all loot taken)
   if (loot.every((l) => l.taken)) {
@@ -1452,11 +1753,19 @@ function render() {
       ctx.beginPath(); ctx.arc(sb.x + Math.cos(ang) * rr, sb.y + Math.sin(ang) * rr, 16, 0, Math.PI * 2); ctx.fill();
     }
   }
-  // Particles
+  // Particles — halo particles expand as a ring; others are pixel squares.
   for (const p of particles) {
-    ctx.globalAlpha = 1 - p.t / p.life;
-    ctx.fillStyle = p.color;
-    ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+    const fade = 1 - p.t / p.life;
+    ctx.globalAlpha = fade;
+    if (p.halo) {
+      const r = p.size + (p.t / p.life) * 36;
+      ctx.strokeStyle = p.color;
+      ctx.lineWidth = Math.max(1, 4 * fade);
+      ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.stroke();
+    } else {
+      ctx.fillStyle = p.color;
+      ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+    }
     ctx.globalAlpha = 1;
   }
   // Noise rings (where vase landed)
@@ -1550,10 +1859,119 @@ function render() {
     ctx.restore();
     ctx.globalAlpha = 1;
   }
-  // Dust motes (ambient, soft)
-  ctx.fillStyle = 'rgba(220,210,255,0.18)';
+  // Dust motes (ambient, soft) — color shifts per theme.
+  // museum=warm dust, bank=gold, mansion=warm white, office=cyan, airport=pale
+  const moteColor = {
+    museum:  'rgba(255,220,170,0.22)',
+    bank:    'rgba(255,210,90,0.20)',
+    mansion: 'rgba(255,210,255,0.18)',
+    office:  'rgba(120,200,255,0.18)',
+    airport: 'rgba(200,200,255,0.18)',
+  }[buildingTheme] || 'rgba(220,210,255,0.18)';
+  ctx.fillStyle = moteColor;
   for (const d of dustMotes) {
     ctx.beginPath(); ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2); ctx.fill();
+  }
+  // THEME ATMOSPHERE — per-building flavor passes (all cheap, all subtle).
+  if (buildingTheme === 'museum') {
+    // Diagonal beams of light from the ceiling — dust catches the rays.
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < 3; i++) {
+      const bx = (W / 4) * (i + 1);
+      const grad = ctx.createLinearGradient(bx - 30, 0, bx + 30, H);
+      grad.addColorStop(0, 'rgba(255,230,170,0.10)');
+      grad.addColorStop(0.5, 'rgba(255,230,170,0.04)');
+      grad.addColorStop(1, 'rgba(255,230,170,0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.moveTo(bx - 30, 0); ctx.lineTo(bx + 30, 0);
+      ctx.lineTo(bx + 60, H); ctx.lineTo(bx - 60, H);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+  } else if (buildingTheme === 'bank') {
+    // Gold-tint overlay — adds a warm yellow film over the whole floor.
+    ctx.fillStyle = 'rgba(255,200,80,0.07)';
+    ctx.fillRect(0, 0, W, H);
+  } else if (buildingTheme === 'mansion') {
+    // Chandelier sparkle — small glints at the ceiling lights, twinkling.
+    for (const l of lights) {
+      if (!l.on) continue;
+      const tw = 0.5 + 0.5 * Math.sin((performance.now() + l.flickerT * 1000) / 110);
+      if (tw < 0.5) continue;
+      ctx.fillStyle = `rgba(255,240,200,${tw * 0.8})`;
+      ctx.fillRect(l.x - 1, l.y - 6, 2, 2);
+      ctx.fillRect(l.x - 1, l.y + 4, 2, 2);
+      ctx.fillRect(l.x - 6, l.y - 1, 2, 2);
+      ctx.fillRect(l.x + 4, l.y - 1, 2, 2);
+    }
+  } else if (buildingTheme === 'office') {
+    // CRT flicker — faint horizontal scanline that drifts down the screen.
+    const sy = (performance.now() / 8) % H;
+    ctx.fillStyle = 'rgba(120,255,200,0.04)';
+    ctx.fillRect(0, sy, W, 2);
+    ctx.fillRect(0, (sy + H / 2) % H, W, 1);
+  } else if (buildingTheme === 'airport') {
+    // Cold fluorescent tint + soft white glow at top (sky-light look).
+    ctx.fillStyle = 'rgba(180,210,255,0.05)';
+    ctx.fillRect(0, 0, W, H);
+    const sky = ctx.createLinearGradient(0, 0, 0, 120);
+    sky.addColorStop(0, 'rgba(220,235,255,0.18)');
+    sky.addColorStop(1, 'rgba(220,235,255,0)');
+    ctx.fillStyle = sky; ctx.fillRect(0, 0, W, 120);
+  }
+  // DECOY BOT — tiny robot pug strolling toward the lure point.
+  if (decoyBot) {
+    const a = decoyBot.t < 0.2 ? decoyBot.t / 0.2 : (decoyBot.t > decoyBot.life - 0.4 ? Math.max(0, (decoyBot.life - decoyBot.t) / 0.4) : 1);
+    const wob = Math.sin(decoyBot.wobble) * 2;
+    ctx.save();
+    ctx.globalAlpha = a;
+    // Shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.beginPath(); ctx.ellipse(decoyBot.x, decoyBot.y + 10, 10, 3, 0, 0, Math.PI * 2); ctx.fill();
+    // Body — chrome plate
+    ctx.fillStyle = '#cacacf';
+    ctx.fillRect(decoyBot.x - 9, decoyBot.y - 6 + wob, 18, 12);
+    ctx.fillStyle = '#8a8a9a';
+    ctx.fillRect(decoyBot.x - 9, decoyBot.y - 6 + wob, 18, 2);
+    ctx.fillStyle = '#3a3a4a';
+    ctx.fillRect(decoyBot.x - 9, decoyBot.y + 4 + wob, 18, 2);
+    // Head
+    ctx.fillStyle = '#e0e0e8';
+    ctx.fillRect(decoyBot.x - 6, decoyBot.y - 14 + wob, 12, 10);
+    // Eyes — red LEDs
+    ctx.fillStyle = '#ff3a3a';
+    ctx.shadowColor = '#ff3a3a'; ctx.shadowBlur = 6;
+    ctx.fillRect(decoyBot.x - 4, decoyBot.y - 11 + wob, 2, 2);
+    ctx.fillRect(decoyBot.x + 2, decoyBot.y - 11 + wob, 2, 2);
+    ctx.shadowBlur = 0;
+    // Antenna with blinking light
+    ctx.fillStyle = '#1a0d05';
+    ctx.fillRect(decoyBot.x - 1, decoyBot.y - 20 + wob, 2, 6);
+    const blink = ((performance.now() / 200) | 0) & 1 ? '#ff3a3a' : '#ffd23f';
+    ctx.fillStyle = blink;
+    ctx.fillRect(decoyBot.x - 2, decoyBot.y - 22 + wob, 4, 2);
+    // Ears (tiny triangles)
+    ctx.fillStyle = '#8a8a9a';
+    ctx.beginPath();
+    ctx.moveTo(decoyBot.x - 6, decoyBot.y - 14 + wob);
+    ctx.lineTo(decoyBot.x - 9, decoyBot.y - 17 + wob);
+    ctx.lineTo(decoyBot.x - 4, decoyBot.y - 13 + wob);
+    ctx.closePath(); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(decoyBot.x + 6, decoyBot.y - 14 + wob);
+    ctx.lineTo(decoyBot.x + 9, decoyBot.y - 17 + wob);
+    ctx.lineTo(decoyBot.x + 4, decoyBot.y - 13 + wob);
+    ctx.closePath(); ctx.fill();
+    // BARK speech bubble
+    if (((performance.now() / 600) | 0) & 1) {
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(decoyBot.x + 10, decoyBot.y - 24 + wob, 22, 10);
+      ctx.fillStyle = '#1a0d05'; ctx.font = "6px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+      ctx.fillText('BORK!', decoyBot.x + 21, decoyBot.y - 17 + wob);
+    }
+    ctx.restore();
   }
   // ---- Lighting pass: darken whole stage, punch out light pools ----
   ctx.save();
@@ -1682,6 +2100,33 @@ function drawThemedLoot(lt) {
       ctx.fillStyle = '#1a1a22'; ctx.fillRect(x - 8, y - 6, 16, 11);
       ctx.fillStyle = '#5ef38c'; ctx.fillRect(x - 7, y - 5, 14, 9);
       ctx.fillStyle = '#1a1a22'; ctx.fillRect(x - 3, y + 5, 6, 2);
+      break;
+    case 'luggage':
+      // Roll-along suitcase: dark body, top handle, side stripes, wheels
+      ctx.fillStyle = '#3a2a52';
+      ctx.fillRect(x - 9, y - 6, 18, 12);
+      ctx.fillStyle = '#5a3a82';
+      ctx.fillRect(x - 8, y - 5, 16, 3);
+      ctx.fillStyle = '#221a3a';
+      ctx.fillRect(x - 9, y + 4, 18, 2);
+      // handle
+      ctx.fillStyle = '#cacacf';
+      ctx.fillRect(x - 1, y - 10, 2, 4);
+      ctx.fillRect(x - 3, y - 10, 6, 1);
+      // wheels
+      ctx.fillStyle = '#1a0d05';
+      ctx.fillRect(x - 7, y + 6, 3, 2); ctx.fillRect(x + 4, y + 6, 3, 2);
+      break;
+    case 'passport':
+      // Red passport with gold seal
+      ctx.fillStyle = '#a02828';
+      ctx.fillRect(x - 6, y - 8, 12, 14);
+      ctx.fillStyle = '#7a1a1a';
+      ctx.fillRect(x - 6, y - 8, 12, 1);
+      ctx.fillStyle = '#ffd23f';
+      ctx.beginPath(); ctx.arc(x, y - 2, 2, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#ffce5e';
+      ctx.fillRect(x - 4, y + 3, 8, 1);
       break;
     default:
       ctx.fillStyle = c; ctx.fillRect(x - 5, y - 5, 10, 10);
@@ -1922,13 +2367,62 @@ function drawGadgetHud() {
   }
   // MINI-MAP (toggle M) — top-right
   if (miniMapOn) drawMiniMap();
-  // SLOW-MO chroma + scanlines while active
+  // SLOW-MO chroma — much stronger blue overlay so it's instantly readable.
+  // Was barely visible (0.06 alpha). Now a 14% blue wash + scanlines + edge
+  // glow + a "SLOW-MO" chip in the top-center.
   if (slowmoT > 0) {
-    ctx.fillStyle = 'rgba(76,201,240,0.06)'; ctx.fillRect(0, 0, W, H);
-    ctx.strokeStyle = 'rgba(76,201,240,0.12)'; ctx.lineWidth = 1;
+    const pulse = 0.6 + 0.4 * Math.sin(performance.now() / 90);
+    // Stronger overall wash
+    ctx.fillStyle = `rgba(76,201,240,${0.14 * pulse})`;
+    ctx.fillRect(0, 0, W, H);
+    // Scanlines slightly heavier
+    ctx.strokeStyle = `rgba(76,201,240,${0.18 * pulse})`; ctx.lineWidth = 1;
     for (let y = 0; y < H; y += 4) {
       ctx.beginPath(); ctx.moveTo(0, y + 0.5); ctx.lineTo(W, y + 0.5); ctx.stroke();
     }
+    // Edge glow vignette
+    const eg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.3, W / 2, H / 2, Math.max(W, H) * 0.7);
+    eg.addColorStop(0, 'rgba(76,201,240,0)');
+    eg.addColorStop(1, `rgba(76,201,240,${0.55 * pulse})`);
+    ctx.fillStyle = eg; ctx.fillRect(0, 0, W, H);
+    // Center chip
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(W / 2 - 50, H / 2 - 80, 100, 18);
+    ctx.fillStyle = '#b0e8ff'; ctx.font = "bold 9px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText('• SLOW-MO •', W / 2, H / 2 - 67);
+  }
+  // STEALTH ESTABLISHED — pulsing badge near top center after 2s in shadow.
+  if (_stealthBadgeT > 0) {
+    const a = _stealthBadgeT > 0.4 ? 1 : _stealthBadgeT / 0.4;
+    const pulse = 0.7 + 0.3 * Math.sin(performance.now() / 200);
+    ctx.fillStyle = `rgba(20,40,28,${0.7 * a})`;
+    ctx.fillRect(W / 2 - 110, 30, 220, 22);
+    ctx.strokeStyle = `rgba(94,243,140,${pulse * a})`; ctx.lineWidth = 2;
+    ctx.strokeRect(W / 2 - 110, 30, 220, 22);
+    ctx.fillStyle = `rgba(94,243,140,${pulse * a})`;
+    ctx.font = "bold 9px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText('· STEALTH ESTABLISHED ·', W / 2, 45);
+  }
+  // SAFE CRACK meter — large bar at the bottom of the screen when active.
+  if (activeSafe) {
+    const mx = W / 2 - 130, my = H - 80, mw = 260, mh = 22;
+    ctx.fillStyle = 'rgba(0,0,0,0.85)';
+    ctx.fillRect(mx - 4, my - 22, mw + 8, mh + 32);
+    ctx.strokeStyle = '#ffd23f'; ctx.lineWidth = 2;
+    ctx.strokeRect(mx - 4, my - 22, mw + 8, mh + 32);
+    // Track
+    ctx.fillStyle = '#3a3a3a';
+    ctx.fillRect(mx, my, mw, mh);
+    // Sweet spot — center 22%
+    ctx.fillStyle = safeFailT > 0 ? '#ff5a82' : '#1a8a40';
+    ctx.fillRect(mx + mw * 0.39, my, mw * 0.22, mh);
+    // Needle
+    const nx = mx + safeMeter * mw;
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(nx - 2, my - 2, 4, mh + 4);
+    // Title
+    ctx.fillStyle = '#ffd23f'; ctx.font = "bold 9px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText('SAFE CRACK · F TO TAP · ' + safeStreak + '/' + safeTotal, mx + mw / 2, my - 6);
   }
 }
 // MINI-MAP — radar w/ pug+guards+cameras+vents+exit.
@@ -2250,7 +2744,8 @@ function showFloorBriefing(level) {
   if (!_briefingOv || !document.getElementById('brief-floor')) { genFloor(level); return; }
   const theme = BUILDING_THEMES[(level - 1) % BUILDING_THEMES.length];
   const flavor = { museum: 'Gems + artifacts. Fragile haul.', bank: 'Heavy gold bars slow you.',
-    mansion: 'Paintings block vision while held.', office: 'Plentiful laptops, low value.' }[theme] || '';
+    mansion: 'Paintings block vision while held.', office: 'Plentiful laptops, low value.',
+    airport: 'Luggage + passports. WATCH the X-RAY scanners.' }[theme] || '';
   document.getElementById('brief-floor').textContent = level;
   document.getElementById('brief-theme').textContent = theme.toUpperCase();
   document.getElementById('brief-flavor').textContent = flavor;
@@ -2260,8 +2755,29 @@ function showFloorBriefing(level) {
   document.getElementById('brief-haul').textContent = Math.round(lootCount * 0.65 * avg);
   const c2 = document.getElementById('brief-map').getContext('2d');
   c2.fillStyle = '#0a0716'; c2.fillRect(0, 0, 220, 140);
-  c2.fillStyle = { museum: '#3a2a5a', bank: '#5a3a1c', mansion: '#5a1e2a', office: '#1e3a4a' }[theme] || '#3a3a3a';
+  c2.fillStyle = { museum: '#3a2a5a', bank: '#5a3a1c', mansion: '#5a1e2a',
+    office: '#1e3a4a', airport: '#1a2a3a' }[theme] || '#3a3a3a';
   for (let r = 0; r < 3; r++) for (let cc = 0; cc < 4; cc++) c2.fillRect(cc * 55 + 1, r * 47 + 1, 53, 45);
+  // RECOMMENDED PATH hint — faint dashed line from spawn (bottom-left) → exit
+  // (top-right), curving along the perimeter (the safest known route).
+  c2.strokeStyle = 'rgba(94,243,140,0.55)';
+  c2.lineWidth = 1.5;
+  c2.setLineDash([3, 3]);
+  c2.beginPath();
+  c2.moveTo(17, 125);
+  c2.quadraticCurveTo(60, 60, 110, 50);
+  c2.quadraticCurveTo(170, 40, 203, 10);
+  c2.stroke();
+  c2.setLineDash([]);
+  // Arrow head at the exit
+  c2.fillStyle = 'rgba(94,243,140,0.85)';
+  c2.beginPath();
+  c2.moveTo(203, 10); c2.lineTo(196, 14); c2.lineTo(199, 16); c2.closePath(); c2.fill();
+  // Hint label
+  c2.fillStyle = 'rgba(176,232,255,0.7)';
+  c2.font = "7px 'Press Start 2P', monospace"; c2.textAlign = 'center';
+  c2.fillText('· suggested route ·', 110, 70);
+  // Endpoints
   c2.fillStyle = '#5ef38c'; c2.fillRect(200, 6, 6, 6);
   c2.fillStyle = '#fff'; c2.fillRect(14, 122, 6, 6);
   _briefingOv.style.display = 'flex';
@@ -2276,7 +2792,7 @@ const _startOv = document.getElementById('overlay');
 if (_startOv) {
   const _showOnHide = () => {
     if (_startOv.classList.contains('is-hidden') || _startOv.hidden) {
-      showTip('WASD sneak · Q smoke · G tongue · T decoy · X throw vase · spend $$ between floors!', 6500);
+      showTip('WASD sneak · Q smoke · G tongue · T decoy · X throw vase · F crack safe · spend $$ between floors!', 6500);
     }
   };
   new MutationObserver(_showOnHide).observe(_startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });

@@ -87,6 +87,12 @@ export class Generator {
     // GLOWING CORE in the middle (animated)
     this.core = new Graphics();
     this.container.addChild(this.core);
+    // Electric-arc layer (round-2 polish): random jagged Tesla-coil bolts
+    // that flicker around the core. Density + speed scale inversely with HP
+    // (more chaos when generator is dying).
+    this.arcs = new Graphics();
+    this.container.addChild(this.arcs);
+    this._arcT = 0;
 
     // exhaust vents on sides
     const vents = new Graphics();
@@ -112,14 +118,57 @@ export class Generator {
 
   _drawCore(t) {
     this.core.clear();
-    const pulse = 0.85 + 0.15 * Math.sin(t * 4);
-    const ratio = Math.max(0.15, this.hp / this.maxHp);
+    // Pulse rate now correlates with HP — low HP = faster, more frantic pulse
+    const ratio = Math.max(0.1, this.hp / this.maxHp);
+    const pulseRate = 4 + (1 - ratio) * 6;          // 4..10 Hz
+    const pulseAmp = 0.15 + (1 - ratio) * 0.25;     // 0.15..0.4
+    const pulse = (1 - pulseAmp * 0.5) + pulseAmp * Math.sin(t * pulseRate);
     const c = ratio > 0.5 ? COLORS.neonCyan : ratio > 0.25 ? COLORS.neonYellow : COLORS.zombieEye;
-    this.core.circle(0, -7, 11 * pulse).fill({ color: c, alpha: 0.5 });
+    // Outer halo + 3 layered glow rings — radius scales with pulse
+    this.core.circle(0, -7, 18 * pulse).fill({ color: c, alpha: 0.18 });
+    this.core.circle(0, -7, 14 * pulse).fill({ color: c, alpha: 0.32 });
+    this.core.circle(0, -7, 11 * pulse).fill({ color: c, alpha: 0.55 });
     this.core.circle(0, -7, 8 * pulse).fill(c);
     this.core.circle(0, -7, 5 * pulse).fill(0xffffff);
-    // glow ring
-    this.core.circle(0, -7, 16).stroke({ color: c, width: 2, alpha: 0.35 });
+    // glow ring — 2 strokes for layered depth
+    this.core.circle(0, -7, 16).stroke({ color: c, width: 2, alpha: 0.45 });
+    this.core.circle(0, -7, 22).stroke({ color: c, width: 1, alpha: 0.25 });
+  }
+  // Re-render the Tesla-coil arc layer. Each frame we pick N random jagged
+  // bolts radiating from the core. Density + brightness ramp as HP falls.
+  _drawArcs(t) {
+    this.arcs.clear();
+    const ratio = Math.max(0.05, this.hp / this.maxHp);
+    // More arcs at low HP (1..5)
+    const count = 1 + Math.floor((1 - ratio) * 5);
+    const c = ratio > 0.5 ? COLORS.neonCyan : ratio > 0.25 ? COLORS.neonYellow : COLORS.zombieEye;
+    // Use a quantized time so the arcs flicker (not smooth)
+    const tick = Math.floor(t * 18);
+    for (let i = 0; i < count; i++) {
+      // Pseudorandom angle from id + tick (stable per ~55ms slice)
+      const seed = (tick * 13 + i * 31) & 255;
+      const ang = ((seed * 137.5) % 360) * Math.PI / 180;
+      // Jagged polyline ~3 segments
+      const segs = 3;
+      const reach = 18 + (1 - ratio) * 14;
+      let px = 0, py = -7;
+      for (let s = 1; s <= segs; s++) {
+        const k = s / segs;
+        const baseX = Math.cos(ang) * reach * k;
+        const baseY = -7 + Math.sin(ang) * reach * k;
+        const jitter = ((seed + s * 17) & 7) - 3;
+        const nx = baseX + jitter;
+        const ny = baseY + jitter * 0.5;
+        this.arcs.rect(Math.min(px, nx) - 0.5, Math.min(py, ny) - 0.5,
+          Math.abs(nx - px) + 1, Math.abs(ny - py) + 1)
+          .fill({ color: c, alpha: 0.8 });
+        // hot-white core stripe
+        this.arcs.rect(Math.min(px, nx), Math.min(py, ny),
+          Math.max(1, Math.abs(nx - px)), Math.max(1, Math.abs(ny - py)))
+          .fill({ color: 0xffffff, alpha: 0.6 });
+        px = nx; py = ny;
+      }
+    }
   }
 
   _renderHpBar() {
@@ -155,6 +204,11 @@ export class Generator {
     this.fan.x = 0; this.fan.y = 0;
     // fan position via transform (already at top of body in local coords)
     this._drawCore(this.coreT);
+    this._arcT += dt;
+    if (this._arcT > 0.05) {
+      this._arcT = 0;
+      this._drawArcs(this.coreT);
+    }
 
     // pulse ground glow
     const ratio = Math.max(0.2, this.hp / this.maxHp);

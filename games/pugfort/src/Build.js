@@ -385,6 +385,86 @@ function createFlameThrowerGraphic() {
   return c;
 }
 
+// ---------- BARBED WIRE (slow + light damage trap) ----------
+// Strip of barbed wire spans a lane. Slows zombies that pass over it.
+// Cheaper than spikes but does less damage; instead applies a slowdown debuff.
+const WIRE_W = 56, WIRE_H = 14;
+function createBarbedWireGraphic() {
+  const c = new Container();
+  const g = new Graphics();
+  // Wooden stake supports on each end
+  g.rect(0, 4, 4, WIRE_H - 4).fill(WOOD_DARK);
+  g.rect(0, 4, 1, WIRE_H - 4).fill(shade(WOOD_DARK, 1.3));
+  g.rect(WIRE_W - 4, 4, 4, WIRE_H - 4).fill(WOOD_DARK);
+  g.rect(WIRE_W - 1, 4, 1, WIRE_H - 4).fill(shade(WOOD_DARK, 0.6));
+  // 3 horizontal wire strands (alternating up/down zigzag)
+  for (let strand = 0; strand < 3; strand++) {
+    const y = 4 + strand * 4;
+    // Main wire (silver)
+    g.rect(4, y, WIRE_W - 8, 1).fill(0xc8c8d0);
+    g.rect(4, y, WIRE_W - 8, 1).fill({ color: 0x6a6a72, alpha: 0.5 });
+    // Barbs every ~8px (alternating up/down)
+    for (let bx = 8; bx < WIRE_W - 8; bx += 8) {
+      const upDown = (bx + strand) % 16 < 8 ? -1 : 1;
+      g.rect(bx, y + (upDown < 0 ? -2 : 1), 1, 2).fill(0xeaeaea);
+      g.rect(bx - 1, y + (upDown < 0 ? -1 : 2), 3, 1).fill(0xc8c8d0);
+    }
+  }
+  // Blood smears (used barbed wire)
+  for (let i = 0; i < 3; i++) {
+    const bx = 12 + Math.floor(Math.random() * (WIRE_W - 24));
+    const by = 5 + Math.floor(Math.random() * 6);
+    g.circle(bx, by, 1).fill({ color: COLORS.bloodRed, alpha: 0.7 });
+  }
+  c.addChild(g);
+  const glow = new Graphics();
+  glow.rect(-2, -2, WIRE_W + 4, WIRE_H + 4).stroke({ color: 0xc8c8d0, width: 2, alpha: 0.75 });
+  c.addChild(glow);
+  return c;
+}
+
+// ---------- TURRET PLATFORM (elevated platform — boosts adjacent turrets) ----------
+// Tall block of stacked sandbags + a stone-and-wood elevated base. Has no
+// active effect by itself; +50% range applied to any turret placed within
+// 1.5 cells (handled by Game in _updateTurrets via platform proximity check).
+const PLAT_W = 44, PLAT_H = 44;
+function createTurretPlatformGraphic() {
+  const c = new Container();
+  const cx = PLAT_W / 2, cy = PLAT_H / 2;
+  const g = new Graphics();
+  // Stacked stone base (4 layers, alternating colors)
+  for (let layer = 0; layer < 4; layer++) {
+    const offX = (layer % 2) * 2;
+    const cy2 = cy + 6 - layer * 8;
+    const c1 = layer % 2 === 0 ? 0x7a6a5a : 0x6a5a4a;
+    g.rect(cx - 18 + offX, cy2, 36, 8).fill(c1);
+    g.rect(cx - 18 + offX, cy2, 36, 1).fill(shade(c1, 1.4));
+    g.rect(cx - 18 + offX, cy2 + 6, 36, 1).fill(shade(c1, 0.6));
+    // Stone joins
+    for (let bx = 0; bx < 36; bx += 9) {
+      g.rect(cx - 18 + offX + bx, cy2, 1, 8).fill({ color: 0x000000, alpha: 0.4 });
+    }
+  }
+  // Wooden top deck (placement surface)
+  g.rect(cx - 20, cy - 22, 40, 6).fill(WOOD);
+  g.rect(cx - 20, cy - 22, 40, 1).fill(shade(WOOD, 1.3));
+  g.rect(cx - 20, cy - 18, 40, 2).fill(0x222228);
+  // Plank lines on deck
+  for (let bx = -16; bx < 20; bx += 6) {
+    g.rect(cx + bx, cy - 22, 1, 6).fill(shade(WOOD, 0.7));
+  }
+  // Glowing "+RANGE" pad symbol on deck
+  g.rect(cx - 4, cy - 21, 8, 1).fill({ color: COLORS.neonCyan, alpha: 0.85 });
+  g.rect(cx - 1, cy - 24, 2, 6).fill({ color: COLORS.neonCyan, alpha: 0.85 });
+  // Glow halo around the +
+  g.circle(cx, cy - 21, 6).stroke({ color: COLORS.neonCyan, width: 1, alpha: 0.5 });
+  c.addChild(g);
+  const glow = new Graphics();
+  glow.rect(-2, -2, PLAT_W + 4, PLAT_H + 4).stroke({ color: 0x4cc9f0, width: 2, alpha: 0.75 });
+  c.addChild(glow);
+  return c;
+}
+
 // ---------- REPAIR BAY ----------
 const REPAIR_W = 44, REPAIR_H = 44;
 function createRepairBayGraphic() {
@@ -516,6 +596,31 @@ export const BUILDABLES = {
     isFlame: true,
     desc: 'Short-range continuous flame — burns crowds.',
     unlock: { key: 'flamethrower', threshold: 10, label: 'Survive 10 total nights' },
+  },
+  // ROUND-2 NEW: BARBED WIRE — wide slowdown lane; cheap; small DPS.
+  // Placement: along a lane that zombies funnel through. Slow stacks with mud.
+  barbedWire: {
+    id: 'barbedWire', name: 'BARBED WIRE', icon: '〰', iconName: 'gold',
+    cost: { wood: 3, scrap: 3 },
+    build: createBarbedWireGraphic, width: WIRE_W, height: WIRE_H,
+    rotatable: true, hp: 70,
+    isTrap: true,
+    trapDps: 4,            // gentle DPS (spikes do 12)
+    isWire: true,          // marks for the slow-aura logic in Game._updateBuildables
+    wireSlowMul: 0.45,     // zombies move at 45% speed while standing on wire
+    desc: 'Lane slow + light DPS. Stack along chokes.',
+  },
+  // ROUND-2 NEW: TURRET PLATFORM — elevates an adjacent turret +50% range.
+  // No damage on its own. Best paired with sniper or flamethrower for choke control.
+  turretPlatform: {
+    id: 'turretPlatform', name: 'PLATFORM', icon: '◰', iconName: 'shield',
+    cost: { wood: 8, scrap: 6 },
+    build: createTurretPlatformGraphic, width: PLAT_W, height: PLAT_H,
+    rotatable: false, hp: 180,
+    isPlatform: true,
+    platformRangeBonus: 0.5,    // adjacent turrets gain +50% range
+    platformRadius: 80,          // adjacency radius (px) — about 1.5 cells
+    desc: '+50% range to adjacent turrets. No fire.',
   },
 };
 

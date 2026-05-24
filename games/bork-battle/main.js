@@ -170,33 +170,36 @@ renderSkins();
 renderDifficulty();
 renderPerks();
 
-// Daily challenge — same arena seed for all players on a given UTC day. We
-// can't enforce leaderboards without a backend, but we do show today's
-// challenge name + the player's local-best for the day.
+// Daily challenge — same arena seed for all players on a given UTC day.
+// Polish R2: challenges are now MUCH more playable. Each one suggests a
+// weapon (not forced) and a low kill threshold (5 kills). Completing
+// awards a one-time "Daily Crown" badge label to motivate retries.
 (function _dailyChallenge() {
   const el = document.getElementById('daily-challenge-line');
   if (!el) return;
   const today = new Date().toISOString().slice(0, 10);
   const dailyKey = 'bork:daily:' + today;
   const challenges = [
-    { name: 'PISTOL ONLY', desc: 'Only pistol weapons today!', weapon: 'pistol' },
-    { name: 'SHOTGUN SUNDAY', desc: 'Loadout: shotgun', weapon: 'shotgun' },
-    { name: 'SNIPER ELITE', desc: 'Loadout: sniper', weapon: 'sniper' },
-    { name: 'AR ASSAULT', desc: 'Loadout: AR', weapon: 'ar' },
+    { name: 'PISTOL HEAD',     desc: '5 kills with the PISTOL (any difficulty)',  weapon: 'pistol',  goal: 5 },
+    { name: 'SHOTGUN SUNDAY',  desc: '4 kills with the SHOTGUN — get up close',   weapon: 'shotgun', goal: 4 },
+    { name: 'SNIPER ELITE',    desc: '4 kills with the SNIPER — pick your shots', weapon: 'sniper',  goal: 4 },
+    { name: 'AR ASSAULT',      desc: '6 kills with the AR — spray and pray',      weapon: 'ar',      goal: 6 },
   ];
   // Pick deterministically from today's date
   const seed = today.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
   const challenge = challenges[seed % challenges.length];
   let bestText = '';
+  let done = false;
   try {
     const raw = localStorage.getItem(dailyKey);
     if (raw) {
       const o = JSON.parse(raw);
-      bestText = ` · Today's best: ${o.kills} kills`;
+      bestText = ` · Best: ${o.kills} kills`;
+      done = !!o.done;
     }
   } catch (e) { /* */ }
   el.hidden = false;
-  el.innerHTML = `★ DAILY: <b>${challenge.name}</b> — ${challenge.desc}${bestText}`;
+  el.innerHTML = `★ DAILY: <b>${challenge.name}</b> — ${challenge.desc}${bestText}${done ? ' <span style="color:var(--neon-yellow)">✓ DONE</span>' : ''}`;
   // Persist personal-best for the daily key on each match end.
   window.__borkDaily = { key: dailyKey, challenge };
 })();
@@ -500,6 +503,94 @@ if (_startOv) {
   new MutationObserver(_showOnHide).observe(_startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });
 }
 
+// === BORK Polish R2 — extra settings (crosshair, damage numbers) ===
+// Adds 3 small toggles into the start overlay using localStorage keys:
+//   wg:crosshair         '0' default, '1' dot, '2' cross
+//   wg:damage-numbers    '0' off, '1' on (default on)
+//   wg:smart-pickup      '0' off, '1' prefer current weapon (default on)
+// Drawn as a small UI block at the bottom of the .overlay__panel.
+(function _r2Settings() {
+  const panel = document.querySelector('#overlay .overlay__panel');
+  if (!panel) return;
+  const block = document.createElement('div');
+  block.className = 'r2-settings';
+  block.style.cssText = 'margin:10px auto 4px;font-size:0.5rem;color:#c8c0e8;letter-spacing:0.05em;text-align:center;display:flex;gap:14px;flex-wrap:wrap;justify-content:center;';
+  block.innerHTML = `
+    <label class="r2-settings__row" style="display:flex;flex-direction:column;gap:3px;">
+      <span style="color:var(--neon-cyan);font-size:0.42rem;">CROSSHAIR</span>
+      <select id="r2-crosshair" style="background:rgba(0,0,0,0.5);color:#fff;border:1px solid #2a2540;padding:3px 6px;font-family:inherit;font-size:0.5rem;">
+        <option value="0">DEFAULT</option>
+        <option value="1">DOT</option>
+        <option value="2">CROSS</option>
+      </select>
+    </label>
+    <label class="r2-settings__row" style="display:flex;flex-direction:column;gap:3px;">
+      <span style="color:var(--neon-cyan);font-size:0.42rem;">DAMAGE NUMBERS</span>
+      <select id="r2-damage-numbers" style="background:rgba(0,0,0,0.5);color:#fff;border:1px solid #2a2540;padding:3px 6px;font-family:inherit;font-size:0.5rem;">
+        <option value="1">ON</option>
+        <option value="0">OFF</option>
+      </select>
+    </label>
+    <label class="r2-settings__row" style="display:flex;flex-direction:column;gap:3px;">
+      <span style="color:var(--neon-cyan);font-size:0.42rem;">SMART AMMO PICKUP</span>
+      <select id="r2-smart-pickup" style="background:rgba(0,0,0,0.5);color:#fff;border:1px solid #2a2540;padding:3px 6px;font-family:inherit;font-size:0.5rem;">
+        <option value="1">PREFER CURRENT</option>
+        <option value="0">RANDOM</option>
+      </select>
+    </label>
+  `;
+  panel.insertBefore(block, document.querySelector('#starter-choices'));
+  // Wire selects → localStorage (defaults sensible if not set)
+  const cs = document.getElementById('r2-crosshair');
+  cs.value = localStorage.getItem('wg:crosshair') || '0';
+  cs.addEventListener('change', () => {
+    localStorage.setItem('wg:crosshair', cs.value);
+    applyCrosshairStyle(cs.value);
+  });
+  applyCrosshairStyle(cs.value);
+  const dn = document.getElementById('r2-damage-numbers');
+  dn.value = localStorage.getItem('wg:damage-numbers') || '1';
+  dn.addEventListener('change', () => { localStorage.setItem('wg:damage-numbers', dn.value); });
+  const sp = document.getElementById('r2-smart-pickup');
+  sp.value = localStorage.getItem('wg:smart-pickup') || '1';
+  sp.addEventListener('change', () => { localStorage.setItem('wg:smart-pickup', sp.value); });
+})();
+// Crosshair: rendered via DOM cursor SVG so it doesn't conflict with Pixi.
+function applyCrosshairStyle(style) {
+  // SVG-data-URI cursors. Anchor 16,16 = center.
+  const cursors = {
+    '0': "default",
+    '1': "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16'><circle cx='8' cy='8' r='3' fill='%23ffd23f' stroke='%23000' stroke-width='1'/></svg>\") 8 8, crosshair",
+    '2': "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24'><line x1='12' y1='2' x2='12' y2='8' stroke='%234cc9f0' stroke-width='2'/><line x1='12' y1='16' x2='12' y2='22' stroke='%234cc9f0' stroke-width='2'/><line x1='2' y1='12' x2='8' y2='12' stroke='%234cc9f0' stroke-width='2'/><line x1='16' y1='12' x2='22' y2='12' stroke='%234cc9f0' stroke-width='2'/><circle cx='12' cy='12' r='1.5' fill='%23fff'/></svg>\") 12 12, crosshair",
+  };
+  // Apply to game-root + canvas (only matters during play)
+  const root = document.getElementById('game-root');
+  if (root) root.style.cursor = cursors[style] || cursors['0'];
+}
+
+// === Pre-game tooltip — show arena/biome info on match start ===
+// One-shot toast that lists the three biome names (KITCHEN/GARAGE/GARDEN)
+// + reminds player about hazards. Replaces the generic controls tip on
+// the second start onward (first start still shows controls).
+(function _arenaTipOnStart() {
+  const startOv = document.getElementById('overlay');
+  if (!startOv) return;
+  let _startCount = 0;
+  new MutationObserver(() => {
+    if (startOv.classList.contains('is-hidden') || startOv.hidden) {
+      _startCount++;
+      // Skip the first transition (controls tip handles that one).
+      if (_startCount > 1) {
+        setTimeout(() => {
+          if (game && game.hud && game.hud.toastMessage) {
+            game.hud.toastMessage('🗺 ARENA: KITCHEN · GARAGE · GARDEN biomes — watch for ☣ poison + 💧 puddles', 'info');
+          }
+        }, 400);
+      }
+    }
+  }).observe(startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });
+})();
+
 // ============ Touch ability buttons (DASH / DECOY / HEAL) ============
 // Built in DOM (not in shared touchControls.js) to avoid edits to shared code.
 // Stack above the existing BORK button on the right edge.
@@ -646,15 +737,28 @@ window.addEventListener('keydown', (e) => {
 });
 
 // Persist daily best on match end (observe the end overlay).
+// Polish R2: also tracks `done` flag — set when player reaches goal with the
+// suggested weapon. The flag is persistent (sticky across all matches today).
 const __endOv = document.getElementById('end-overlay');
 if (__endOv && window.__borkDaily) {
   new MutationObserver(() => {
     if (__endOv.hidden || __endOv.classList.contains('is-hidden')) return;
     try {
       const kills = parseInt(document.getElementById('end-kills')?.textContent || '0', 10);
-      const prev = JSON.parse(localStorage.getItem(window.__borkDaily.key) || '{"kills":0}');
-      if (kills > (prev.kills | 0)) {
-        localStorage.setItem(window.__borkDaily.key, JSON.stringify({ kills }));
+      const prev = JSON.parse(localStorage.getItem(window.__borkDaily.key) || '{"kills":0,"done":false}');
+      // Did the player use the suggested weapon this match? chosenWeapon is the
+      // module-scoped picker state at the time of match start.
+      const usedSuggested = (chosenWeapon === window.__borkDaily.challenge.weapon);
+      const newDone = prev.done || (usedSuggested && kills >= (window.__borkDaily.challenge.goal || 5));
+      const newKills = Math.max(prev.kills | 0, kills);
+      if (newKills !== (prev.kills | 0) || newDone !== !!prev.done) {
+        localStorage.setItem(window.__borkDaily.key, JSON.stringify({ kills: newKills, done: newDone }));
+      }
+      // First-completion toast
+      if (newDone && !prev.done) {
+        try {
+          if (game?.hud?.toastMessage) game.hud.toastMessage('★ DAILY CHALLENGE COMPLETE!', 'kill');
+        } catch (e) { /* */ }
       }
     } catch (e) { /* */ }
   }).observe(__endOv, { attributes: true, attributeFilter: ['hidden', 'class'] });

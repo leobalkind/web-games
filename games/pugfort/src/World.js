@@ -56,6 +56,43 @@ export class World {
     const base = new Graphics();
     base.rect(0, 0, this.width, this.height).fill(COLORS.ground);
     this.bg.addChild(base);
+    // ARENA map: round perimeter (sand floor) with stone wall ring (decorative).
+    // Cosmetic only — no collision changes; gives the map a distinct visual.
+    if (this.mapId === 'arena') {
+      const cx = this.width / 2, cy = this.height / 2;
+      const radius = Math.min(this.width, this.height) * 0.45;
+      const ring = new Graphics();
+      // Sand floor inside ring
+      ring.circle(cx, cy, radius).fill({ color: 0xb8a874, alpha: 0.85 });
+      ring.circle(cx, cy, radius).stroke({ color: 0x8a7a4a, width: 5, alpha: 0.9 });
+      // Inner darker ring (combat zone)
+      ring.circle(cx, cy, radius - 24).fill({ color: 0xa89858, alpha: 0.6 });
+      // Sand speckle
+      for (let i = 0; i < 280; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const r = Math.random() * (radius - 10);
+        const sx = cx + Math.cos(a) * r;
+        const sy = cy + Math.sin(a) * r;
+        const c = [0x9a8a5a, 0xb0a070, 0x6a5a3a][Math.floor(Math.random() * 3)];
+        ring.rect(sx, sy, 2, 2).fill(c);
+      }
+      // Stone perimeter blocks (decor every ~28°)
+      for (let i = 0; i < 20; i++) {
+        const a = (i / 20) * Math.PI * 2;
+        const bx = cx + Math.cos(a) * (radius + 12);
+        const by = cy + Math.sin(a) * (radius + 12);
+        ring.rect(bx - 14, by - 14, 28, 28).fill(0x5a5a62);
+        ring.rect(bx - 14, by - 14, 28, 4).fill(0x7a7a82);
+        ring.rect(bx - 14, by + 10, 28, 4).fill(0x2a2a32);
+        // Glowing brazier inside every 5th
+        if (i % 5 === 0) {
+          ring.circle(bx, by, 6).fill({ color: 0xff8a3a, alpha: 0.9 });
+          ring.circle(bx, by, 3).fill(0xffd23f);
+          ring.circle(bx, by - 1, 1).fill(0xffffff);
+        }
+      }
+      this.bg.addChild(ring);
+    }
 
     // ULTRA-DENSE speckle pass: 3x density + more color variety
     const speck = new Graphics();
@@ -749,12 +786,25 @@ export class World {
   }
 
   setPhaseTint(phase, k = 0) {
+    // Round-2 polish: smoother eased transitions between phases. We blend
+    // toward the target color using `k` (0..1 through-phase) with an
+    // ease-in-out curve so dusk/dawn fade gently into night/day.
+    const ease = (t) => t * t * (3 - 2 * t); // smoothstep
     let color = 0x0a0716;
     let alpha = 0;
     if (phase === 'day') { alpha = 0; }
-    else if (phase === 'sunset') { color = COLORS.duskTint; alpha = 0.25 + k * 0.18; }
-    else if (phase === 'night') { color = COLORS.nightTint; alpha = 0.6; }
-    else if (phase === 'dawn') { color = COLORS.dawnTint; alpha = 0.28 - k * 0.18; }
+    else if (phase === 'sunset') {
+      color = COLORS.duskTint;
+      // Ramp 0.05 → 0.55 over the phase, eased
+      alpha = 0.05 + ease(Math.max(0, Math.min(1, k))) * 0.50;
+    } else if (phase === 'night') {
+      color = COLORS.nightTint;
+      alpha = 0.6;
+    } else if (phase === 'dawn') {
+      color = COLORS.dawnTint;
+      // Ramp 0.45 → 0.0 over the phase, eased
+      alpha = 0.45 * (1 - ease(Math.max(0, Math.min(1, k))));
+    }
     this.tintRect.clear();
     this.tintRect.rect(0, 0, this.width, this.height).fill({ color, alpha });
   }

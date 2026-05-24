@@ -134,14 +134,34 @@ const SECTION_ITEMS = {
     { name: 'discBox',  val: 16, color: '#ff3aa1', shape: 'box', trap: true },
     { name: 'lastSeason',val: 8, color: '#5ea0c8', shape: 'box' },
   ],
+  // BAKERY — high-value warm bread. Smell attracts the cleaner-bot (handled
+  // in tick() via section check). Massive payouts justify the danger.
+  bakery: [
+    { name: 'croissant', val: 32, color: '#d8a06a', shape: 'curve', warm: true },
+    { name: 'hotLoaf',   val: 48, color: '#a87a4a', shape: 'box',   warm: true },
+    { name: 'cake',      val: 65, color: '#ffe0e8', shape: 'box',   warm: true },
+    { name: 'pretzel',   val: 28, color: '#a06030', shape: 'cluster', warm: true },
+  ],
 };
-const SECTION_ORDER = ['produce', 'frozen', 'electronics', 'deli', 'clearance'];
+const SECTION_ORDER = ['produce', 'frozen', 'electronics', 'deli', 'clearance', 'bakery'];
 const SECTION_TINT = {
   produce:    'rgba(94,243,140,0.10)',
   frozen:     'rgba(76,201,240,0.18)',
   electronics:'rgba(176,85,255,0.10)',
   deli:       'rgba(255,142,60,0.10)',
   clearance:  'rgba(255,210,63,0.10)',
+  bakery:     'rgba(255,180,100,0.16)',
+};
+// SECTION_LIGHT — per-section atmospheric tint applied as an overlay band.
+// produce=warm sun, frozen=blue cold, electronics=sterile white, deli=warm
+// yellow, clearance=flickering yellow/dim, bakery=warm orange glow.
+const SECTION_LIGHT = {
+  produce:    { color: 'rgba(255,220,140,0.18)', flicker: false },
+  frozen:     { color: 'rgba(120,200,255,0.20)', flicker: false },
+  electronics:{ color: 'rgba(240,245,255,0.12)', flicker: false },
+  deli:       { color: 'rgba(255,210,80,0.16)',  flicker: false },
+  clearance:  { color: 'rgba(255,210,63,0.18)',  flicker: true },
+  bakery:     { color: 'rgba(255,160,80,0.22)',  flicker: false },
 };
 // Per-map config — chosen on the start overlay; persisted as runMeta.lastMap.
 const MAPS = [
@@ -195,12 +215,37 @@ const BRIBE_DEFS = [
   { id: 'guardBreak',  cost: 80,  name: 'GUARD BREAK',  icon: '💤', desc: 'Both guards freeze for 10 seconds' },
   { id: 'cameraBlink', cost: 60,  name: 'CAMERA BLINK', icon: '📷', desc: 'Cameras + heat off for 8 seconds' },
   { id: 'tipOff',      cost: 100, name: 'TIP-OFF',      icon: '⭐', desc: 'Reveal most valuable item with glow halo' },
+  { id: 'alarmJam',    cost: 150, name: 'ALARM JAMMER', icon: '📡', desc: '8s alarm immunity — alarm cannot trigger' },
 ];
 let bribesBought = {};   // id -> true when used (one-time-per-run)
 let bribeOpen = false;
 let guardFreezeT = 0;    // seconds remaining
 let cameraBlinkT = 0;    // seconds remaining
+let alarmJamT = 0;       // seconds remaining of alarm-trigger immunity
 let highlightedItem = null; // tip-off target ref
+// END-OF-RUN BADGES — earned by completing meta achievements during a run.
+// Stored as a Set in localStorage (across all runs).
+const BADGE_DEFS = [
+  { id: 'PERFECT_HEIST',     label: 'PERFECT HEIST',     desc: 'Escape without being spotted' },
+  { id: 'SECTION_MASTER_X5', label: 'SECTION MASTER ×5', desc: 'Loot from 5 different sections' },
+  { id: 'DOMINO_FALL',       label: 'DOMINO FALL',       desc: 'Chain 4+ shelves in one ram' },
+  { id: 'BIG_SCORE',         label: 'BIG SCORE',         desc: 'Escape with $300+' },
+  { id: 'CART_DEMON',        label: 'CART DEMON',        desc: 'Knock 8+ shelves while in cart' },
+  { id: 'BAKERY_THIEF',      label: 'BAKERY THIEF',      desc: 'Steal 3+ bakery items' },
+  { id: 'ALARM_ESCAPE',      label: 'ALARM ESCAPE',      desc: 'Escape during active alarm' },
+  { id: 'NO_BRIBE',          label: 'NO BRIBES',         desc: 'Escape without using a bribe' },
+];
+const BADGE_KEY = 'supermarket-pug:badges';
+let savedBadges = (() => {
+  try { return new Set(JSON.parse(localStorage.getItem(BADGE_KEY) || '[]')); }
+  catch { return new Set(); }
+})();
+let runBadges = new Set();        // badges earned THIS run (shown on grade card)
+let chainBestThisRun = 0;          // best chain depth seen this run
+let cartShelvesThisRun = 0;        // shelves knocked while in cart
+let bakeryStolenThisRun = 0;       // bakery items stolen
+let sectionsLootedThisRun = new Set(); // sections we grabbed from
+let bribeUsedThisRun = false;      // any bribe purchased
 let shakeT = 0, shakeAmp = 0;
 // Brief red flash overlay when a guard freshly spots you.
 let spotFlashT = 0;
@@ -368,7 +413,15 @@ function reset() {
   bribeOpen = false;
   guardFreezeT = 0;
   cameraBlinkT = 0;
+  alarmJamT = 0;
   highlightedItem = null;
+  // Reset per-run badge tracking
+  runBadges = new Set();
+  chainBestThisRun = 0;
+  cartShelvesThisRun = 0;
+  bakeryStolenThisRun = 0;
+  sectionsLootedThisRun = new Set();
+  bribeUsedThisRun = false;
   // Roll 3 random objectives (no duplicates) from the pool for this run.
   objectives = [];
   const pool = OBJECTIVE_POOL.slice();
@@ -457,8 +510,18 @@ function grabNear() {
           sfx.tone(140, 'sawtooth', 0.18, 0.3);
           popup(it.x, it.y - 18, 'OPEN BOX! +HEAT', '#ff3a3a');
         }
-        // ELECTRONICS heavily watched: +heat per grab
-        if (it.item.expensive) heat = Math.min(1, heat + 0.18);
+        // ELECTRONICS heavily watched: +heat per grab (bumped 0.18→0.22 to
+        // match the "high-risk/high-reward" pitch)
+        if (it.item.expensive) heat = Math.min(1, heat + 0.22);
+        // BAKERY warm-bread smell attracts the cleaner-bot. Pull it toward
+        // the player for ~3s by overriding its target angle.
+        if (it.item.warm && cleanerBot) {
+          cleanerBot._lure = { x: pug.x, y: pug.y, t: 3.0 };
+          popup(it.x, it.y - 14, '~SMELLS GOOD~', '#ff8e3c');
+        }
+        // Track per-run badge state
+        if (it.sec) sectionsLootedThisRun.add(it.sec);
+        if (it.sec === 'bakery') bakeryStolenThisRun++;
         // SHOPLIFTER combo — 5 small items (<25 val) within 1.5s window each
         const now = performance.now();
         if (it.item.val < 25 && now - lastGrabT < 1500) comboChain++;
@@ -499,6 +562,8 @@ function knockOverShelf(s, nx, ny, power, chainDepth) {
     if (it.on === s && !it.taken) { it.y += 18; it.fallen = true; }
   }
   shelvesKnocked++;
+  if (inCart) cartShelvesThisRun++;
+  if (chainDepth + 1 > chainBestThisRun) chainBestThisRun = chainDepth + 1;
   heat = Math.min(1, heat + 0.18 + chainDepth * 0.04);
   shake(3 + chainDepth, 0.18);
   sfx.tone(140 - chainDepth * 12, 'sawtooth', 0.12, 0.22);
@@ -548,6 +613,7 @@ function ram() {
           }
         }
         shelvesKnocked++;
+        if (inCart) cartShelvesThisRun++;
         shelves = shelves.filter((x) => x !== s);
         sfx.tone(110, 'square', 0.2, 0.24);
         shake(6, 0.22);
@@ -595,9 +661,22 @@ function tick(dt) {
     const l = Math.hypot(mx, my);
     tvx = (mx / l) * speed;
     tvy = (my / l) * speed;
+    // CART WOBBLE/LEAN — track angle delta. Sharp turns (Δang > ~40°)
+    // induce a wobble that rocks the cart sideways for ~0.4s.
+    if (inCart && pug.ang != null) {
+      const newAng = Math.atan2(my, mx);
+      let dAng = newAng - pug.ang;
+      while (dAng > Math.PI) dAng -= Math.PI * 2;
+      while (dAng < -Math.PI) dAng += Math.PI * 2;
+      if (Math.abs(dAng) > 0.7) {
+        pug.cartWobbleT = 0.4;
+        pug.cartWobbleDir = Math.sign(dAng);
+      }
+    }
     pug.ang = Math.atan2(my, mx);
     if (inCart) heat = Math.min(1, heat + dt * 0.04);
   }
+  if (pug.cartWobbleT > 0) pug.cartWobbleT = Math.max(0, pug.cartWobbleT - dt);
   // Cart is heavier (slower ramp); on-foot is snappier.
   const accel = inCart ? 5 : 8;
   const blend = Math.min(1, accel * dt);
@@ -663,7 +742,8 @@ function tick(dt) {
   pug.y = Math.max(20, Math.min(H - 20, pug.y));
   // ALARM trigger — once heat goes above 0.95, alarm latches on.
   // Stronger event: sub-bass thud + bigger shake + brief hit-pause spike.
-  if (!alarm.on && heat >= 0.95) {
+  // ALARM JAMMER bribe (alarmJamT) blocks the trigger entirely.
+  if (!alarm.on && heat >= 0.95 && alarmJamT <= 0) {
     alarm.on = true;
     alarm.T = 8;
     sfx.sweep(800, 200, 'square', 0.5, 0.3);
@@ -671,14 +751,31 @@ function tick(dt) {
     shake(14, 0.55);
     spotFlashT = 0.5;
   }
+  if (alarmJamT > 0) alarmJamT -= dt;
   // Heat decays slowly UNLESS alarm is on
   if (!alarm.on) heat = Math.max(0, heat - dt * 0.07);
   else { heat = 1; alarm.T -= dt; if (alarm.T <= 0) alarm.T = 0; }
   // Cleaner robot — patrols an elliptical loop; sees player at close range -> heat spike
   if (cleanerBot) {
-    cleanerBot.ang += dt * 0.6;
-    cleanerBot.x = cleanerBot.cx + Math.cos(cleanerBot.ang) * cleanerBot.rx;
-    cleanerBot.y = cleanerBot.cy + Math.sin(cleanerBot.ang) * cleanerBot.ry;
+    if (cleanerBot._lure && cleanerBot._lure.t > 0) {
+      // Lured by bakery smell: roll directly toward the lure point.
+      cleanerBot._lure.t -= dt;
+      const lx = cleanerBot._lure.x, ly = cleanerBot._lure.y;
+      const dx = lx - cleanerBot.x, dy = ly - cleanerBot.y, dd = Math.hypot(dx, dy);
+      if (dd > 2) {
+        cleanerBot.x += (dx / dd) * 90 * dt;
+        cleanerBot.y += (dy / dd) * 90 * dt;
+      }
+      if (cleanerBot._lure.t <= 0) {
+        // Re-attach to the orbit by snapping the ang to the current position
+        cleanerBot.ang = Math.atan2(cleanerBot.y - cleanerBot.cy, cleanerBot.x - cleanerBot.cx);
+        cleanerBot._lure = null;
+      }
+    } else {
+      cleanerBot.ang += dt * 0.6;
+      cleanerBot.x = cleanerBot.cx + Math.cos(cleanerBot.ang) * cleanerBot.rx;
+      cleanerBot.y = cleanerBot.cy + Math.sin(cleanerBot.ang) * cleanerBot.ry;
+    }
     cleanerBot.brushPhase += dt * 12;
     const d = Math.hypot(pug.x - cleanerBot.x, pug.y - cleanerBot.y);
     // CAMERA BLINK suppresses cleaner-bot spotting
@@ -877,12 +974,25 @@ function drawSectionItem(it) {
     ctx.fillText('?', x, y + 10);
   }
 }
-// MINI-MAP — small radar top-right with shelves/guards/customers/pug/exit
+// MINI-MAP — small radar top-right with shelves/guards/customers/pug/exit.
+// Section rows are tinted with the same colour key as the in-world floor so
+// the player can read the layout at a glance.
 function drawMartMiniMap() {
   const mw = 140, mh = 90;
   const mx = W - mw - 16, my = 50;
   ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(mx - 2, my - 2, mw + 4, mh + 4);
   ctx.strokeStyle = '#4cc9f0'; ctx.lineWidth = 1; ctx.strokeRect(mx, my, mw, mh);
+  // Per-section row tint — same color key as the floor.
+  for (let r = 0; r < sceneRows; r++) {
+    const secId = sections[r];
+    if (!secId) continue;
+    const tint = SECTION_TINT[secId] || 'rgba(255,255,255,0.04)';
+    // Pump up the alpha a touch so it reads on the dark map bg.
+    ctx.fillStyle = tint.replace(/[\d.]+\)$/, (m) => Math.min(0.55, parseFloat(m) * 2.4).toFixed(2) + ')');
+    const ry = my + ((sceneGy + r * 100 - 20) / H) * mh;
+    const rh = (100 / H) * mh;
+    ctx.fillRect(mx, ry, mw, rh);
+  }
   // shelves
   ctx.fillStyle = 'rgba(160,100,40,0.5)';
   for (const s of shelves) {
@@ -955,12 +1065,30 @@ function render() {
   for (let y = 0; y <= H; y += TS) { ctx.moveTo(0, y + 0.5); ctx.lineTo(W, y + 0.5); }
   ctx.stroke();
 
-  // PER-SECTION row tint — each aisle row gets a soft coloured band.
+  // PER-SECTION row tint + atmospheric lighting band. Each section gets a
+  // characteristic color tint applied as a "lit row" — clearance has a
+  // flickering bulb (random alpha drops), bakery glows orange, etc.
   for (let r = 0; r < sceneRows; r++) {
     const secId = sections[r];
     if (!secId) continue;
     ctx.fillStyle = SECTION_TINT[secId] || 'rgba(255,255,255,0.02)';
     ctx.fillRect(0, sceneGy + r * 100 - 20, W, 100);
+    // Per-section overhead light overlay (gradient that pools down from top
+    // of the row, tinted by section). CLEARANCE flickers (Math.random in alpha).
+    const lightSpec = SECTION_LIGHT[secId];
+    if (lightSpec) {
+      let alphaMul = 1;
+      if (lightSpec.flicker) alphaMul = Math.random() < 0.06 ? 0.25 : 1;
+      const top = sceneGy + r * 100 - 20;
+      const grad = ctx.createLinearGradient(0, top, 0, top + 100);
+      // Parse a few cheap colors out of the color string
+      const c = lightSpec.color;
+      grad.addColorStop(0, c.replace(/[\d.]+\)$/, (m) => (parseFloat(m) * 0.8 * alphaMul).toFixed(2) + ')'));
+      grad.addColorStop(0.55, c.replace(/[\d.]+\)$/, (m) => (parseFloat(m) * 0.4 * alphaMul).toFixed(2) + ')'));
+      grad.addColorStop(1, c.replace(/[\d.]+\)$/, () => '0)'));
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, top, W, 100);
+    }
     ctx.fillStyle = 'rgba(255,255,255,0.55)';
     ctx.font = "bold 7px 'Press Start 2P', monospace"; ctx.textAlign = 'right';
     ctx.fillText('· ' + secId.toUpperCase() + ' ·', W - 12, sceneGy + r * 100 - 6);
@@ -1182,19 +1310,57 @@ function render() {
     ctx.fillRect(cam.x - 2, cam.y + 2, 2, 2);
   }
   // CUSTOMERS — small pug NPCs that wander. Yellow "?" if witnessed recently.
+  // Walk animation variety: each customer has a unique `gait` index that
+  // changes the bob frequency + amplitude + lean direction.
   for (const c of customers) {
-    drawPug(ctx, c.x, c.y, { size: 22, body: c.color, mask: '#3a2810' });
+    if (c._gait == null) {
+      c._gait = Math.floor(Math.random() * 4);
+      c._gaitPhase = Math.random() * Math.PI * 2;
+    }
+    // Bob amount scales with current movement magnitude
+    const moving = Math.hypot(c.vx, c.vy) > 5;
+    const freq = [4, 6, 5, 7][c._gait]; // gait 0=slow, 1=quick, 2=normal, 3=jittery
+    const amp = [1.6, 1.0, 1.2, 2.0][c._gait];
+    const lean = [0, 0.05, -0.05, 0.08][c._gait];
+    const phase = performance.now() / 1000 * freq + c._gaitPhase;
+    const bob = moving ? Math.sin(phase) * amp : 0;
+    const tilt = moving ? Math.cos(phase) * lean : 0;
+    ctx.save();
+    ctx.translate(c.x, c.y + bob);
+    ctx.rotate(tilt);
+    drawPug(ctx, 0, 0, { size: 22, body: c.color, mask: '#3a2810' });
+    // Tiny shopping bag if gait 1 (quick shopper)
+    if (c._gait === 1) {
+      ctx.fillStyle = '#a87a4a'; ctx.fillRect(8, -2, 4, 6);
+      ctx.fillStyle = '#5a3a1c'; ctx.fillRect(8, -2, 4, 1);
+    }
+    ctx.restore();
     if (c.witnessCd > 2) {
       ctx.fillStyle = '#ffd23f'; ctx.font = "10px sans-serif"; ctx.textAlign = 'center';
       ctx.fillText('?', c.x, c.y - 18);
     }
   }
   // WANTED POSTER — pinned on the side wall. Grows with successful escapes.
+  // Pulses with red glow more strongly as wantedLvl rises (notoriety vibe).
   if (wantedLvl > 0) {
     const wx = 16, wy = 100;
     const ww = 60 + Math.min(40, wantedLvl * 6);
     const wh = 76 + Math.min(60, wantedLvl * 8);
-    ctx.fillStyle = '#c8a872'; ctx.fillRect(wx, wy, ww, wh);
+    // Pulse intensity scales linearly to wantedLvl (cap at lvl 10).
+    const pulseStrength = Math.min(1, wantedLvl / 10);
+    const pulse = 0.6 + 0.4 * Math.sin(performance.now() / (260 - pulseStrength * 60));
+    // Background red glow when wanted is high
+    if (pulseStrength > 0.2) {
+      ctx.save();
+      ctx.shadowColor = '#ff3a3a'; ctx.shadowBlur = 8 + pulse * 14 * pulseStrength;
+      ctx.fillStyle = '#c8a872'; ctx.fillRect(wx, wy, ww, wh);
+      ctx.restore();
+    } else {
+      ctx.fillStyle = '#c8a872'; ctx.fillRect(wx, wy, ww, wh);
+    }
+    // Paper edge crinkle
+    ctx.strokeStyle = '#7a5a32'; ctx.lineWidth = 1;
+    ctx.strokeRect(wx + 0.5, wy + 0.5, ww - 1, wh - 1);
     ctx.fillStyle = '#1a0d05';
     ctx.font = "bold 7px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
     ctx.fillText('WANTED', wx + ww / 2, wy + 10);
@@ -1202,7 +1368,10 @@ function render() {
     ctx.beginPath(); ctx.arc(wx + ww / 2, wy + 30 + wantedLvl, 10 + Math.min(8, wantedLvl), 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = '#1a0d05'; ctx.fillRect(wx + ww / 2 - 7, wy + 28, 14, 4);
     ctx.fillStyle = '#5ef38c'; ctx.fillRect(wx + ww / 2 - 4, wy + 29, 2, 1); ctx.fillRect(wx + ww / 2 + 2, wy + 29, 2, 1);
-    ctx.fillStyle = '#a02828'; ctx.font = "bold 6px 'Press Start 2P', monospace";
+    // Bounty text pulses red along with the poster glow.
+    const r = Math.floor(160 + pulse * 80 * pulseStrength);
+    ctx.fillStyle = `rgb(${r},40,40)`;
+    ctx.font = "bold 6px 'Press Start 2P', monospace";
     ctx.fillText('$' + (wantedLvl * 50), wx + ww / 2, wy + wh - 6);
   }
   // Guards — vision cone + high-detail security pug (depth3D shadow under each)
@@ -1215,6 +1384,23 @@ function render() {
     ctx.moveTo(g.x, g.y);
     ctx.arc(g.x, g.y, 200, g.ang - 0.5, g.ang + 0.5);
     ctx.closePath(); ctx.fill();
+    // Dashed edge lines along the cone — much easier to see where the cone
+    // actually ends (the soft red fill blends with the floor).
+    if (!frozen) {
+      ctx.strokeStyle = g.alertT > 0 ? 'rgba(255,80,80,0.7)' : 'rgba(255,80,80,0.45)';
+      ctx.lineWidth = 1.2;
+      ctx.setLineDash([5, 4]);
+      ctx.beginPath();
+      ctx.moveTo(g.x, g.y);
+      ctx.lineTo(g.x + Math.cos(g.ang - 0.5) * 200, g.y + Math.sin(g.ang - 0.5) * 200);
+      ctx.moveTo(g.x, g.y);
+      ctx.lineTo(g.x + Math.cos(g.ang + 0.5) * 200, g.y + Math.sin(g.ang + 0.5) * 200);
+      // Far-edge arc to close the wedge
+      ctx.moveTo(g.x + Math.cos(g.ang - 0.5) * 200, g.y + Math.sin(g.ang - 0.5) * 200);
+      ctx.arc(g.x, g.y, 200, g.ang - 0.5, g.ang + 0.5);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
     _depthShadow(ctx, g.x, g.y + 18, 20, { alpha: 0.4 });
     // Body color hints at guard kind (chaser=red, manager=gold, patrol=cyan, walker=teal)
     const kindColor = frozen ? '#8a8aac' : ({
@@ -1282,23 +1468,32 @@ function render() {
   }
   // Pug (and cart if active) — use the same cart art for consistency.
   // jiggleT (0..0.22s) drives a quick decaying tilt away from the bump direction.
+  // cartWobbleT (0..0.4s) drives a side-lean from hard turns when in cart.
   let jiggleAng = 0;
   if (pug.jiggleT > 0) {
     const jk = pug.jiggleT / 0.22;
     // damped sine wave
     jiggleAng = Math.sin(jk * Math.PI * 4) * 0.18 * jk;
   }
-  if (jiggleAng !== 0) {
+  let wobbleAng = 0, wobbleY = 0;
+  if (pug.cartWobbleT > 0) {
+    const wk = pug.cartWobbleT / 0.4;
+    // Damped lean — strongest at start, fades to 0
+    wobbleAng = Math.sin(wk * Math.PI * 3) * 0.22 * wk * (pug.cartWobbleDir || 1);
+    wobbleY = -Math.abs(Math.sin(wk * Math.PI * 3)) * 2 * wk;
+  }
+  const totalAng = jiggleAng + wobbleAng;
+  if (totalAng !== 0) {
     ctx.save();
     ctx.translate(pug.x, pug.y);
-    ctx.rotate(jiggleAng);
+    ctx.rotate(totalAng);
     ctx.translate(-pug.x, -pug.y);
   }
   // depth3D drop shadow under the pug (and cart if any)
   _depthShadow(ctx, pug.x, pug.y + 14, inCart ? 22 : 16, { alpha: 0.45 });
-  if (inCart) drawCart(pug.x, pug.y + 4, 0);
-  drawPug(ctx, pug.x, pug.y - (inCart ? 6 : 0), { size: 28 });
-  if (jiggleAng !== 0) ctx.restore();
+  if (inCart) drawCart(pug.x, pug.y + 4 + wobbleY, 0);
+  drawPug(ctx, pug.x, pug.y - (inCart ? 6 : 0) + wobbleY, { size: 28 });
+  if (totalAng !== 0) ctx.restore();
   // Score popups
   for (const p of popups) {
     const a = 1 - p.t / p.life;
@@ -1402,12 +1597,25 @@ function render() {
   }
   // MINI-MAP (M toggle) — radar top-right
   if (miniMapOn) drawMartMiniMap();
-  // OBJECTIVE banner (current shoplist) — under HUD card
+  // OBJECTIVE banner (current shoplist + bag/haul progress) — under HUD card.
+  // Always visible — quick glance at progress vs goal.
   if (activeShoplist) {
-    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.fillRect(W / 2 - 100, H - 32, 200, 16);
+    const goal = currentMap.goalHaul || 200;
+    const pct = Math.min(1, haul / goal);
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(W / 2 - 130, H - 38, 260, 26);
+    // Progress bar inside
+    ctx.fillStyle = 'rgba(60,60,80,0.7)';
+    ctx.fillRect(W / 2 - 124, H - 18, 248, 6);
+    ctx.fillStyle = haul >= goal ? '#5ef38c' : (pct > 0.65 ? '#ffd23f' : '#4cc9f0');
+    ctx.fillRect(W / 2 - 124, H - 18, 248 * pct, 6);
+    // Top line: shoplist + map
     ctx.fillStyle = '#b0e8ff'; ctx.font = "6px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
-    ctx.fillText('SHOPLIST: ' + activeShoplist.id.toUpperCase() + ' · MAP: ' + (currentMap.label || ''), W / 2, H - 21);
+    ctx.fillText('SHOPLIST · ' + activeShoplist.id.toUpperCase() + ' · ' + (currentMap.label || ''), W / 2, H - 27);
+    // Goal line
+    ctx.fillStyle = haul >= goal ? '#5ef38c' : '#fff';
+    ctx.font = "5px 'Press Start 2P', monospace";
+    ctx.fillText('$' + haul + ' / $' + goal + ' GOAL · BAG ' + bag + '/' + maxBag, W / 2, H - 7);
   }
   // Heat bar — pulses if hot
   const hotPulse = heat > 0.7 ? (0.7 + 0.3 * Math.sin(performance.now() * 0.02)) : 1;
@@ -1519,9 +1727,30 @@ function updateHud() {
 }
 
 function caught() { shake(8, 0.3); end(false); }
+// Evaluate end-of-run badges and persist any new ones.
+function _evaluateRunBadges(escaped) {
+  runBadges = new Set();
+  if (escaped && !everSpotted) runBadges.add('PERFECT_HEIST');
+  if (sectionsLootedThisRun.size >= 5) runBadges.add('SECTION_MASTER_X5');
+  if (chainBestThisRun >= 4) runBadges.add('DOMINO_FALL');
+  if (escaped && haul >= 300) runBadges.add('BIG_SCORE');
+  if (cartShelvesThisRun >= 8) runBadges.add('CART_DEMON');
+  if (bakeryStolenThisRun >= 3) runBadges.add('BAKERY_THIEF');
+  if (escaped && alarm.escaped) runBadges.add('ALARM_ESCAPE');
+  if (escaped && !bribeUsedThisRun) runBadges.add('NO_BRIBE');
+  // Persist new badges into savedBadges (lifetime collection)
+  let changed = false;
+  for (const id of runBadges) {
+    if (!savedBadges.has(id)) { savedBadges.add(id); changed = true; }
+  }
+  if (changed) {
+    try { localStorage.setItem(BADGE_KEY, JSON.stringify([...savedBadges])); } catch {}
+  }
+}
 function end(escaped) {
   // Final-only objectives (cash thresholds, no-spot escape) get one last evaluation.
   checkObjectives({ escaped });
+  _evaluateRunBadges(escaped);
   running = false;
   sfx.sweep(escaped ? 880 : 220, escaped ? 1320 : 80, escaped ? 'triangle' : 'sawtooth', 0.5, 0.25);
   document.getElementById('end-title').textContent = escaped ? (alarm.escaped ? 'CLOSE CALL!' : 'CLEAN GETAWAY') : 'CAUGHT';
@@ -1551,6 +1780,8 @@ function end(escaped) {
   document.getElementById('hud').hidden = true;
   document.getElementById('end-overlay').hidden = false;
   document.getElementById('end-overlay').classList.remove('is-hidden');
+  // Inject badge strip into the end-overlay panel.
+  try { _renderEndBadges(); } catch (e) { /* */ }
   // S/A/B/C/D grade card — layered ABOVE the existing end-overlay buttons.
   // Weighted: haul (50%) + escape (30%) + low-heat (20%).
   try {
@@ -1574,6 +1805,49 @@ function end(escaped) {
     });
   } catch (e) { /* */ }
 }
+
+// Render badges (this run + lifetime collection) into the end-overlay panel.
+// We inject a small chip strip just before the buttons; clears on each end.
+function _renderEndBadges() {
+  const endPanel = document.querySelector('#end-overlay .overlay__panel');
+  if (!endPanel) return;
+  let stripId = 'mart-badges-strip';
+  let strip = document.getElementById(stripId);
+  if (!strip) {
+    strip = document.createElement('div');
+    strip.id = stripId;
+    strip.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin:8px auto 0;padding:8px 6px;border:1px dashed rgba(94,243,140,0.35);border-radius:6px;max-width:420px;';
+    // Insert before the buttons row
+    const btns = endPanel.querySelector('.wg-end-buttons');
+    if (btns) endPanel.insertBefore(strip, btns); else endPanel.appendChild(strip);
+  }
+  strip.innerHTML = '';
+  // Header
+  const head = document.createElement('div');
+  head.style.cssText = 'flex:1 1 100%;text-align:center;font-family:var(--font-display);font-size:0.45rem;color:var(--neon-yellow);letter-spacing:0.08em;margin-bottom:4px;';
+  const newCount = runBadges.size;
+  head.textContent = newCount > 0 ? `★ ${newCount} BADGE${newCount === 1 ? '' : 'S'} EARNED · ${savedBadges.size}/${BADGE_DEFS.length} COLLECTED` : `BADGES · ${savedBadges.size}/${BADGE_DEFS.length} COLLECTED`;
+  strip.appendChild(head);
+  for (const def of BADGE_DEFS) {
+    const earned = runBadges.has(def.id);
+    const owned = savedBadges.has(def.id);
+    const chip = document.createElement('div');
+    const color = earned ? 'var(--neon-yellow)' : (owned ? 'var(--neon-green)' : 'var(--text-soft)');
+    const bg = earned ? 'rgba(255,210,63,0.18)' : (owned ? 'rgba(94,243,140,0.10)' : 'rgba(120,120,140,0.06)');
+    chip.style.cssText = `padding:3px 6px;border:1px solid ${color};color:${color};background:${bg};font-family:var(--font-display);font-size:0.36rem;letter-spacing:0.05em;border-radius:3px;` + (earned ? 'animation:wgBadgePulse 1s ease-in-out infinite alternate;' : '');
+    chip.title = def.desc;
+    chip.textContent = (earned ? '★ ' : (owned ? '✓ ' : '· ')) + def.label;
+    strip.appendChild(chip);
+  }
+}
+// One-time CSS injection for the pulsing animation used on newly-earned badges.
+(function _martBadgeCss() {
+  if (document.getElementById('mart-badge-css')) return;
+  const st = document.createElement('style');
+  st.id = 'mart-badge-css';
+  st.textContent = '@keyframes wgBadgePulse { from { box-shadow: 0 0 4px rgba(255,210,63,0.3); } to { box-shadow: 0 0 14px rgba(255,210,63,0.85); } }';
+  document.head.appendChild(st);
+})();
 
 document.getElementById('start-btn').addEventListener('click', start);
 document.getElementById('end-restart').addEventListener('click', start);
@@ -1734,6 +2008,7 @@ function buyBribe(b) {
   if (bribesBought[b.id] || haul < b.cost) return;
   haul -= b.cost;
   bribesBought[b.id] = true;
+  bribeUsedThisRun = true;
   sfx.arp([523, 659, 880], 'triangle', 0.08, 0.22, 0.2);
   // Apply effect
   if (b.id === 'guardBreak') {
@@ -1743,6 +2018,11 @@ function buyBribe(b) {
     cameraBlinkT = 8;
     heat = 0; // immediate calm
     popup(pug.x, pug.y - 24, '📷 CAMERAS OFF', '#4cc9f0');
+  } else if (b.id === 'alarmJam') {
+    alarmJamT = 8;
+    // If alarm was already on, kill it immediately
+    if (alarm.on) { alarm.on = false; alarm.T = 0; }
+    popup(pug.x, pug.y - 24, '📡 ALARM JAMMED', '#ff8e3c');
   } else if (b.id === 'tipOff') {
     // Find the highest-value untaken item
     let best = null, bestVal = -1;
@@ -1768,6 +2048,11 @@ function renderBribeChips() {
   if (cameraBlinkT > 0) {
     const c = document.createElement('div'); c.className = 'bribe-chip';
     c.textContent = '📷 ' + cameraBlinkT.toFixed(1) + 's';
+    _bribeChips.appendChild(c);
+  }
+  if (alarmJamT > 0) {
+    const c = document.createElement('div'); c.className = 'bribe-chip';
+    c.textContent = '📡 ' + alarmJamT.toFixed(1) + 's';
     _bribeChips.appendChild(c);
   }
   if (highlightedItem && !highlightedItem.taken) {
@@ -1864,6 +2149,18 @@ if (_startOv) {
   const _showOnHide = () => {
     if (_startOv.classList.contains('is-hidden') || _startOv.hidden) {
       showTip('WASD move · E grab · SPACE ram · C cart · 💰 BRIBE top-right (B) · EXIT bottom-right', 7000);
+      // Follow-up bubble after 7.5s — explains the SECTIONS + GUARD types.
+      // Only fires once per session (sessionStorage flag).
+      setTimeout(() => {
+        try {
+          if (sessionStorage.getItem('mart-tut-2')) return;
+          sessionStorage.setItem('mart-tut-2', '1');
+          showTip('SECTIONS · PRODUCE cheap · FROZEN slow · ELECTRONICS expensive (+heat) · DELI mid · CLEARANCE traps · BAKERY massive (lures cleaner-bot)', 8500);
+          setTimeout(() => {
+            showTip('GUARDS · WALKER slow · PATROL paths · CHASER fast + alerts others · MANAGER = instant catch', 7500);
+          }, 9000);
+        } catch {}
+      }, 7500);
     }
   };
   new MutationObserver(_showOnHide).observe(_startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });

@@ -230,6 +230,7 @@
           <button class="map-btn map-btn--active" data-map="courtyard" title="The classic outdoor arena.">🏟 COURTYARD</button>
           <button class="map-btn" data-map="rooftop" title="Vertical map. Compact arena.">🏢 ROOFTOP</button>
           <button class="map-btn" data-map="underground" title="Claustrophobic tunnels.">🕳 UNDERGROUND</button>
+          <button class="map-btn" data-map="arena" title="Round colosseum — no corners, all sides exposed.">⚔ ARENA</button>
         </div>
         <div class="difficulty-row">
           <span class="difficulty-label">MODE</span>
@@ -320,11 +321,25 @@
           <div class="hud-slot__num">0</div><div class="hud-slot__icon">🔥</div>
           <div class="hud-slot__name">FLAMER</div><div class="hud-slot__cost">25🪵 12🔩 6💣</div>
         </div>
+        <div class="hud-slot" id="slot-barbedWire">
+          <div class="hud-slot__num">-</div><div class="hud-slot__icon">〰</div>
+          <div class="hud-slot__name">WIRE</div><div class="hud-slot__cost">3🪵 3🔩</div>
+        </div>
+        <div class="hud-slot" id="slot-turretPlatform">
+          <div class="hud-slot__num">=</div><div class="hud-slot__icon">◰</div>
+          <div class="hud-slot__name">PLATFORM</div><div class="hud-slot__cost">8🪵 6🔩</div>
+        </div>
       </div>
       <div class="hud-build-hint" id="hud-build-hint" hidden>
         <b>Q</b>/<b>E</b> rotate · <b>R</b> snap 90° · <b>ESC</b> cancel · <b>CLICK</b> place
       </div>
       <div id="hud-toast" class="hud-toast"></div>
+      <!-- Round-2 polish: resource forecast HUD card (top-right). Shows
+           predicted resource depletion if the next minute mirrors the last 30s. -->
+      <div id="hud-forecast" class="hud-forecast" hidden>
+        <div class="hud-forecast__title">FORECAST (1 MIN)</div>
+        <div id="hud-forecast-rows"></div>
+      </div>
 
       <!-- Stats overlay (TAB to toggle) -->
       <div id="hud-stats-overlay" class="pf-stats-overlay" hidden>

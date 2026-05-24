@@ -31,6 +31,129 @@ const BOT_SKILL_PROFILES = {
   regular: { aimNoise: 0.07, fireRateMult: 1.0,  leadMult: 1.0,  dodgeChance: 0.1 },
   elite:   { aimNoise: 0.025, fireRateMult: 1.25, leadMult: 1.5, dodgeChance: 0.4 },
 };
+
+// === BOT TYPE COSMETICS (Round 2 polish) ===
+// 12 cosmetic types — hat color/shape lets player identify bots at a glance.
+// Each type is a pure-visual layer applied on top of the existing form sprite.
+// Drawn ONCE at spawn into `bot._cosmeticLayer`, attached to bot.container.
+// subtype `roller` and `medic` also flip gameplay flags handled in Bot.think.
+const BOT_TYPES = [
+  { id: 'punk',     hatColor: 0xff3aa1, hatStyle: 'mohawk',  rarity: 1 },
+  { id: 'sailor',   hatColor: 0xfafaff, hatStyle: 'sailor',  rarity: 1 },
+  { id: 'rancher',  hatColor: 0xc8854a, hatStyle: 'cowboy',  rarity: 1 },
+  { id: 'cyclops',  hatColor: 0x4cc9f0, hatStyle: 'visor',   rarity: 1 },
+  { id: 'chef',     hatColor: 0xfafaff, hatStyle: 'chef',    rarity: 1 },
+  { id: 'soldier',  hatColor: 0x4a6a3a, hatStyle: 'helmet',  rarity: 1 },
+  { id: 'wizard',   hatColor: 0x4a2aaa, hatStyle: 'wizard',  rarity: 1 },
+  { id: 'pirate',   hatColor: 0x222232, hatStyle: 'pirate',  rarity: 1 },
+  { id: 'ninja',    hatColor: 0x000000, hatStyle: 'ninja',   rarity: 1 },
+  { id: 'roller',   hatColor: 0xff8e3c, hatStyle: 'ball',    rarity: 1, subtype: 'roller' },
+  { id: 'medic',    hatColor: 0xff3a3a, hatStyle: 'medCross', rarity: 1, subtype: 'medic' },
+  { id: 'queen',    hatColor: 0xffd23f, hatStyle: 'crown',   rarity: 1 },
+];
+// Draw the cosmetic hat/visor/badge layered on top of the bot's body sprite.
+// All shapes are pixel-art rects to match the existing pug art style.
+function drawBotCosmetic(g, type) {
+  const c = type.hatColor;
+  const dark = Math.floor(((c >> 16) & 0xff) * 0.5) << 16
+             | Math.floor(((c >> 8) & 0xff) * 0.5) << 8
+             | Math.floor((c & 0xff) * 0.5);
+  switch (type.hatStyle) {
+    case 'mohawk':
+      // 3 vertical pink spikes
+      g.rect(-6, -42, 3, 8).fill(c);
+      g.rect(-1, -44, 2, 10).fill(c);
+      g.rect(3, -42, 3, 8).fill(c);
+      g.rect(-6, -42, 3, 2).fill(0xffffff);
+      break;
+    case 'sailor':
+      // White sailor cap with blue band
+      g.rect(-9, -36, 18, 4).fill(c);
+      g.rect(-7, -38, 14, 4).fill(c);
+      g.rect(-9, -34, 18, 2).fill(0x2a4aaa);
+      g.rect(-2, -38, 4, 2).fill(0x222238);
+      break;
+    case 'cowboy':
+      // Wide brim + crown
+      g.rect(-12, -34, 24, 2).fill(c);
+      g.rect(-7, -40, 14, 6).fill(c);
+      g.rect(-12, -34, 24, 1).fill(0xffd23f);
+      g.rect(-7, -40, 14, 1).fill(dark);
+      break;
+    case 'visor':
+      // Cyber visor across the eyes (glowing)
+      g.rect(-9, -22, 18, 4).fill(c);
+      g.rect(-9, -22, 18, 1).fill(0xffffff);
+      g.rect(-9, -20, 18, 2).fill(dark);
+      break;
+    case 'chef':
+      // Tall white chef poof
+      g.rect(-6, -42, 12, 6).fill(c);
+      g.rect(-8, -38, 16, 4).fill(c);
+      g.rect(-7, -42, 10, 1).fill(0xdcdcdc);
+      break;
+    case 'helmet':
+      // Combat helmet
+      g.rect(-9, -36, 18, 6).fill(c);
+      g.rect(-9, -36, 18, 1).fill(dark);
+      g.rect(-7, -38, 14, 3).fill(c);
+      g.rect(-2, -39, 4, 2).fill(dark);  // strap
+      break;
+    case 'wizard':
+      // Pointy purple cone
+      g.rect(-2, -46, 4, 4).fill(c);
+      g.rect(-4, -42, 8, 4).fill(c);
+      g.rect(-6, -38, 12, 4).fill(c);
+      g.rect(-7, -34, 14, 2).fill(c);
+      g.rect(-7, -34, 14, 1).fill(0xffd23f);
+      // star
+      g.rect(-1, -44, 2, 2).fill(0xffd23f);
+      break;
+    case 'pirate':
+      // Tricorn black
+      g.rect(-10, -36, 20, 4).fill(c);
+      g.rect(-6, -40, 12, 4).fill(c);
+      g.rect(-10, -36, 20, 1).fill(0xffd23f);
+      g.rect(-4, -42, 8, 2).fill(0xffd23f);  // skull mark
+      break;
+    case 'ninja':
+      // Black headband + eye slit
+      g.rect(-10, -28, 20, 4).fill(c);
+      g.rect(-10, -28, 20, 1).fill(0xff3a3a);
+      // dangling ends
+      g.rect(-12, -28, 2, 6).fill(c);
+      g.rect(10, -28, 2, 6).fill(c);
+      break;
+    case 'ball':
+      // ROLLER — hamster ball outline around the head
+      g.circle(0, -28, 16).stroke({ color: c, width: 2, alpha: 0.8 });
+      g.circle(0, -28, 14).stroke({ color: 0xffffff, width: 1, alpha: 0.5 });
+      // little hex-pattern dots
+      for (let a = 0; a < 6; a++) {
+        const ang = (a / 6) * Math.PI * 2;
+        g.rect(Math.cos(ang) * 12 - 1, -28 + Math.sin(ang) * 12 - 1, 2, 2)
+          .fill({ color: c, alpha: 0.6 });
+      }
+      break;
+    case 'medCross':
+      // White medic cap with red cross
+      g.rect(-9, -36, 18, 6).fill(0xfafaff);
+      g.rect(-9, -36, 18, 1).fill(0xc8c8d0);
+      g.rect(-2, -35, 4, 4).fill(c);  // vertical bar of cross
+      g.rect(-4, -33, 8, 2).fill(c);  // horizontal bar
+      break;
+    case 'crown':
+      // Gold crown with 3 points
+      g.rect(-8, -36, 16, 4).fill(c);
+      g.rect(-8, -38, 3, 4).fill(c);
+      g.rect(-2, -40, 4, 6).fill(c);
+      g.rect(5, -38, 3, 4).fill(c);
+      g.rect(-8, -36, 16, 1).fill(0xffffff);
+      // jewel
+      g.rect(-1, -38, 2, 2).fill(0xff3aa1);
+      break;
+  }
+}
 const BORK_MAX_DAMAGE = 60;
 const BORK_PUSH = 480;
 const BORK_RADIUS = 220;
@@ -287,6 +410,42 @@ export class Game {
       } else if (skill === 'rookie' && bot.nameTag) {
         bot.nameTag.style.fill = 0x9aa0c1;
       }
+      // === Bot cosmetic type (12 types) — visual identifier ===
+      // ROLLER subtype: rolls (no walking animation, faster sideways recoil
+      //   on hit, much lower base HP so a single shot can knock it back).
+      // MEDIC subtype: marked with `bot.isMedic = true`; AI will favor
+      //   moving toward allies + heal them periodically (handled in update).
+      const typeIdx = Math.floor(Math.random() * BOT_TYPES.length);
+      const botType = BOT_TYPES[typeIdx];
+      bot.botTypeId = botType.id;
+      bot.botType = botType;
+      if (botType.subtype === 'roller') {
+        bot.isRoller = true;
+        bot.maxHp = Math.round(bot.maxHp * 0.55);
+        bot.hp = bot.maxHp;
+        bot._rollVel = 0;
+      } else if (botType.subtype === 'medic') {
+        bot.isMedic = true;
+        bot._healCooldown = 0;
+        bot.maxHp = Math.round(bot.maxHp * 1.1);
+        bot.hp = bot.maxHp;
+        // Medic name tag tinted red so it stands out as priority
+        if (bot.nameTag) {
+          bot.nameTag.style.fill = 0xff3a3a;
+          bot.nameTag.text = '+ ' + bot.name;
+        }
+      }
+      // Build cosmetic overlay (drawn ABOVE the body; child of bot.container
+      // so it follows position automatically). We do this AFTER nameTag is set
+      // so addChildAt positions it just below the HP bar + name.
+      try {
+        const cosmetic = new Graphics();
+        drawBotCosmetic(cosmetic, botType);
+        // Place at z-index just under name tag (above visual + hpBar).
+        // bot.container layout: [visual, hpBar, nameTag, ?bark]. Insert at index 2.
+        bot.container.addChildAt(cosmetic, 2);
+        bot._cosmeticLayer = cosmetic;
+      } catch (e) { /* non-fatal */ }
       this.pugs.push(bot);
       this.pugsLayer.addChild(bot.container);
       this._botsEverSpawned += 1;
@@ -383,6 +542,31 @@ export class Game {
         const w = p.weapon || defaultWeapon();
         p.cooldownFire = (p.form.fireRate / 1000) / w.fireRateMult;
       }
+      // MEDIC subtype — heals nearby (non-player) allies every 4s
+      if (p.isMedic) {
+        p._healCooldown = (p._healCooldown || 0) - dt;
+        if (p._healCooldown <= 0) {
+          let healed = false;
+          for (const ally of this.pugs) {
+            if (ally === p || !ally.alive) continue;
+            if (ally === this.player) continue;  // never heal player
+            if (ally.hp >= ally.maxHp) continue;
+            const dx = ally.x - p.x, dy = ally.y - p.y;
+            if (dx * dx + dy * dy < 180 * 180) {
+              ally.heal(20);
+              healed = true;
+              // Green pulse on ally
+              this._spawnTextBurst(ally.x, ally.y - 30, '+20', 0x5ef38c, 11);
+            }
+          }
+          if (healed) {
+            this._spawnBorkRing(p.x, p.y, 180, 0xff3a3a);
+            p._healCooldown = 4.0;
+          } else {
+            p._healCooldown = 1.5;  // re-check sooner if no one needed
+          }
+        }
+      }
     }
 
     // Resolve fence collisions for all pugs
@@ -423,14 +607,30 @@ export class Game {
         } else if (owner === this.player) {
           dmgScale = this.difficulty.playerDmgMult;
         }
-        hit.takeDamage(p.damage * dmgScale, owner || { id: p.ownerId, isPlayer: false });
+        const dmgDealt = p.damage * dmgScale;
+        hit.takeDamage(dmgDealt, owner || { id: p.ownerId, isPlayer: false });
         this._spawnHitParticles(hit.x, hit.y, p.color);
+        // === DAMAGE NUMBERS (toggleable via wg:damage-numbers setting) ===
+        // Show floating number above hit enemy when PLAYER does damage.
+        // Color escalates with size: white < 10, yellow < 20, orange < 40, red ≥ 40.
+        if (owner === this.player && localStorage.getItem('wg:damage-numbers') !== '0') {
+          const dmgN = Math.round(dmgDealt);
+          const dcol = dmgN >= 40 ? 0xff3a3a : (dmgN >= 20 ? 0xff8e3c : (dmgN >= 10 ? 0xffd23f : 0xffffff));
+          const dsize = Math.max(11, Math.min(20, 10 + Math.floor(dmgN / 4)));
+          this._spawnTextBurst(hit.x + (Math.random() - 0.5) * 12, hit.y - 18, String(dmgN), dcol, dsize);
+        }
         // Track player stats
         if (owner === this.player) {
           this._statShotsHit = (this._statShotsHit || 0) + 1;
-          this._statDmgDealt = (this._statDmgDealt || 0) + p.damage * dmgScale;
+          this._statDmgDealt = (this._statDmgDealt || 0) + dmgDealt;
         } else if (hit === this.player) {
-          this._statDmgTaken = (this._statDmgTaken || 0) + p.damage * dmgScale;
+          this._statDmgTaken = (this._statDmgTaken || 0) + dmgDealt;
+        }
+        // === ROLLER subtype takes extra knockback (it's a ball after all) ===
+        if (hit.isRoller && p) {
+          const ang2 = Math.atan2(p.vy, p.vx);
+          hit.vx += Math.cos(ang2) * 220;
+          hit.vy += Math.sin(ang2) * 220;
         }
         // Audio — quiet hit click when player is the shooter OR target
         if (owner === this.player) Sfx.hit();
@@ -1102,16 +1302,89 @@ export class Game {
         life: 0.35, t: 0,
       });
     }
-    // the variant
+    // the variant — 13th option SPLAT added for visceral pug crunch
     const fns = [
       this._deathFxSpaghetti, this._deathFxConfetti, this._deathFxHearts,
       this._deathFxBones,     this._deathFxEmoji,    this._deathFxTreats,
       this._deathFxBurp,      this._deathFxDisco,    this._deathFxGhost,
       this._deathFxToast,     this._deathFxNuggets,  this._deathFxYeet,
+      this._deathFxSplat,
     ];
     const pick = fns[Math.floor(Math.random() * fns.length)];
     pick.call(this, x, y);
     this._screenShake(5, 0.25);
+  }
+
+  // 13. SPLAT — visceral pug-splat: big red splat on the ground + chunky
+  // viscera + impact crater + lingering brown smear. Replaces simple fade
+  // with a "pug genuinely went SPLAT" sensation.
+  _deathFxSplat(x, y) {
+    // Lingering ground SPLAT — large maroon blob with darker rim
+    const splat = new Graphics();
+    splat.x = x; splat.y = y + 4;
+    // irregular puddle (3 overlapping ellipses)
+    splat.ellipse(0, 0, 22, 12).fill({ color: 0x8a1a14, alpha: 0.85 });
+    splat.ellipse(-8, -2, 10, 6).fill({ color: 0xb8281f, alpha: 0.7 });
+    splat.ellipse(10, 3, 8, 5).fill({ color: 0xb8281f, alpha: 0.7 });
+    splat.ellipse(0, 0, 18, 9).stroke({ color: 0x4a0a0a, width: 1, alpha: 0.7 });
+    // dripping outliers
+    splat.circle(-18, 6, 3).fill(0x8a1a14);
+    splat.circle(16, -4, 2).fill(0x8a1a14);
+    splat.circle(-22, -2, 2).fill(0x8a1a14);
+    this.effectsLayer.addChild(splat);
+    // splat lingers ~3.5s then fades
+    this.particles.push({
+      kind: 'spark', g: splat, x, y: y + 4, vx: 0, vy: 0,
+      noFriction: true, life: 3.5, t: 0,
+    });
+    // 14 chunky red flecks (gore) flying outward
+    for (let i = 0; i < 14; i++) {
+      const g = new Graphics();
+      const sz = 2 + Math.floor(Math.random() * 3);
+      const col = [0xc8281f, 0x8a1a14, 0xff5a3a, 0xff8aa8][Math.floor(Math.random() * 4)];
+      g.rect(-sz, -sz, sz * 2, sz * 2).fill(col);
+      // bright core fleck
+      g.rect(-1, -1, 2, 2).fill(0xff8aa8);
+      g.x = x; g.y = y;
+      this.effectsLayer.addChild(g);
+      const a = Math.random() * Math.PI * 2;
+      const sp = 180 + Math.random() * 220;
+      this.particles.push({
+        kind: 'noodle', g, x, y,
+        vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 140,
+        rotVel: (Math.random() - 0.5) * 14,
+        gravity: 480,
+        life: 1.2 + Math.random() * 0.3, t: 0,
+      });
+    }
+    // 4 bone shards
+    for (let i = 0; i < 4; i++) {
+      const g = new Graphics();
+      g.rect(-3, -1, 6, 2).fill(0xfde0b8);
+      g.rect(-4, -2, 2, 4).fill(0xfde0b8);
+      g.rect(2, -2, 2, 4).fill(0xfde0b8);
+      g.x = x; g.y = y;
+      g.rotation = Math.random() * Math.PI * 2;
+      this.effectsLayer.addChild(g);
+      const a = Math.random() * Math.PI * 2;
+      const sp = 140 + Math.random() * 100;
+      this.particles.push({
+        kind: 'noodle', g, x, y,
+        vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 120,
+        rotVel: (Math.random() - 0.5) * 10,
+        gravity: 400,
+        life: 1.0 + Math.random() * 0.2, t: 0,
+      });
+    }
+    // impact dust ring
+    const dust = new Graphics();
+    dust.x = x; dust.y = y;
+    this.effectsLayer.addChild(dust);
+    this.particles.push({
+      kind: 'shockring', g: dust, t: 0, life: 0.5, x, y,
+      startR: 4, endR: 70, color: 0x8a5a52,
+    });
+    this._spawnTextBurst(x, y, 'SPLAT!', 0xc8281f, 18);
   }
 
   // 1. SPAGHETTI EXPLOSION — yellow noodles + marinara + meatballs
@@ -1962,6 +2235,45 @@ export class Game {
       } else if (ob.kind === 'radio' && !inRange) {
         // Decay capture when player steps off
         ob.captureProgress = Math.max(0, ob.captureProgress - dt * 0.5);
+      } else if (ob.kind === 'flag') {
+        // FLAG: Capture and hold = +1 kill/sec while held. Caps at 10s held
+        // (max 10 free kills per flag). When time's up the flag is consumed.
+        if (inRange && !ob.held) {
+          ob.held = true;
+          ob.heldT = 0;
+          ob.heldSecs = 0;
+          this._spawnTextBurst(ob.x, ob.y - 30, 'CAPTURED!', 0xff3aa1, 16);
+          this._spawnBorkRing(ob.x, ob.y, 80, 0xff3aa1);
+          this.hud.toastMessage('🚩 FLAG! +1 kill/sec while held', 'kill');
+          Sfx.pickup?.();
+          this._statObjectivesGrabbed += 1;
+        }
+        if (ob.held && inRange) {
+          ob.heldT += dt;
+          if (ob.heldT >= 1.0) {
+            ob.heldT -= 1.0;
+            ob.heldSecs += 1;
+            // award +1 kill (no real bot died, but counts toward kill stat)
+            this.player.kills = (this.player.kills || 0) + 1;
+            // small XP nudge
+            this.player.xp = (this.player.xp || 0) + 8;
+            if (this.player === this.player) {
+              this.player.energyForLevel = (this.player.energyForLevel || 0) + 8;
+            }
+            this._spawnTextBurst(this.player.x, this.player.y - 24, '+1 KILL', 0xff3aa1, 14);
+            // Cap held at 10 seconds → flag consumed
+            if (ob.heldSecs >= 10) {
+              this.world.consumeObjective(ob, 75);
+              ob.held = false;
+              this.hud.toastMessage('🚩 Flag exhausted', 'info');
+            }
+          }
+        } else if (ob.held && !inRange) {
+          // Leave flag → released; respawn cooldown
+          ob.held = false;
+          this.world.consumeObjective(ob, 30);
+          this.hud.toastMessage('🚩 Flag dropped', 'info');
+        }
       }
     }
   }
@@ -2024,13 +2336,43 @@ export class Game {
       this._comboExpiresAt = now + COMBO_WINDOW;
       this._updateComboUI();
     }
-    // Drop energy (treats → money for player)
-    this.energy.spawnBurst(victim.x, victim.y, 6 + victim.form.tier * 3, 6);
-    // ~32% chance to drop a power-up (handled inside PowerupManager)
-    if (this.powerups) this.powerups.maybeSpawnAt(victim.x, victim.y);
+    // Drop energy (treats → money for player); ELITES give 1.5× treats.
+    const treatMult = victim.skill === 'elite' ? 1.5 : (victim.skill === 'rookie' ? 0.75 : 1.0);
+    this.energy.spawnBurst(victim.x, victim.y,
+      Math.round((6 + victim.form.tier * 3) * treatMult), 6);
+    // ~32% chance to drop a power-up (handled inside PowerupManager).
+    // ELITE: double the drop chance; ROOKIE: half.
+    if (this.powerups) {
+      // Run probability multiple/once based on tier — quick hack: roll twice for elite.
+      if (victim.skill === 'elite') {
+        this.powerups.maybeSpawnAt(victim.x, victim.y);
+        if (Math.random() < 0.5) this.powerups.maybeSpawnAt(victim.x, victim.y);
+      } else if (victim.skill === 'rookie') {
+        if (Math.random() < 0.5) this.powerups.maybeSpawnAt(victim.x, victim.y);
+      } else {
+        this.powerups.maybeSpawnAt(victim.x, victim.y);
+      }
+    }
     // Drop killed bot's weapon as a pickup (so player can grab guns)
     if (victim !== this.player && victim.weapon && this.weaponDrops) {
       this.weaponDrops.spawn(victim.x, victim.y, victim.weapon, victim.skin);
+      // === SPARKLE on drop — visual cue for "good" drops (elite + elite weapon) ===
+      // 3 quick gold sparkles spinning around the drop site.
+      if (victim.skill === 'elite' || (victim.weapon && victim.weapon.id === 'sniper')) {
+        for (let s = 0; s < 8; s++) {
+          const g = new Graphics();
+          g.rect(-2, -2, 4, 4).fill(0xffd23f);
+          g.rect(-1, -1, 2, 2).fill(0xffffff);
+          g.x = victim.x; g.y = victim.y;
+          this.effectsLayer.addChild(g);
+          const a = (s / 8) * Math.PI * 2;
+          this.particles.push({
+            kind: 'spark', g, x: victim.x, y: victim.y,
+            vx: Math.cos(a) * 60, vy: Math.sin(a) * 60 - 40,
+            life: 1.0, t: 0, noFriction: true,
+          });
+        }
+      }
     }
     // Audience cheer
     this.audience.cheer();
@@ -2547,6 +2889,18 @@ export class Game {
   _endMatch(won) {
     if (!this.running) return; // guard against double-call
     this.running = false;
+    // === WIN CELEBRATION — slow zoom on winner pug + on-screen confetti ===
+    // For wins only; loss already has the killcam. We run a short Pixi-level
+    // celebration (camera zoom toward player + sparkles + glow ring) then
+    // transition to the DOM end overlay.
+    if (won && this.player && this.player.alive) {
+      this._showWinCelebration(() => this._finalizeMatch(won));
+    } else {
+      this._finalizeMatch(won);
+    }
+  }
+
+  _finalizeMatch(won) {
     const overlay = document.getElementById('end-overlay');
     document.getElementById('end-title').textContent = won ? 'SUCH WIN' : 'GAME OVER';
     document.getElementById('end-sub').textContent = won
@@ -2579,6 +2933,62 @@ export class Game {
     // Stop the background music so the win/lose stinger lands clean and the
     // hub doesn't echo the loop after the player navigates back.
     try { Sfx.stopMusic?.(); } catch {}
+  }
+
+  // 1.4s slow zoom on the winner pug + confetti spew + glow halo before the
+  // end overlay appears. Camera scale ramps from 1.0 → 1.7 centered on player.
+  _showWinCelebration(onDone) {
+    const DURATION = 1.4;
+    const startedAt = performance.now();
+    const player = this.player;
+    // Big golden ring + 30 confetti particles spawned at player position
+    this._spawnBorkRing(player.x, player.y, 200, 0xffd23f);
+    this._spawnBorkRing(player.x, player.y, 280, 0xff3aa1);
+    const palette = [0xffd23f, 0xff3aa1, 0x4cc9f0, 0x5ef38c, 0xb055ff, 0xffffff];
+    for (let i = 0; i < 30; i++) {
+      const g = new Graphics();
+      const c = palette[i % palette.length];
+      const w = 3 + Math.floor(Math.random() * 3);
+      const h = 2 + Math.floor(Math.random() * 3);
+      g.rect(-w / 2, -h / 2, w, h).fill(c);
+      g.rotation = Math.random() * Math.PI * 2;
+      g.x = player.x; g.y = player.y;
+      this.effectsLayer.addChild(g);
+      const a = Math.random() * Math.PI * 2;
+      const sp = 160 + Math.random() * 240;
+      this.particles.push({
+        kind: 'noodle', g, x: player.x, y: player.y,
+        vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 200,
+        rotVel: (Math.random() - 0.5) * 18,
+        gravity: 220,
+        life: 1.4, t: 0,
+      });
+    }
+    this._spawnTextBurst(player.x, player.y - 60, 'CHAMPION!', 0xffd23f, 26);
+    // Manually drive camera zoom — stop ticker so simulation freezes
+    try { this.app.ticker.stop(); } catch (e) {}
+    const cam = this.app.stage;
+    const baseX = cam.x, baseY = cam.y;
+    const tick = () => {
+      const elapsed = (performance.now() - startedAt) / 1000;
+      const k = Math.min(1, elapsed / DURATION);
+      const scale = 1 + 0.7 * k;
+      const screen = this.app.screen;
+      cam.scale.set(scale);
+      cam.x = -player.x * scale + screen.width / 2;
+      cam.y = -player.y * scale + screen.height / 2;
+      // Render the particle field manually (ticker is stopped)
+      try { this._updateParticles(0.016); } catch (e) {}
+      if (elapsed < DURATION) {
+        requestAnimationFrame(tick);
+      } else {
+        // Restore camera so other UI / starts work normally
+        cam.scale.set(1);
+        cam.x = baseX; cam.y = baseY;
+        if (typeof onDone === 'function') onDone();
+      }
+    };
+    requestAnimationFrame(tick);
   }
 
   // Surviv.io-style killcam: freeze the world, zoom in on the killer for 3s,

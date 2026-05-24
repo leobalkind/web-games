@@ -559,7 +559,11 @@ function tick(dt) {
   }
   if (train) {
     train.x += train.vx * dt;
-    if (Math.abs(pug.y - train.y) < 30 && pug.x > train.x - train.len / 2 - 40 && pug.x < train.x + train.len / 2 + 40) {
+    // Tunnel safety: train passes overhead while you're inside one (matches
+    // the GPS-jam behaviour, where tunnels visually obscure you from the
+    // overworld). Avoids the unfair "killed in tunnel by train you can't see".
+    const safeInTunnel = isInTunnel(pug.x, pug.y);
+    if (!safeInTunnel && Math.abs(pug.y - train.y) < 30 && pug.x > train.x - train.len / 2 - 40 && pug.x < train.x + train.len / 2 + 40) {
       if (shieldT <= 0 && invuln <= 0) {
         // Train is a heavy hit — apply HP cost directly so the i-frame from
         // the first damage() doesn't no-op the second call.

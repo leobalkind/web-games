@@ -160,10 +160,24 @@ window.addEventListener('keydown', (e) => {
   }
 });
 // Difficulty buttons — default matches the HTML's pre-active button (NORMAL).
+// Round-2: per-difficulty stat preview popover on hover (zombie counts).
+const DIFF_PREVIEW = {
+  easy:   { hpMul: '0.55×', dmgMul: '0.55×', zMul: '×0.45 zombies' },
+  normal: { hpMul: '1.00×', dmgMul: '1.00×', zMul: '×1.00 zombies' },
+  hard:   { hpMul: '1.40×', dmgMul: '1.40×', zMul: '×1.45 zombies' },
+};
 const savedDiff = localStorage.getItem('pugfort:difficulty') || 'normal';
 document.querySelectorAll('.diff-btn').forEach((btn) => {
   if (btn.dataset.diff === savedDiff) btn.classList.add('diff-btn--active');
   else btn.classList.remove('diff-btn--active');
+  // Inject preview popover (HP/DMG/spawn-count multipliers)
+  const dp = DIFF_PREVIEW[btn.dataset.diff];
+  if (dp && !btn.querySelector('.diff-btn__hint')) {
+    const hint = document.createElement('span');
+    hint.className = 'diff-btn__hint';
+    hint.innerHTML = `<b>HP</b> ${dp.hpMul} · <b>DMG</b> ${dp.dmgMul}<br/>${dp.zMul}`;
+    btn.appendChild(hint);
+  }
   btn.addEventListener('click', () => {
     const d = btn.dataset.diff;
     localStorage.setItem('pugfort:difficulty', d);
@@ -209,6 +223,36 @@ function paintHotbarIcons() {
   }
 }
 paintHotbarIcons();
+
+// Round-2 polish: hover tooltips on each hotbar slot. Builds a tooltip from
+// the buildable def — HP, RANGE, DMG, DPS where applicable, plus desc.
+function injectSlotTooltips() {
+  for (const id of Object.keys(BUILDABLES)) {
+    const def = BUILDABLES[id];
+    const slot = document.getElementById('slot-' + id);
+    if (!slot || slot.querySelector('.hud-slot__tip')) continue;
+    const rows = [];
+    if (def.hp != null) rows.push(['HP', def.hp]);
+    if (def.range != null) rows.push(['RANGE', def.range]);
+    if (def.damage != null && def.fireCooldown) {
+      const dps = (def.damage / def.fireCooldown).toFixed(1);
+      rows.push(['DMG', def.damage]);
+      rows.push(['DPS', dps]);
+    }
+    if (def.trapDps != null) rows.push(['DPS', def.trapDps]);
+    if (def.mineDamage != null) rows.push(['BLAST', def.mineDamage]);
+    if (def.healRate != null) rows.push(['HEAL/s', def.healRate]);
+    if (def.platformRangeBonus) rows.push(['RANGE+', `+${Math.round(def.platformRangeBonus * 100)}%`]);
+    if (def.wireSlowMul != null) rows.push(['SLOW', `${Math.round((1 - def.wireSlowMul) * 100)}%`]);
+    const rowHtml = rows.map(([k, v]) => `<div class="row"><span>${k}</span><b>${v}</b></div>`).join('');
+    const tip = document.createElement('div');
+    tip.className = 'hud-slot__tip';
+    tip.innerHTML = `<div><b>${def.name}</b></div>${rowHtml}`
+      + `<div class="desc">${def.desc || ''}</div>`;
+    slot.appendChild(tip);
+  }
+}
+injectSlotTooltips();
 
 // =============================================================================
 // META-UNLOCKS — render start-screen list + dim locked hotbar slots.
@@ -432,6 +476,49 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
+// Round-2 polish: resource forecast. Polls game.resources every ~5s and shows
+// a "+/- per minute" rate for each material so the player can budget.
+(function _forecastHud(){
+  const el = document.getElementById('hud-forecast');
+  const rowsEl = document.getElementById('hud-forecast-rows');
+  if (!el || !rowsEl) return;
+  const KEYS = [
+    { k: 'wood', icon: '🪵' },
+    { k: 'scrap', icon: '🔩' },
+    { k: 'explosives', icon: '💣' },
+    { k: 'electronics', icon: '🔌' },
+  ];
+  let prev = null, prevT = 0;
+  function sample() {
+    if (!game?.running || !game.resources) {
+      el.hidden = true;
+      return;
+    }
+    el.hidden = false;
+    const now = performance.now() / 1000;
+    const cur = { wood: 0, scrap: 0, explosives: 0, electronics: 0 };
+    for (const { k } of KEYS) cur[k] = Math.floor(game.resources[k] || 0);
+    if (prev && (now - prevT) > 1) {
+      const dt = now - prevT;
+      const lines = [];
+      for (const { k, icon } of KEYS) {
+        const delta = cur[k] - prev[k];
+        const perMin = delta / dt * 60;
+        const sign = perMin > 0.5 ? '+' : (perMin < -0.5 ? '' : '±');
+        const color = perMin > 0.5 ? 'var(--neon-green)' : (perMin < -0.5 ? 'var(--crimson)' : 'var(--muted)');
+        lines.push(`<div class="row"><span>${icon}</span><b style="color:${color}">${sign}${perMin.toFixed(0)}/min</b></div>`);
+      }
+      rowsEl.innerHTML = lines.join('');
+    } else if (!prev) {
+      rowsEl.innerHTML = `<div class="row"><span style="color:var(--muted)">measuring…</span></div>`;
+    }
+    prev = cur;
+    prevT = now;
+  }
+  // Sample every 5s — long enough to see real trends without spamming DOM.
+  setInterval(sample, 5000);
+})();
+
 // === Round 3B: start/end screen polish (fun-facts, new-best confetti, replay-prompt) ===
 (function _r3bPolish(){
   const FACTS = [
@@ -517,13 +604,43 @@ window.addEventListener('keydown', (e) => {
 
 // depth3D: HTML parallax horizon — city silhouette + low cloud band sit above
 // the Pixi stage but below all HUD. Mouse-driven movement for fake 3D camera.
+// ROUND-2 polish: add SUN + MOON layer + scroll cloud band faster when night.
 try {
   _depthHtmlParallax({
     layers: [
       // Distant city silhouette (slow drift)
       { speed: 0.15, html: '<div style="position:absolute;left:-5%;right:-5%;bottom:0;height:24%;background:linear-gradient(to top,#0a0716 0%,rgba(20,12,34,0.5) 70%,transparent 100%);"></div><div style="position:absolute;left:-5%;right:-5%;bottom:14%;height:8%;background-image:repeating-linear-gradient(to right,#1a0d2a 0,#1a0d2a 28px,transparent 28px,transparent 38px,#2a1640 38px,#2a1640 64px,transparent 64px,transparent 80px);opacity:0.7;"></div>' },
-      // Cloud band over horizon
-      { speed: 0.4, html: '<div style="position:absolute;left:-10%;right:-10%;top:10%;height:14%;background:radial-gradient(ellipse at 20% 50%, rgba(180,150,220,0.08) 0%, transparent 60%), radial-gradient(ellipse at 70% 50%, rgba(255,255,255,0.05) 0%, transparent 55%);"></div>' },
+      // Sun + Moon — both rendered, css opacity toggled by .pf-sky--night class.
+      { speed: 0.05, html: '<div id="pf-sun" style="position:absolute;left:14%;top:8%;width:80px;height:80px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#ffe082 0%,#ffd23f 50%,rgba(255,210,63,0.0) 75%);box-shadow:0 0 60px rgba(255,210,63,0.45);transition:opacity 2s linear;"></div><div id="pf-moon" style="position:absolute;right:14%;top:6%;width:64px;height:64px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#fff0a8 0%,#c0c8e0 60%,rgba(192,200,224,0.0) 80%);box-shadow:0 0 36px rgba(192,200,224,0.4);opacity:0;transition:opacity 2s linear;"><div style="position:absolute;left:18px;top:14px;width:8px;height:8px;border-radius:50%;background:rgba(120,128,160,0.55);"></div><div style="position:absolute;left:30px;top:32px;width:6px;height:6px;border-radius:50%;background:rgba(120,128,160,0.45);"></div><div style="position:absolute;left:40px;top:18px;width:5px;height:5px;border-radius:50%;background:rgba(120,128,160,0.5);"></div></div>' },
+      // Cloud band over horizon — id used to swap CSS animation speed for night
+      { speed: 0.4, html: '<div id="pf-clouds" style="position:absolute;left:-50%;right:-50%;top:10%;height:14%;background:radial-gradient(ellipse at 20% 50%, rgba(180,150,220,0.08) 0%, transparent 60%), radial-gradient(ellipse at 70% 50%, rgba(255,255,255,0.05) 0%, transparent 55%), radial-gradient(ellipse at 40% 60%, rgba(200,200,235,0.06) 0%, transparent 60%);animation:pfCloudDrift 60s linear infinite;"></div>' },
     ],
   });
+  // Inject cloud drift + night-mode keyframes once.
+  if (!document.getElementById('pugfort-sky-styles')) {
+    const s = document.createElement('style');
+    s.id = 'pugfort-sky-styles';
+    s.textContent = '@keyframes pfCloudDrift{from{transform:translateX(0)}to{transform:translateX(33%)}}'
+      + '.pf-sky--night #pf-sun{opacity:0!important;}'
+      + '.pf-sky--night #pf-moon{opacity:1!important;}'
+      + '.pf-sky--night #pf-clouds{animation-duration:24s!important;}'
+      + '.pf-sky--day #pf-sun{opacity:1;} .pf-sky--day #pf-moon{opacity:0;}'
+      + '.pf-sky--dusk #pf-sun{opacity:0.4;} .pf-sky--dusk #pf-moon{opacity:0.6;}'
+      + '#pf-sun,#pf-moon{transition:opacity 2.2s ease-in-out;}'
+      + '#pf-clouds{transition:animation-duration 2s linear;}';
+    document.head.appendChild(s);
+  }
 } catch (e) { /* */ }
+
+// Sync sky class with the game's phase. Polled lightly — no per-frame cost.
+setInterval(() => {
+  if (!game?.running) return;
+  const ph = game.phase;
+  const cls = (ph === 'night') ? 'pf-sky--night'
+            : (ph === 'sunset' || ph === 'dawn') ? 'pf-sky--dusk' : 'pf-sky--day';
+  if (document.body.dataset.pfSky !== cls) {
+    document.body.classList.remove('pf-sky--day', 'pf-sky--night', 'pf-sky--dusk');
+    document.body.classList.add(cls);
+    document.body.dataset.pfSky = cls;
+  }
+}, 500);

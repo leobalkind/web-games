@@ -13,6 +13,7 @@ import { drawPug, drawMonsterPug } from '../../src/shared/pugSprite.js';
 import { createMobileControls } from '../../src/shared/mobileControls.js';
 import { profileKey } from '../../src/shared/profile.js';
 import { createSettingsMenu, caption, getMasterGain } from '../../src/shared/settingsMenu.js';
+import { createAchievements } from '../../src/shared/achievements.js';
 import { getShakeMul as _shakeMul } from '../../src/shared/screenShake.js';
 import { drawShadow as _depthShadow, depthSort as _depthSort } from '../../src/shared/depth3D.js';
 import {
@@ -28,6 +29,7 @@ import {
   loadLevelUnlocks as _cutLoadUnlocks,
   recordLevelReached as _cutRecordReached,
   recordLevelBestTime as _cutRecordBest,
+  recordLastPlayed as _cutRecordLastPlayed,
 } from './cutscenes.js';
 
 const canvas = document.getElementById('game-canvas');
@@ -304,44 +306,103 @@ function levelSizeMul(lvl) {
 let currentLevelInfo = { name: '', theme: '', lvl: 0 };
 
 // ============================================================================
-// LORE NOTES — 30 cryptic Backrooms-canon style fragments. The player can
-// find at most NOTE_TOTAL across all runs (their personal "codex"). Each note
-// has a stable id (its index in the array) so the persistence layer can dedupe.
+// LORE NOTES — 60 cryptic Backrooms-canon fragments organised into 7 themed
+// banks, one per level archetype. Round-2 expansion (was 30). Each note has a
+// stable id (its index in the array) so persistence dedupes. The themed banks
+// give each level a distinct flavour for note discovery; spawner prefers notes
+// from the current level's bank but falls back to ANY undiscovered note if the
+// bank is exhausted, so completionists never get stuck.
+// Banks (id ranges):
+//   LOBBY      0..9   — OFFICE LIFE
+//   WAREHOUSE  10..19 — STORAGE
+//   PIPES      20..29 — INFRASTRUCTURE
+//   VOIDPOOL   30..39 — THE DEEP
+//   POOLROOMS  40..47 — TILES & WATER
+//   GARAGE     48..53 — UNDERGROUND
+//   THE END    54..59 — DESCENT
 // ============================================================================
 const LORE_NOTES = [
+  // ---- LOBBY (0..9) OFFICE LIFE ----
   "Day 47. The smell of mildew has stopped registering. I think I'm becoming one of them.",
   "If you see a hallway you've already walked through but the wallpaper is yellower — turn back. That's not the same hall.",
   "The hum is in B-flat. It has always been in B-flat. I don't think it's coming from the lights.",
   "Found a vending machine. The cans were already open. I drank one anyway.",
   "Whoever wrote 'NOT THE EXIT' on this wall — bless you. I would have walked right in.",
   "I haven't slept. I haven't been tired. I haven't been anything for a while now.",
-  "The Smilers don't actually smile. They're just trying to remember what teeth were for.",
+  "The lobby is not the start. The lobby is just the part we're allowed to remember.",
+  "Found a memo pad on the floor. Page 1: BUY MILK. Pages 2-200: THE WALLS ARE BREATHING.",
+  "There's a water cooler that's full. I haven't drunk in a week. I'm not thirsty. That's the worst part.",
+  "Saw a man in a suit walk past three times in three different directions. Same man. Same minute. Different hall.",
+  // ---- WAREHOUSE (10..19) STORAGE ----
   "Three hounds in the warehouse. They circle but don't enter the lit squares. Stay under the lights.",
   "Found Marcus's flashlight. Marcus is not with the flashlight.",
-  "Almond water tastes like nothing. It IS nothing. Drink it anyway. It works.",
+  "Crates labeled DO NOT OPEN. I didn't. Then I came back and they were already open. Empty.",
+  "The forklift won't start. The keys are inside. The driver is not.",
+  "Every crate I've opened has held one thing: another smaller crate. I'm not opening more.",
+  "Wrote my name in spray-paint. Came back later. The paint had drifted three tiles to the left.",
+  "There's a pug here who answers questions. Don't ask any. The answers are correct.",
+  "I built a fort out of cardboard boxes. The fort was gone in the morning. So were two of my paws. They grew back.",
+  "Smoke alarm went off for six hours. There was no smoke. The alarm hasn't shut up since.",
+  "Found a clipboard. INVENTORY: 47 souls. Crossed out. Recount: 48. I am 48.",
+  // ---- PIPES (20..29) INFRASTRUCTURE ----
   "The pipes never end. I followed one for what felt like a day. It went back to where it started, then kept going.",
-  "If you noclip again you reach a place worse than this. There is no level for which 'worse' does not have a meaning.",
-  "I drew a map. I came back the next day. The map didn't match. Drew a new one. Same result.",
-  "Avoid the corners. Anything that's been in a corner long enough becomes a corner.",
-  "The Whisperer doesn't whisper to you. It whispers to itself, about you. Don't listen in.",
-  "Crawlers won't lunge if you don't break the line of sight. They want you to look away.",
-  "I think the carpet is digesting me. Very slowly. I have stopped checking my paws.",
-  "Found a door. Opened it. Closed it. Opened it again. Different room. Closed it. Walked away.",
-  "Sometimes the lights go out and you can hear your own footsteps from a few seconds ago.",
-  "The lobby is not the start. The lobby is just the part we're allowed to remember.",
   "Steam vents in Level 2 mean nothing. The steam is for us, not the monsters. So we don't see.",
-  "Wrote my name on the wall. Came back later. The name had drifted three tiles to the left.",
-  "If you find a note that isn't mine, please leave it for whoever comes next.",
+  "Found a valve. Turned it. Heard screaming from three floors below me. Turned it back.",
+  "Listen to the pipes when they hiss. They aren't venting. They're talking.",
+  "The water in the pipes isn't water. I tested. It IS water now. I think it changes when you look.",
+  "There's a service hatch in the ceiling. It opens downward. I haven't figured out how that works.",
+  "If you put your ear to a pipe you hear your own breathing. Don't. You'll hear it stop before you do.",
+  "Every fifth pipe is warmer than the others. Don't touch them. Don't ask why I know.",
+  "Smiler in the steam. It pretended to be a valve handle. I almost grabbed it.",
+  "The maintenance manual is missing pages 14-94. The pages I have say nothing useful.",
+  // ---- VOIDPOOL (30..39) THE DEEP ----
   "The Void Pool isn't a pool. It's what's under all the other floors when you stop being polite about it.",
-  "The thing that chases you is not the worst thing here. It's just the loudest.",
-  "Found a calendar. Every page said TUESDAY. I tore them all out. I don't know what day it is.",
-  "Don't trust the exits with green light. Trust the ones with no light at all.",
+  "Bioluminescent fish below. They don't have eyes. They don't need them. They know I'm here.",
+  "The water is exactly body temperature. That's not a coincidence. That's a welcome.",
+  "I held my breath and went under. Came up an hour later. I never breathed in. I'm not sure I ever needed to.",
+  "Something brushed my leg. I am wearing armor. I felt it through the armor. Then I had no armor.",
+  "Bottom of the pool has a drain. The drain leads to a hallway. The hallway has a pool.",
+  "The fish glow brighter when I'm afraid. I am trying very hard not to be afraid.",
+  "Found a diving mask. The eye-holes are clouded. I see better through them than without.",
+  "There's a song down here. Three notes, looping. I am humming it without meaning to.",
+  "I think the pool is the bottom. I think everything else is the pool pretending.",
+  // ---- POOLROOMS (40..47) TILES & WATER ----
+  "Pool noodle in the corner. Yellow. Foam intact. Don't ask how. It works.",
+  "Every tile in this room is exactly the same. So is every room.",
+  "Drain in the corner. Hair around it. The hair is moving. The drain is not.",
+  "I lay down on the tile floor and slept. I dreamed of being a tile. I woke up flat.",
+  "The water never gets deeper. The water never gets shallower. The water is just there.",
+  "Found a pug in the deep end. It was floating face-up. It smiled and waved. I waved back.",
+  "There's a lifeguard chair, empty, but the whistle on it works. I blew it once. Don't.",
+  "The chlorine smell is real. It is the ONLY real thing here. I cherish it.",
+  // ---- GARAGE (48..53) UNDERGROUND ----
+  "Found a parked car. Keys in ignition. Engine on. No one's been here in years. Tank's full.",
+  "Three pugs in party hats around something on the floor. I didn't get close. I don't want to know.",
+  "Half the parking spots are taken. I haven't seen another soul. Where are the drivers?",
+  "Car alarm went off for forty minutes. Different car each time. Each car was empty.",
+  "Concrete pillar number 47-B has a name carved into it. The name changes when I look away.",
+  "There is no UP-RAMP. There is only DOWN. I have been driving down for what I think was years.",
+  // ---- THE END (54..59) DESCENT ----
+  "The red lights aren't lights. They're eyes. They blink when I'm not looking.",
   "I dreamed of grass yesterday. I think I dreamed it. I'm not sure I knew what grass was anymore.",
   "Sanity is a battery. You keep finding sockets but never the wall.",
   "I am going to noclip out. If you find this, don't follow. There is no out.",
+  "EXIT SIGN visible from anywhere. EXIT SIGN never gets closer. EXIT SIGN watches.",
+  "If you read this, you made it. I am proud of you. I am also still here. Get out.",
 ];
 const NOTE_TOTAL = LORE_NOTES.length;
 const NOTES_KEY = 'backrooms-pug:notes';
+// Per-level note id ranges so spawner can pick a level-appropriate note. Maps
+// archetype key → [startId, endIdInclusive]. Range checks honour bank size.
+const LORE_BANKS = {
+  lobby:     [0,  9],
+  warehouse: [10, 19],
+  pipes:     [20, 29],
+  voidpool:  [30, 39],
+  poolrooms: [40, 47],
+  garage:    [48, 53],
+  the_end:   [54, 59],
+};
 function loadNotesFound() {
   try {
     const raw = localStorage.getItem(profileKey(NOTES_KEY));
@@ -363,6 +424,139 @@ function markNoteFound(id) {
 function notesFoundCount() {
   return Object.keys(loadNotesFound()).length;
 }
+
+// ============================================================================
+// ACHIEVEMENTS — Round 2 expansion. 5 hidden achievements unlocked via gameplay
+// trackers (resetRunAchievementTrackers + checks throughout tick/genLevel/die).
+// All unlocks are persisted via the shared achievements module so they carry
+// across runs and profiles.
+// ============================================================================
+const ach = createAchievements('backrooms-pug', {
+  ghost:       { name: 'GHOST',       desc: 'Complete a level without using the flashlight.', icon: '👻' },
+  pacifist:    { name: 'PACIFIST',    desc: 'Complete a full level without triggering any jumpscare.', icon: '☮' },
+  speedrun:    { name: 'SPEEDRUN',    desc: 'Complete level 1 in under 90 seconds.', icon: '⚡' },
+  survivor:    { name: 'SURVIVOR',    desc: 'Reach level 5.', icon: '🏃' },
+  enlightened: { name: 'ENLIGHTENED', desc: 'Discover every lore note (60/60).', icon: '✦' },
+  lore_complete: { name: 'LORE COMPLETE', desc: 'All 60 lore notes recovered. The codex is whole.', icon: '📖' },
+});
+// Per-run achievement trackers — wiped on each level start by genLevel via
+// resetLevelAchievementTrackers(). The run-wide "noFlashlight" flag resets in
+// startRun.
+let achLevelFlashlightUsed = false;   // any toggleFlashlight that turned it ON
+let achLevelJumpscareTriggered = false; // any non-ambient jumpScare fire
+function resetLevelAchievementTrackers() {
+  achLevelFlashlightUsed = false;
+  achLevelJumpscareTriggered = false;
+}
+// Called when a level completes successfully (player reaches exit). Awards any
+// per-level achievements that the trackers permit. `lvl` = the level just
+// cleared; `lvlElapsed` = seconds taken to clear it.
+function checkLevelClearAchievements(lvl, lvlElapsed) {
+  try {
+    if (!achLevelFlashlightUsed) ach.unlock('ghost');
+    if (!achLevelJumpscareTriggered) ach.unlock('pacifist');
+    if (lvl === 1 && lvlElapsed < 90) ach.unlock('speedrun');
+  } catch {}
+}
+function checkLoreCompleteAchievement() {
+  try {
+    if (notesFoundCount() >= NOTE_TOTAL) {
+      ach.unlock('enlightened');
+      ach.unlock('lore_complete');
+    }
+  } catch {}
+}
+
+// ============================================================================
+// ALMOND WATER — 1 per level, glows blue, drinking (E within ~28px) restores
+// 50 sanity + adds 30s of flashlight battery (capped at 100). Counter shown on
+// HUD via `almondWaterCollected` tally; reset per run in startRun().
+// ============================================================================
+let almondWaters = [];                // [{x, y}]
+let almondWaterCollected = 0;         // per-run collected count
+
+// ============================================================================
+// PER-LEVEL MUTATORS — 30% per level chance to apply one of 5 mutators that
+// alter game pacing. Display the mutator name briefly at the top of the level
+// (via popup). Mutators last the duration of the level only — reset in genLevel.
+// ============================================================================
+const MUTATORS = [
+  { id: 'darker',   name: 'DARKER',   desc: 'flashlight drains 1.5x' },
+  { id: 'foggy',    name: 'FOGGY',    desc: 'view radius reduced' },
+  { id: 'haunted',  name: 'HAUNTED',  desc: 'extra ambient scares' },
+  { id: 'silent',   name: 'SILENT',   desc: 'no monster footsteps' },
+  { id: 'inverted', name: 'INVERTED', desc: 'controls inverted' },
+];
+let activeMutator = null;             // { id, name, desc } or null
+let mutatorBannerT = 0;               // seconds remaining of the name banner
+
+// ============================================================================
+// MAP COLLECTIBLE — a single hidden symbol scratched into a random wall tile
+// per level. Finding (within ~30px) marks it found, awards a lore note + adds
+// 1 toward the 7-shard unlock for the EASTER EGG "MEMORY" archetype.
+// Persisted across runs via localStorage 'backrooms-pug:sigils'.
+// ============================================================================
+let mapSigil = null;                  // { x, y, found } for current level
+const SIGIL_KEY = 'backrooms-pug:sigils';
+function loadSigilCount() {
+  try {
+    const raw = localStorage.getItem(profileKey(SIGIL_KEY));
+    const n = raw ? parseInt(raw, 10) : 0;
+    return Number.isFinite(n) ? n : 0;
+  } catch { return 0; }
+}
+function saveSigilCount(n) {
+  try { localStorage.setItem(profileKey(SIGIL_KEY), String(n | 0)); } catch {}
+}
+function addSigil() {
+  const n = Math.min(7, loadSigilCount() + 1);
+  saveSigilCount(n);
+  return n;
+}
+
+// ============================================================================
+// PARTYGOERS — Garage-only NEW monster. 3 pugs in party hats that party in a
+// circle around a focal point. If player walks within 30px of ANY of them →
+// all 3 shriek and chase together. Easier per-pug than the main monster but
+// pack pressure. State stored in `partygoers` array — separate from `entities`
+// so the existing monster-AI core is not touched.
+// ============================================================================
+let partygoers = [];                  // [{ x, y, hatColor, partyCx, partyCy, partyAngle, partyRadius, state, t, alertedT, speed }]
+let partyAlertedT = 0;                // shared timer once they shriek (so they synchronously chase)
+
+// ============================================================================
+// PER-ARCHETYPE UNIQUE MECHANIC — one MEMORABLE thing per level. Wired into
+// genLevel + tick + render as appropriate. Most are cosmetic / event-driven so
+// they don't bloat the bundle or touch the monster AI core.
+//   LOBBY:     yellow notepad item — picking up flashes a dev note overlay
+//   WAREHOUSE: forklift sprite — collision blocker (sets a special obstacle)
+//   PIPES:     water-drop splash events from ceiling (audio + tiny splash pop)
+//   VOIDPOOL:  bioluminescent fish (cosmetic, scared by player proximity)
+//   POOLROOMS: pool noodle item — temporary weapon, whacks crawler back 80px
+//   GARAGE:    car alarm event — random car's lights flash, attracts monster
+//   THE END:   single visible EXIT SIGN red, visible-from-anywhere, win on reach
+// ============================================================================
+let yellowNotepad = null;             // { x, y, used } — LOBBY only
+let yellowNoteFlashT = 0;             // seconds remaining of dev-note overlay
+let yellowNoteText = '';
+let forklift = null;                  // { x, y, w, h } — WAREHOUSE only (collision)
+let waterDrops = [];                  // [{ x, y, t, life }] active drops (PIPES only)
+let nextWaterDropAt = 999999;         // scheduled gameTime for next water drop
+let bioFish = [];                     // [{ x, y, vx, vy, color, scaredT }] — VOIDPOOL only
+let poolNoodleItem = null;            // { x, y } in-world pickup — POOLROOMS only
+let poolNoodleCharges = 0;            // per-run charges (1 per pickup, single use)
+let nextCarAlarmAt = 999999;          // scheduled gameTime for next garage car alarm
+let activeCarAlarm = null;            // { car, t, life } — garage only
+let endExitSign = null;               // { x, y } — THE END only, glowing red beacon
+// Dev notepad strings — picked randomly per pickup.
+const DEV_NOTES = [
+  '// TODO: fix the wallpaper bug',
+  '// note: do NOT noclip past floor 7',
+  '// MEMORY archetype is just a placeholder',
+  '// the hum is supposed to be in A. nobody noticed.',
+  '// players love the smiler. nobody knows why.',
+  '// did we ship the exit yet? -unanswered',
+];
 
 // ============================================================================
 // State
@@ -547,6 +741,61 @@ let levelCardShowing = false;
 let runStartT = 0;
 // Per-level start time (resets every genLevel) — used to record best-time per level.
 let levelStartT = 0;
+// Agent #5: REPLAY RING BUFFER — last ~5s of player/monster/entity positions
+// at ~30fps (150 frames, ~12KB at peak). Drawn as ghost outlines on death.
+const _REPLAY_FPS = 30, _REPLAY_MAX = 150;
+const replayBuffer = [];
+let replayAcc = 0, replayActive = false, replayElapsed = 0, replayDoneCb = null;
+let _replayOverlayEl = null;
+function recordReplayFrame(dt) {
+  if (!pug || !monster) return;
+  replayAcc += dt;
+  if (replayAcc < 1 / _REPLAY_FPS) return;
+  replayAcc = 0;
+  const ents = entities ? entities.slice(0, 6).map(e => ({ x: e.x, y: e.y })) : [];
+  if (replayBuffer.length >= _REPLAY_MAX) replayBuffer.shift();
+  replayBuffer.push({ px: pug.x, py: pug.y, mx: monster.x, my: monster.y,
+    mch: !!monster.chase, cx: cam ? cam.x : pug.x, cy: cam ? cam.y : pug.y, ents });
+}
+function startReplay(doneCb) {
+  if (replayBuffer.length < 10) { try { doneCb && doneCb(); } catch {} return; }
+  replayActive = true; replayElapsed = 0; replayDoneCb = doneCb || null;
+}
+function stopReplay() {
+  replayActive = false;
+  const cb = replayDoneCb; replayDoneCb = null;
+  if (cb) try { cb(); } catch {}
+}
+function renderReplayGhosts() {
+  if (!replayActive || !replayBuffer.length) return;
+  const fr = replayBuffer[Math.min(replayBuffer.length - 1, Math.floor(replayElapsed * _REPLAY_FPS))];
+  if (!fr) return;
+  ctx.save(); ctx.globalAlpha = 0.55;
+  ctx.strokeStyle = '#4cc9f0'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(fr.px, fr.py, 16, 0, Math.PI * 2); ctx.stroke();
+  ctx.fillStyle = 'rgba(76,201,240,0.18)'; ctx.fill();
+  ctx.strokeStyle = fr.mch ? '#ff3a3a' : '#ff8e3c'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.arc(fr.mx, fr.my, 32, 0, Math.PI * 2); ctx.stroke();
+  ctx.strokeStyle = '#ffd23f'; ctx.lineWidth = 1.5;
+  for (const e of fr.ents) { ctx.beginPath(); ctx.arc(e.x, e.y, 10, 0, Math.PI * 2); ctx.stroke(); }
+  ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath(); ctx.moveTo(fr.px, fr.py); ctx.lineTo(fr.mx, fr.my); ctx.stroke();
+  ctx.setLineDash([]); ctx.restore();
+}
+function showReplayOverlayHud() {
+  if (_replayOverlayEl) return;
+  const el = document.createElement('div');
+  el.style.cssText = 'position:fixed;left:50%;top:16px;transform:translateX(-50%);'
+    + 'background:rgba(10,7,22,0.85);border:2px solid #4cc9f0;border-radius:6px;padding:8px 16px;'
+    + 'color:#4cc9f0;font-family:"Press Start 2P",monospace;font-size:0.6rem;letter-spacing:0.16em;'
+    + 'z-index:200;box-shadow:0 0 16px rgba(76,201,240,0.5);pointer-events:none;';
+  el.textContent = '▶ REPLAY · LAST 5s';
+  document.body.appendChild(el); _replayOverlayEl = el;
+}
+function hideReplayOverlayHud() {
+  if (_replayOverlayEl) { _replayOverlayEl.remove(); _replayOverlayEl = null; }
+}
 
 function shake(mag, dur) { const k = _shakeMul(); shakeMag = Math.max(shakeMag, mag * k); shakeT = Math.max(shakeT, dur); }
 // True if reduced-motion is active (settings toggle OR OS pref). Scares still
@@ -581,6 +830,8 @@ function jumpScare(kind) {
   const ambient = kind === 'ambient';
   const phantomLike = kind === 'phantom' || kind === 'reflection';
   if (!ambient && !phantomLike && jumpScareCooldown > 0) return;
+  // Track for PACIFIST achievement — any non-ambient (=real) jumpscare disqualifies.
+  if (!ambient) achLevelJumpscareTriggered = true;
   if (!ambient && !phantomLike) jumpScareCooldown = 30;
   jumpScareKind = kind;
   if (ambient) jumpScareLife = 0.45;
@@ -713,7 +964,10 @@ function playScareSting(type) {
 if (typeof window !== 'undefined') window.__backroomsPlayScareSting = playScareSting;
 
 function scheduleAmbient() {
-  nextAmbientAt = gameTime + 90 + Math.random() * 90;
+  // HAUNTED mutator triples the rate (interval cut to 1/3).
+  const haunted = !!(activeMutator && activeMutator.id === 'haunted');
+  const mul = haunted ? 0.33 : 1.0;
+  nextAmbientAt = gameTime + (90 + Math.random() * 90) * mul;
 }
 function scheduleDoorSlam() {
   nextDoorSlamAt = gameTime + 30 + Math.random() * 30;
@@ -912,6 +1166,8 @@ function toggleFlashlight() {
     return;
   }
   flashlightOn = !flashlightOn;
+  // Track GHOST achievement — flipping ON disqualifies the level.
+  if (flashlightOn) achLevelFlashlightUsed = true;
   sfx.tone(flashlightOn ? 880 : 440, 'square', 0.04, 0.14);
   pop(pug.x, pug.y - 18, flashlightOn ? 'LIGHT ON' : 'LIGHT OFF', '#ffd23f');
 }
@@ -1705,6 +1961,155 @@ function genLevel(lvl) {
     }
   }
   // -------------------------------------------------------------------------
+  // ROUND-2 EXPANSION SPAWNS — almond water, partygoers (garage only),
+  // mutators, map sigil, archetype-unique props.
+  // -------------------------------------------------------------------------
+  // Reset per-level achievement trackers
+  resetLevelAchievementTrackers();
+  // SURVIVOR achievement — fires when player reaches level 5.
+  if (lvl >= 5) { try { ach.unlock('survivor'); } catch {} }
+  // ALMOND WATER — 1 per level, placed in any open tile away from the spawn.
+  almondWaters = [];
+  for (let tries = 0; tries < 50; tries++) {
+    const tx = 1 + Math.floor(Math.random() * (cols - 2));
+    const ty = 1 + Math.floor(Math.random() * (rows - 2));
+    if (grid[ty][tx] !== 0) continue;
+    const wx = tx * TILE + TILE / 2, wy = ty * TILE + TILE / 2;
+    if (Math.hypot(wx - pug.x, wy - pug.y) < TILE * 4) continue;
+    if (exitTile && Math.hypot(wx - exitTile.x, wy - exitTile.y) < TILE * 2) continue;
+    almondWaters.push({ x: wx, y: wy });
+    break;
+  }
+  // MUTATOR — 30% chance per level. Mutator name shown via banner for 4s.
+  activeMutator = null;
+  mutatorBannerT = 0;
+  if (Math.random() < 0.30) {
+    activeMutator = MUTATORS[Math.floor(Math.random() * MUTATORS.length)];
+    mutatorBannerT = 4.0;
+  }
+  // MAP SIGIL — 1 hidden symbol scratched into a random wall tile per level.
+  mapSigil = null;
+  for (let tries = 0; tries < 60; tries++) {
+    const tx = 2 + Math.floor(Math.random() * (cols - 4));
+    const ty = 2 + Math.floor(Math.random() * (rows - 4));
+    if (grid[ty][tx] !== 1) continue;
+    // Need at least one open neighbour so it's reachable.
+    const hasOpen = [[1,0],[-1,0],[0,1],[0,-1]].some(([dx,dy]) =>
+      grid[ty+dy] && grid[ty+dy][tx+dx] === 0);
+    if (!hasOpen) continue;
+    mapSigil = { x: tx * TILE + TILE / 2, y: ty * TILE + TILE / 2, found: false };
+    break;
+  }
+  // PARTYGOERS — Garage only. 3 pugs in party hats, circling a focal point.
+  partygoers = [];
+  partyAlertedT = 0;
+  if (archetype === 'garage') {
+    // Find a focal point in the largest room far from player.
+    let focal = null;
+    for (let tries = 0; tries < 30; tries++) {
+      const r = rooms[1 + Math.floor(Math.random() * Math.max(1, rooms.length - 1))];
+      if (!r) continue;
+      const fx = (r.cx) * TILE + TILE / 2;
+      const fy = (r.cy) * TILE + TILE / 2;
+      if (Math.hypot(fx - pug.x, fy - pug.y) < TILE * 6) continue;
+      focal = { x: fx, y: fy };
+      break;
+    }
+    if (focal) {
+      const hatColors = ['#ff3aa1', '#4cc9f0', '#5ef38c'];
+      for (let i = 0; i < 3; i++) {
+        const a = (i / 3) * Math.PI * 2;
+        const r = 36;
+        partygoers.push({
+          x: focal.x + Math.cos(a) * r,
+          y: focal.y + Math.sin(a) * r,
+          hatColor: hatColors[i],
+          partyCx: focal.x, partyCy: focal.y,
+          partyAngle: a, partyRadius: r,
+          state: 'party', t: 0, alertedT: 0,
+          speed: 95,
+        });
+      }
+    }
+  }
+  // ARCHETYPE-UNIQUE MECHANICS — placed/initialized per level.
+  yellowNotepad = null;
+  forklift = null;
+  waterDrops = [];
+  nextWaterDropAt = 999999;
+  bioFish = [];
+  poolNoodleItem = null;
+  nextCarAlarmAt = 999999;
+  activeCarAlarm = null;
+  endExitSign = null;
+  if (archetype === 'lobby') {
+    // Yellow notepad — rare pickup in a random open tile.
+    for (let tries = 0; tries < 40; tries++) {
+      const tx = 1 + Math.floor(Math.random() * (cols - 2));
+      const ty = 1 + Math.floor(Math.random() * (rows - 2));
+      if (grid[ty][tx] !== 0) continue;
+      const wx = tx * TILE + TILE / 2, wy = ty * TILE + TILE / 2;
+      if (Math.hypot(wx - pug.x, wy - pug.y) < TILE * 4) continue;
+      yellowNotepad = { x: wx, y: wy, used: false };
+      break;
+    }
+  } else if (archetype === 'warehouse') {
+    // Forklift — collision blocker placed in a chamber room if possible.
+    for (let tries = 0; tries < 30; tries++) {
+      const r = rooms.find(rr => rr.kind === 'chamber') ||
+        rooms[1 + Math.floor(Math.random() * (rooms.length - 1))];
+      if (!r) break;
+      const tx = r.minX + Math.floor(Math.random() * Math.max(1, r.w - 1));
+      const ty = r.minY + Math.floor(Math.random() * Math.max(1, r.h - 1));
+      if (grid[ty][tx] !== 0) continue;
+      const wx = tx * TILE + TILE / 2, wy = ty * TILE + TILE / 2;
+      if (Math.hypot(wx - pug.x, wy - pug.y) < TILE * 3) continue;
+      if (exitTile && Math.hypot(wx - exitTile.x, wy - exitTile.y) < TILE * 2) continue;
+      forklift = { x: wx, y: wy, w: TILE * 1.1, h: TILE * 0.8 };
+      break;
+    }
+  } else if (archetype === 'pipes') {
+    // Schedule first water drop. Drops fire every 6-12s, splash at random nearby tile.
+    nextWaterDropAt = 4 + Math.random() * 6;
+  } else if (archetype === 'voidpool') {
+    // Bioluminescent fish — 6-10 swimming around. Scared by player proximity.
+    const nFish = 6 + Math.floor(Math.random() * 5);
+    const fishColors = ['#7effe6', '#5cf3c8', '#aaffff', '#84ffd2'];
+    for (let i = 0; i < nFish; i++) {
+      for (let tries = 0; tries < 20; tries++) {
+        const tx = 1 + Math.floor(Math.random() * (cols - 2));
+        const ty = 1 + Math.floor(Math.random() * (rows - 2));
+        if (grid[ty][tx] !== 0) continue;
+        bioFish.push({
+          x: tx * TILE + TILE / 2 + (Math.random() - 0.5) * TILE * 0.4,
+          y: ty * TILE + TILE / 2 + (Math.random() - 0.5) * TILE * 0.4,
+          vx: (Math.random() - 0.5) * 28,
+          vy: (Math.random() - 0.5) * 28,
+          color: fishColors[Math.floor(Math.random() * fishColors.length)],
+          scaredT: 0,
+          phase: Math.random() * Math.PI * 2,
+        });
+        break;
+      }
+    }
+  } else if (archetype === 'poolrooms') {
+    // Pool noodle item — 1 per level.
+    for (let tries = 0; tries < 30; tries++) {
+      const tx = 1 + Math.floor(Math.random() * (cols - 2));
+      const ty = 1 + Math.floor(Math.random() * (rows - 2));
+      if (grid[ty][tx] !== 0) continue;
+      const wx = tx * TILE + TILE / 2, wy = ty * TILE + TILE / 2;
+      if (Math.hypot(wx - pug.x, wy - pug.y) < TILE * 3) continue;
+      poolNoodleItem = { x: wx, y: wy };
+      break;
+    }
+  } else if (archetype === 'garage') {
+    nextCarAlarmAt = 18 + Math.random() * 30;
+  } else if (archetype === 'the_end') {
+    // EXIT SIGN beacon — same as the normal exit but always-visible halo.
+    endExitSign = { x: exitTile.x, y: exitTile.y };
+  }
+  // -------------------------------------------------------------------------
   // EXPOSE level metadata for cutscenes/intros (Agent C reads currentLevelInfo)
   // -------------------------------------------------------------------------
   currentLevelInfo = { name: LV.name, theme: archetype, lvl };
@@ -1726,13 +2131,16 @@ function genLevel(lvl) {
   currentRoomId = -1;
   secretRoomRevealedT = 0;
   secretPromptText = null; secretPromptT = 0;
-  // ---- LORE NOTES (1-2 per level) — spawn id picked from undiscovered pool
-  // when possible, otherwise random from full pool so a "completist" player
-  // still sees notes (re-read on the modal will just re-show).
+  // ---- LORE NOTES (1-2 per level) — Round-2: prefer notes from THIS level's
+  // bank (LORE_BANKS[archetype]) when picking an undiscovered id. Falls back
+  // to ANY undiscovered note if the bank is exhausted, then to a random note.
   noteCollectibles = [];
   const found = loadNotesFound();
-  const undiscovered = [];
-  for (let i = 0; i < NOTE_TOTAL; i++) if (!found[i]) undiscovered.push(i);
+  const bank = LORE_BANKS[archetype] || [0, NOTE_TOTAL - 1];
+  const bankUndiscovered = [];
+  for (let i = bank[0]; i <= bank[1] && i < NOTE_TOTAL; i++) if (!found[i]) bankUndiscovered.push(i);
+  const anyUndiscovered = [];
+  for (let i = 0; i < NOTE_TOTAL; i++) if (!found[i]) anyUndiscovered.push(i);
   const noteCount = 1 + Math.floor(Math.random() * 2);
   for (let i = 0; i < noteCount; i++) {
     for (let tries = 0; tries < 50; tries++) {
@@ -1741,9 +2149,17 @@ function genLevel(lvl) {
       if (grid[ty][tx] !== 0) continue;
       const wx = tx * TILE + TILE / 2, wy = ty * TILE + TILE / 2;
       if (Math.hypot(wx - pug.x, wy - pug.y) < TILE * 3) continue;
-      const id = undiscovered.length
-        ? undiscovered.splice(Math.floor(Math.random() * undiscovered.length), 1)[0]
-        : Math.floor(Math.random() * NOTE_TOTAL);
+      let id;
+      if (bankUndiscovered.length) {
+        id = bankUndiscovered.splice(Math.floor(Math.random() * bankUndiscovered.length), 1)[0];
+        // also drop from any-pool so we don't double-pick across slots
+        const idx = anyUndiscovered.indexOf(id);
+        if (idx >= 0) anyUndiscovered.splice(idx, 1);
+      } else if (anyUndiscovered.length) {
+        id = anyUndiscovered.splice(Math.floor(Math.random() * anyUndiscovered.length), 1)[0];
+      } else {
+        id = Math.floor(Math.random() * NOTE_TOTAL);
+      }
       noteCollectibles.push({ x: wx, y: wy, id });
       break;
     }
@@ -1756,6 +2172,10 @@ function genLevel(lvl) {
   // Brief level intro popup
   pop(pug.x, pug.y - 28, LV.name, '#ffd23f');
   setTimeout(() => running && pop(pug.x, pug.y - 16, LV.sub, '#5ef38c'), 600);
+  // Mutator badge — secondary popup so the player sees what's modifying this run.
+  if (activeMutator) {
+    setTimeout(() => running && pop(pug.x, pug.y - 4, `MUTATOR: ${activeMutator.name}`, '#ff8e3c'), 1100);
+  }
 }
 
 function spawnEntity(kind) {
@@ -1825,6 +2245,10 @@ function isWallAt(x, y) {
     for (const c of garageCars) {
       if (Math.abs(x - c.x) < c.w / 2 + 2 && Math.abs(y - c.y) < c.h / 2 + 2) return true;
     }
+  }
+  // Warehouse forklift blocks movement.
+  if (forklift) {
+    if (Math.abs(x - forklift.x) < forklift.w / 2 + 2 && Math.abs(y - forklift.y) < forklift.h / 2 + 2) return true;
   }
   return false;
 }
@@ -2124,6 +2548,8 @@ function tick(dt) {
   if (keys.has('s') || keys.has('arrowdown')) my += 1;
   if (keys.has('a') || keys.has('arrowleft')) mx -= 1;
   if (keys.has('d') || keys.has('arrowright')) mx += 1;
+  // INVERTED mutator — flip input axes for spooky-confusing feel.
+  if (activeMutator && activeMutator.id === 'inverted') { mx = -mx; my = -my; }
   const sneaking = keys.has('shift') || touchSneak;
   // Partygoer-style slow not implemented; sanity-low slows you slightly though
   const sanitySlow = sanity < 25 ? 0.7 : 1.0;
@@ -2149,6 +2575,9 @@ function tick(dt) {
 
   cam.x += (pug.x - cam.x) * 6 * dt;
   cam.y += (pug.y - cam.y) * 6 * dt;
+
+  // Agent #5: record this frame into the 5s replay ring buffer.
+  recordReplayFrame(dt);
 
   // Cans pickup
   for (let i = cans.length - 1; i >= 0; i--) {
@@ -2177,6 +2606,7 @@ function tick(dt) {
       } catch {}
       if (wasNew) {
         pop(n.x, n.y - 14, `+NOTE ${notesFoundCount()}/${NOTE_TOTAL}`, '#ffd23f');
+        checkLoreCompleteAchievement();
       } else {
         pop(n.x, n.y - 14, 'RE-READ', '#aaaaaa');
       }
@@ -2232,6 +2662,66 @@ function tick(dt) {
       battery = Math.max(0, battery - 10);
       try { sfx.tone(220, 'sine', 0.3, 0.18); sfx.noise(0.05, 0.12, 200); } catch {}
       pop(c.x, c.y - 14, '+20 SANITY -10 BATTERY', '#aaaaaa');
+    }
+  }
+  // ALMOND WATER — drink with E within ~28px. +50 sanity, +30s of flashlight
+  // battery (battery treated as a fraction of 100; +30s @ 3/sec drain = ~+90
+  // tiny units, but capped at 100). Per-run counter for HUD.
+  for (let i = almondWaters.length - 1; i >= 0; i--) {
+    const a = almondWaters[i];
+    const d = Math.hypot(a.x - pug.x, a.y - pug.y);
+    if (d < 28 && keys.has('e')) {
+      almondWaters.splice(i, 1);
+      almondWaterCollected++;
+      sanity = Math.min(100, sanity + 50);
+      battery = Math.min(100, battery + 30);
+      try { sfx.tone(660, 'sine', 0.22, 0.20); sfx.tone(880, 'triangle', 0.18, 0.16); } catch {}
+      pop(a.x, a.y - 14, `+ALMOND ${almondWaterCollected}/${MAX_LEVEL}`, '#48d8ff');
+    } else if (d < 28) {
+      // Prompt text only — caption-style. Drawn in render via popup is too noisy.
+      // (Visual hint kept inside the glow render — skip per-frame popup spam.)
+    }
+  }
+  // YELLOW NOTEPAD — LOBBY only. Pickup = flash dev note overlay (renders in render()).
+  if (yellowNotepad && !yellowNotepad.used) {
+    if (Math.hypot(yellowNotepad.x - pug.x, yellowNotepad.y - pug.y) < 22) {
+      yellowNotepad.used = true;
+      yellowNoteText = DEV_NOTES[Math.floor(Math.random() * DEV_NOTES.length)];
+      yellowNoteFlashT = 3.0;
+      try { sfx.tone(440, 'square', 0.10, 0.14); sfx.tone(880, 'triangle', 0.18, 0.12); } catch {}
+      pop(yellowNotepad.x, yellowNotepad.y - 14, '+DEV NOTE', '#ffd23f');
+    }
+  }
+  // POOL NOODLE — POOLROOMS only. Pickup grants 1 charge of crawler-knockback.
+  if (poolNoodleItem) {
+    if (Math.hypot(poolNoodleItem.x - pug.x, poolNoodleItem.y - pug.y) < 22) {
+      poolNoodleCharges++;
+      try { sfx.tone(540, 'triangle', 0.12, 0.18); sfx.noise(0.06, 0.10, 600); } catch {}
+      pop(poolNoodleItem.x, poolNoodleItem.y - 14, '+POOL NOODLE (Q to whack)', '#ffd23f');
+      poolNoodleItem = null;
+    }
+  }
+  // MAP SIGIL — find within 30px to mark it. Awards a bonus undiscovered lore
+  // note + +1 toward the 7-shard MEMORY unlock.
+  if (mapSigil && !mapSigil.found) {
+    if (Math.hypot(mapSigil.x - pug.x, mapSigil.y - pug.y) < 30) {
+      mapSigil.found = true;
+      const total = addSigil();
+      try { sfx.tone(660, 'sine', 0.22, 0.22); sfx.tone(990, 'triangle', 0.18, 0.18); sfx.tone(1320, 'sine', 0.14, 0.18); } catch {}
+      pop(mapSigil.x, mapSigil.y - 18, `+SIGIL ${total}/7`, '#d2a8ff');
+      // Bonus undiscovered lore note (if any).
+      const foundMap = loadNotesFound();
+      const undisc = [];
+      for (let k = 0; k < NOTE_TOTAL; k++) if (!foundMap[k]) undisc.push(k);
+      if (undisc.length) {
+        const id = undisc[Math.floor(Math.random() * undisc.length)];
+        markNoteFound(id);
+        pop(mapSigil.x, mapSigil.y - 32, `+NOTE ${notesFoundCount()}/${NOTE_TOTAL}`, '#ffd23f');
+        checkLoreCompleteAchievement();
+      }
+      if (total >= 7) {
+        pop(pug.x, pug.y - 32, 'MEMORY ARCHETYPE UNLOCKED', '#5ef38c');
+      }
     }
   }
   // Water-cooler drink — single-use, +5 sanity.
@@ -2312,7 +2802,8 @@ function tick(dt) {
   if (mapFragmentRevealT > 0) mapFragmentRevealT = Math.max(0, mapFragmentRevealT - dt);
   // Talisman use (Q with charges) — stun monster. Separate from E so it
   // doesn't conflict with door-open / water-cooler interaction on the same
-  // frame as pickup.
+  // frame as pickup. Talisman is the priority Q use; pool-noodle falls through
+  // only when player has 0 charges.
   if (keys.has('q') && talismanCharges > 0 && monsterDazedT <= 0) {
     talismanCharges--;
     monsterDazedT = 6;
@@ -2320,11 +2811,33 @@ function tick(dt) {
     pop(pug.x, pug.y - 22, 'TALISMAN BURNS', '#d2a8ff');
     silenceHum(0.5);
     keys.delete('q');
+  } else if (keys.has('q') && poolNoodleCharges > 0) {
+    // POOL NOODLE whack — find nearest crawler within 90px, knock back 80px.
+    let nearest = null, nd = 90;
+    for (const e of entities) {
+      if (e.kind !== 'crawler') continue;
+      const d = Math.hypot(e.x - pug.x, e.y - pug.y);
+      if (d < nd) { nd = d; nearest = e; }
+    }
+    if (nearest) {
+      poolNoodleCharges--;
+      const dx = nearest.x - pug.x, dy = nearest.y - pug.y;
+      const m = Math.hypot(dx, dy) || 1;
+      // Knock-back 80px instantly (clamped to walls via move()).
+      move(nearest, (dx / m) * 80, (dy / m) * 80, 10);
+      nearest.lungeCooldown = 3;       // reset its lunge so it stays disoriented
+      nearest.lungeT = 0;
+      try { sfx.tone(220, 'sine', 0.18, 0.12); sfx.noise(0.10, 0.18, 600); } catch {}
+      pop(pug.x, pug.y - 22, 'THWACK!', '#ffd23f');
+      shake(4, 0.20);
+      keys.delete('q');
+    }
   }
   // Hide-in-spot battery drain doubles (handled where hidden is computed).
-  // Battery drain
+  // Battery drain — DARKER mutator multiplies drain by 1.5x.
   if (flashlightOn) {
-    battery = Math.max(0, battery - 3 * dt);
+    const drainMul = (activeMutator && activeMutator.id === 'darker') ? 1.5 : 1.0;
+    battery = Math.max(0, battery - 3 * drainMul * dt);
     if (battery <= 0) { flashlightOn = false; pop(pug.x, pug.y - 18, 'BATTERY DEAD', '#ff3a3a'); }
   }
   monsterDazedT = Math.max(0, monsterDazedT - dt);
@@ -2355,6 +2868,10 @@ function tick(dt) {
   if (cans.length === 0 && Math.hypot(exitTile.x - pug.x, exitTile.y - pug.y) < 26) {
     if (!noclipTransitionT) {
       const lvlInfo = levelInfoFor(level);
+      // Per-level achievement check — GHOST (no flashlight), PACIFIST (no
+      // jumpscares), SPEEDRUN (level 1 < 90s).
+      const lvlElapsed = gameTime - levelStartT;
+      checkLevelClearAchievements(level, lvlElapsed);
       // Persist best-time for this level + unlock the next one.
       try { _cutRecordBest(level, gameTime - levelStartT); } catch {}
       try { _cutRecordReached(Math.min(MAX_LEVEL, level + 1)); } catch {}
@@ -2531,10 +3048,13 @@ function tick(dt) {
   }
 
   // ----- POSITIONAL AUDIO (the ONLY way to know where the monster is) -----
+  // SILENT mutator suppresses the monster footstep cue (player has no aural
+  // anchor for monster position).
+  const silentMut = !!(activeMutator && activeMutator.id === 'silent');
   const monsterMoving = Math.hypot(mvx, mvy) > 5;
   monsterFootstepT += dt;
   const footRate = monster.chase ? 0.40 : monster.hunting ? 0.55 : 0.70;
-  if (monsterMoving && monsterFootstepT >= footRate + Math.random() * 0.10) {
+  if (!silentMut && monsterMoving && monsterFootstepT >= footRate + Math.random() * 0.10) {
     monsterFootstepT = 0;
     emitPositionalTone(monster.x, monster.y, 90 + Math.random() * 18, 'sine', 0.06, 0.18);
   }
@@ -2869,6 +3389,138 @@ function tick(dt) {
     if (nextStroboAt < gameTime + 10) scheduleStrobo();
   }
 
+  // ==========================================================================
+  // ROUND-2 PER-ARCHETYPE MECHANICS — partygoers, water drops, fish, alarm.
+  // ==========================================================================
+  // Mutator banner countdown
+  if (mutatorBannerT > 0) mutatorBannerT = Math.max(0, mutatorBannerT - dt);
+  // Yellow notepad dev-flash countdown
+  if (yellowNoteFlashT > 0) yellowNoteFlashT = Math.max(0, yellowNoteFlashT - dt);
+  // PARTYGOERS (garage only) — 3 pugs circling a focal point until provoked.
+  // If player walks within 30px of any one, all 3 alert and chase. On contact
+  // they damage (death). Their movement uses move() so they respect walls.
+  if (partygoers.length) {
+    let provoke = false;
+    if (partyAlertedT <= 0) {
+      for (const p of partygoers) {
+        if (Math.hypot(p.x - pug.x, p.y - pug.y) < 30) { provoke = true; break; }
+      }
+    }
+    if (provoke) {
+      partyAlertedT = 0.001; // mark alerted
+      try {
+        sfx.sweep(800, 280, 'sawtooth', 0.30, 0.30);
+        sfx.tone(880, 'square', 0.18, 0.16);
+        sfx.tone(110, 'sine', 0.30, 0.40);
+        caption('[PARTYGOERS]', 1300);
+      } catch {}
+      shake(8, 0.30);
+    }
+    if (partyAlertedT > 0) partyAlertedT += dt;
+    for (const p of partygoers) {
+      p.t += dt;
+      if (partyAlertedT > 0) {
+        // Chase player. Easier than main monster (95 px/s base, lower than 200).
+        const dxp = pug.x - p.x, dyp = pug.y - p.y;
+        const dp = Math.hypot(dxp, dyp) || 1;
+        const sp = p.speed;
+        move(p, (dxp / dp) * sp * dt, (dyp / dp) * sp * dt, 12);
+        // Contact = death (pack pressure is the gimmick)
+        if (dp < 22) {
+          hitFlashT = 0.4; shake(7, 0.4);
+          jumpScareCooldown = 0;
+          jumpScare('hound'); // reuse hound scare visual
+          return die('hound');
+        }
+      } else {
+        // Idle — orbit focal point at partyRadius. Wobble for cuteness/horror.
+        p.partyAngle += dt * 1.3;
+        const wob = Math.sin(p.t * 5) * 4;
+        p.x = p.partyCx + Math.cos(p.partyAngle) * p.partyRadius + wob * 0.2;
+        p.y = p.partyCy + Math.sin(p.partyAngle) * p.partyRadius + wob * 0.2;
+      }
+    }
+  }
+  // WATER DROPS (pipes only) — periodic splash overhead. Cosmetic splash
+  // graphic + a faint audio pop. Drops at a random open tile near the player.
+  if (archetype === 'pipes' && gameTime >= nextWaterDropAt) {
+    let placed = false;
+    for (let tries = 0; tries < 8; tries++) {
+      const a2 = Math.random() * Math.PI * 2;
+      const r2 = 80 + Math.random() * 180;
+      const dx = Math.cos(a2) * r2, dy = Math.sin(a2) * r2;
+      const wx = pug.x + dx, wy = pug.y + dy;
+      if (isWallAt(wx, wy)) continue;
+      waterDrops.push({ x: wx, y: wy, t: 0, life: 0.8 });
+      placed = true;
+      // If drop lands within 40px of pug → splash sound + tiny sanity poke.
+      if (Math.hypot(dx, dy) < 40) {
+        try { sfx.noise(0.06, 0.10, 800); sfx.tone(440, 'sine', 0.04, 0.06); } catch {}
+        sanity = Math.max(0, sanity - 1);
+      } else {
+        try { sfx.tone(220 + Math.random() * 80, 'sine', 0.04, 0.04); } catch {}
+      }
+      break;
+    }
+    if (placed) {} // suppress
+    nextWaterDropAt = gameTime + 6 + Math.random() * 6;
+  }
+  // Decay water drops.
+  for (let i = waterDrops.length - 1; i >= 0; i--) {
+    waterDrops[i].t += dt;
+    if (waterDrops[i].t >= waterDrops[i].life) waterDrops.splice(i, 1);
+  }
+  // BIO FISH (voidpool only) — wander + flee from player.
+  for (const f of bioFish) {
+    f.phase += dt * 2;
+    const dxp = f.x - pug.x, dyp = f.y - pug.y;
+    const dp = Math.hypot(dxp, dyp);
+    if (dp < 80) {
+      f.scaredT = 0.8;
+      const m = dp || 1;
+      f.vx += (dxp / m) * 120 * dt;
+      f.vy += (dyp / m) * 120 * dt;
+    }
+    if (f.scaredT > 0) f.scaredT = Math.max(0, f.scaredT - dt);
+    // Light wander
+    f.vx += (Math.random() - 0.5) * 6;
+    f.vy += (Math.random() - 0.5) * 6;
+    // Damping
+    f.vx *= 0.95; f.vy *= 0.95;
+    // Cap speed
+    const sp = Math.hypot(f.vx, f.vy);
+    const cap = f.scaredT > 0 ? 140 : 40;
+    if (sp > cap) { f.vx = (f.vx / sp) * cap; f.vy = (f.vy / sp) * cap; }
+    // Move with wall constraint
+    const nx = f.x + f.vx * dt, ny = f.y + f.vy * dt;
+    if (!isWallAt(nx, f.y)) f.x = nx; else f.vx = -f.vx * 0.5;
+    if (!isWallAt(f.x, ny)) f.y = ny; else f.vy = -f.vy * 0.5;
+  }
+  // CAR ALARM (garage only) — random parked car flashes lights + horn. Pulls
+  // monster toward that spot, opening sneak space the OTHER direction.
+  if (archetype === 'garage' && garageCars.length) {
+    if (activeCarAlarm) {
+      activeCarAlarm.t += dt;
+      if (activeCarAlarm.t >= activeCarAlarm.life) activeCarAlarm = null;
+    } else if (gameTime >= nextCarAlarmAt) {
+      const c = garageCars[Math.floor(Math.random() * garageCars.length)];
+      activeCarAlarm = { car: c, t: 0, life: 5.0 };
+      // Set monster wander target there (only if not already chasing the player)
+      if (monster && monster.aiState !== 'chase') {
+        monster.wanderTarget = { x: c.x, y: c.y };
+        monsterWanderRefreshAt = gameTime + 6;
+      }
+      try {
+        caption('[CAR ALARM]', 1500);
+        sfx.tone(880, 'square', 0.20, 0.30);
+        sfx.tone(660, 'square', 0.20, 0.30);
+      } catch {}
+      nextCarAlarmAt = gameTime + 30 + Math.random() * 40;
+    }
+  }
+  // EXIT SIGN beacon (THE END only) — visible-everywhere red halo; reaching
+  // the exitTile triggers the win cutscene (handled by existing exit check).
+
   updateHum(dt);
   updateMusic(dt, distToPug);
   updateStaticNoise(dt, distToPug, sees);
@@ -3185,7 +3837,9 @@ function render() {
   }
   // View radius — slightly larger when flashlight ON.
   // Tightened so visible area is ~7 tiles even with bigger TILE — more dread.
-  const viewR = flashlightOn ? 340 : 200;
+  // FOGGY mutator reduces view radius by 30%.
+  const foggyMul = (activeMutator && activeMutator.id === 'foggy') ? 0.7 : 1.0;
+  const viewR = (flashlightOn ? 340 : 200) * foggyMul;
   // FLOOR — archetype-specific. SAFE rooms get a slight green tint so the
   // player recognises them at a glance.
   for (let y = 0; y < rows; y++) {
@@ -3366,6 +4020,15 @@ function render() {
   for (const it of items) drawItem(it);
   // Rare items: talismans, map fragments, cigarette packs
   renderRareItems();
+  // Round-2: archetype-unique props + sigil + almond water + bio fish.
+  renderAlmondWaters();
+  renderYellowNotepad();
+  renderForklift();
+  renderPoolNoodleItem();
+  renderBioFish();
+  renderMapSigil();
+  renderWaterDrops();
+  renderCarAlarm();
   // Lore notes — small white rects with a folded corner. Subtle glow so they
   // catch the eye but don't compete with the dread atmosphere.
   for (const n of noteCollectibles) {
@@ -3441,6 +4104,24 @@ function render() {
     ctx.stroke();
     ctx.restore();
   }
+  // THE END — always-visible glowing EXIT SIGN beacon. Pulses red. Drawn as a
+  // tall sign post + an oversized halo so it's recognisable from afar.
+  if (endExitSign) {
+    const pulse = 0.6 + Math.sin(performance.now() / 240) * 0.4;
+    ctx.save();
+    ctx.shadowColor = '#ff3a3a'; ctx.shadowBlur = 50 * pulse;
+    ctx.strokeStyle = `rgba(255,58,58,${0.6 * pulse})`; ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.arc(endExitSign.x, endExitSign.y, 120 + Math.sin(performance.now() / 220) * 14, 0, Math.PI * 2);
+    ctx.stroke();
+    // Sign rectangle ABOVE the exit
+    ctx.fillStyle = '#ff3a3a';
+    ctx.fillRect(endExitSign.x - 40, endExitSign.y - 70, 80, 26);
+    ctx.fillStyle = '#fff'; ctx.font = "12px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText('EXIT', endExitSign.x, endExitSign.y - 52);
+    ctx.shadowBlur = 0;
+    ctx.restore();
+  }
   // Entities (Hounds + Smilers + Crawlers + Whisperers) — depth-sorted so
   // sprites further "back" render first; depth3D drop shadow under each.
   _depthSort(entities);
@@ -3454,6 +4135,8 @@ function render() {
   // Monster — main pug-monster (depth-shadow under it adds weight)
   if (monster && monster.visible !== false) _depthShadow(ctx, monster.x, monster.y + 22, 38, { alpha: 0.42 });
   drawMonster();
+  // Partygoers (garage only) — drawn after main entities so their hats render on top.
+  renderPartygoers();
   // Ambient silhouette (fake jumpscare) — a doorway-shaped shadow that vanishes
   if (ambientEvent) {
     const a = 1 - ambientEvent.t / ambientEvent.life;
@@ -3477,6 +4160,8 @@ function render() {
   } else {
     drawPug(ctx, pug.x, pug.y, { size: 40 });
   }
+  // Agent #5: replay ghost trail (drawn in world coords).
+  if (replayActive) renderReplayGhosts();
   // Sound waves
   if (soundLevel > 0.05) {
     ctx.strokeStyle = `rgba(255,210,63,${soundLevel * 0.5})`;
@@ -3977,6 +4662,95 @@ function render() {
     ctx.restore();
   }
 
+  // -------------------------------------------------------------------------
+  // ROUND-2 SCREEN OVERLAYS — mutator banner, dev-note flash, almond counter.
+  // These render in screen-space (no camera transform).
+  // -------------------------------------------------------------------------
+  // Mutator banner — top-center bar; fades out over its banner timer.
+  if (activeMutator && mutatorBannerT > 0) {
+    const a = Math.min(1, mutatorBannerT / 4) * 0.92;
+    ctx.save();
+    ctx.globalAlpha = a;
+    const bx = W / 2 - 200, by = 12, bw = 400, bh = 36;
+    ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(bx, by, bw, bh);
+    ctx.strokeStyle = '#ff8e3c'; ctx.lineWidth = 2;
+    ctx.strokeRect(bx + 0.5, by + 0.5, bw - 1, bh - 1);
+    ctx.textAlign = 'center';
+    ctx.font = "12px 'Press Start 2P', monospace";
+    ctx.fillStyle = '#ff8e3c';
+    ctx.fillText(`MUTATOR · ${activeMutator.name}`, W / 2, by + 16);
+    ctx.font = "8px 'Press Start 2P', monospace";
+    ctx.fillStyle = '#ddd';
+    ctx.fillText(activeMutator.desc, W / 2, by + 30);
+    ctx.restore();
+  }
+  // ALMOND WATER counter — bottom-left small badge with count.
+  {
+    const bx = 12, by = H - 36;
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(bx, by, 160, 26);
+    ctx.fillStyle = '#48d8ff';
+    ctx.fillRect(bx + 4, by + 6, 4, 14);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(bx + 5, by + 4, 2, 2);
+    ctx.textAlign = 'left';
+    ctx.font = "9px 'Press Start 2P', monospace";
+    ctx.fillStyle = '#48d8ff';
+    ctx.fillText(`ALMOND WATER  ${almondWaterCollected}/${MAX_LEVEL}`, bx + 16, by + 16);
+    ctx.restore();
+  }
+  // SIGIL counter — also bottom-left, just above the almond counter.
+  {
+    const sc = loadSigilCount();
+    if (sc > 0) {
+      const bx = 12, by = H - 64;
+      ctx.save();
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.fillRect(bx, by, 160, 26);
+      ctx.fillStyle = '#d2a8ff';
+      ctx.fillRect(bx + 4, by + 6, 4, 14);
+      ctx.textAlign = 'left';
+      ctx.font = "9px 'Press Start 2P', monospace";
+      ctx.fillStyle = '#d2a8ff';
+      ctx.fillText(`SIGILS  ${sc}/7`, bx + 16, by + 16);
+      ctx.restore();
+    }
+  }
+  // POOL NOODLE indicator (only when player has 1+ charges)
+  if (poolNoodleCharges > 0) {
+    const bx = 12, by = H - 92;
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(bx, by, 200, 26);
+    ctx.fillStyle = '#ffec3c';
+    ctx.fillRect(bx + 4, by + 10, 10, 4);
+    ctx.textAlign = 'left';
+    ctx.font = "9px 'Press Start 2P', monospace";
+    ctx.fillStyle = '#ffec3c';
+    ctx.fillText(`POOL NOODLE × ${poolNoodleCharges}  (Q)`, bx + 18, by + 16);
+    ctx.restore();
+  }
+  // DEV NOTE flash — yellow notepad pickup. Brief overlay reveals a snippet.
+  if (yellowNoteFlashT > 0 && yellowNoteText) {
+    const a = Math.min(1, yellowNoteFlashT / 1.0);
+    ctx.save();
+    ctx.globalAlpha = a;
+    const bw = 460, bh = 60;
+    const bx = (W - bw) / 2, by = H - 140;
+    ctx.fillStyle = 'rgba(20,20,10,0.85)';
+    ctx.fillRect(bx, by, bw, bh);
+    ctx.strokeStyle = '#ffec3c'; ctx.lineWidth = 2;
+    ctx.strokeRect(bx + 0.5, by + 0.5, bw - 1, bh - 1);
+    ctx.textAlign = 'center';
+    ctx.font = "9px 'Press Start 2P', monospace";
+    ctx.fillStyle = '#ffec3c';
+    ctx.fillText('DEV NOTE FOUND', W / 2, by + 18);
+    ctx.font = "11px 'VT323', 'Press Start 2P', monospace";
+    ctx.fillStyle = '#fff';
+    ctx.fillText(yellowNoteText, W / 2, by + 40);
+    ctx.restore();
+  }
   // -------------------------------------------------------------------------
   // LORE NOTE MODAL — paper-textured rect, dim backdrop, click to dismiss.
   // -------------------------------------------------------------------------
@@ -4488,6 +5262,226 @@ function renderRareItems() {
   }
 }
 
+// Round-2 expansion renderers.
+function renderAlmondWaters() {
+  const t = performance.now() / 320;
+  for (const a of almondWaters) {
+    const glow = 0.6 + Math.sin(t + a.x) * 0.4;
+    const bob = Math.sin(t * 1.4 + a.x) * 1.6;
+    ctx.save();
+    // Halo
+    ctx.shadowColor = '#48d8ff'; ctx.shadowBlur = 20 * glow;
+    // Bottle body
+    ctx.fillStyle = '#a8e8ff';
+    ctx.fillRect(a.x - 6, a.y - 12 + bob, 12, 22);
+    // Neck/cap
+    ctx.fillStyle = '#e0f8ff';
+    ctx.fillRect(a.x - 3, a.y - 16 + bob, 6, 4);
+    ctx.fillStyle = '#2078a8';
+    ctx.fillRect(a.x - 3, a.y - 18 + bob, 6, 2);
+    // Label
+    ctx.fillStyle = '#0a3050';
+    ctx.fillRect(a.x - 5, a.y - 4 + bob, 10, 6);
+    ctx.fillStyle = '#fff';
+    ctx.font = "5px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+    ctx.fillText('A.W', a.x, a.y + 1 + bob);
+    ctx.shadowBlur = 0;
+    // Prompt when close enough
+    if (Math.hypot(a.x - pug.x, a.y - pug.y) < 36) {
+      ctx.fillStyle = '#48d8ff'; ctx.font = "7px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+      ctx.fillText('E DRINK', a.x, a.y - 22);
+    }
+    ctx.restore();
+  }
+}
+function renderMapSigil() {
+  if (!mapSigil || mapSigil.found) return;
+  // Etched glyph at the wall tile center. Subtle so the player has to be near.
+  const dist = Math.hypot(mapSigil.x - pug.x, mapSigil.y - pug.y);
+  if (dist > 220) return;       // only visible when close
+  const a = Math.max(0.15, 1 - dist / 220);
+  ctx.save();
+  ctx.strokeStyle = `rgba(180,110,200,${a * 0.6})`;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  // simple triangular sigil with inscribed eye
+  const r = 9;
+  ctx.moveTo(mapSigil.x, mapSigil.y - r);
+  ctx.lineTo(mapSigil.x - r, mapSigil.y + r);
+  ctx.lineTo(mapSigil.x + r, mapSigil.y + r);
+  ctx.closePath();
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(mapSigil.x, mapSigil.y + 3, 3, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+// PARTYGOER pug — small purple/pink/blue pug with cone party hat.
+function renderPartygoers() {
+  for (const p of partygoers) {
+    ctx.save();
+    // Body + drop shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    ctx.beginPath(); ctx.ellipse(p.x, p.y + 12, 18, 5, 0, 0, Math.PI * 2); ctx.fill();
+    // Body — base pug shape, smaller than the main monster.
+    const wob = Math.sin(p.t * 4) * 1.5;
+    const bodyCol = partyAlertedT > 0 ? '#6a1a3a' : '#8a5a2c';
+    ctx.fillStyle = bodyCol;
+    ctx.fillRect(p.x - 14, p.y - 6 + wob, 28, 16);
+    // head
+    ctx.fillStyle = partyAlertedT > 0 ? '#7a1a3a' : '#a06834';
+    ctx.fillRect(p.x - 10, p.y - 16 + wob, 20, 14);
+    // eyes
+    ctx.fillStyle = partyAlertedT > 0 ? '#ff3a3a' : '#000';
+    ctx.shadowColor = partyAlertedT > 0 ? '#ff3a3a' : '';
+    ctx.shadowBlur = partyAlertedT > 0 ? 8 : 0;
+    ctx.fillRect(p.x - 6, p.y - 12 + wob, 3, 3);
+    ctx.fillRect(p.x + 3, p.y - 12 + wob, 3, 3);
+    ctx.shadowBlur = 0;
+    // Snout
+    ctx.fillStyle = '#3a1810';
+    ctx.fillRect(p.x - 3, p.y - 6 + wob, 6, 3);
+    // Party hat — cone with pom-pom
+    ctx.fillStyle = p.hatColor;
+    ctx.beginPath();
+    ctx.moveTo(p.x - 8, p.y - 16 + wob);
+    ctx.lineTo(p.x + 8, p.y - 16 + wob);
+    ctx.lineTo(p.x, p.y - 30 + wob);
+    ctx.closePath(); ctx.fill();
+    // Hat stripe
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.moveTo(p.x - 5, p.y - 22 + wob);
+    ctx.lineTo(p.x + 5, p.y - 22 + wob);
+    ctx.lineTo(p.x + 3, p.y - 25 + wob);
+    ctx.lineTo(p.x - 3, p.y - 25 + wob);
+    ctx.closePath(); ctx.fill();
+    // Pom-pom
+    ctx.fillStyle = '#ffd23f';
+    ctx.beginPath(); ctx.arc(p.x, p.y - 30 + wob, 3, 0, Math.PI * 2); ctx.fill();
+    // Status label when alerted
+    if (partyAlertedT > 0) {
+      ctx.fillStyle = '#ff8080'; ctx.font = "7px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+      ctx.fillText('!!', p.x, p.y - 36 + wob);
+    }
+    ctx.restore();
+  }
+}
+function renderWaterDrops() {
+  for (const d of waterDrops) {
+    const a = d.t < 0.15 ? d.t / 0.15 : Math.max(0, 1 - (d.t - 0.15) / (d.life - 0.15));
+    // Splash circle expanding
+    const r = 4 + (d.t / d.life) * 18;
+    ctx.save();
+    ctx.strokeStyle = `rgba(170,210,240,${a * 0.7})`;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(d.x, d.y, r, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = `rgba(220,240,250,${a * 0.4})`;
+    ctx.beginPath(); ctx.arc(d.x, d.y, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+}
+function renderBioFish() {
+  const t = performance.now() / 400;
+  for (const f of bioFish) {
+    const glow = 0.6 + Math.sin(t + f.phase) * 0.4 + (f.scaredT > 0 ? 0.4 : 0);
+    ctx.save();
+    ctx.shadowColor = f.color; ctx.shadowBlur = 8 * glow;
+    ctx.fillStyle = f.color;
+    // Body
+    ctx.beginPath();
+    ctx.ellipse(f.x, f.y, 5, 2.5, Math.atan2(f.vy, f.vx), 0, Math.PI * 2);
+    ctx.fill();
+    // Tail
+    const a = Math.atan2(f.vy, f.vx);
+    const tx = f.x - Math.cos(a) * 5, ty = f.y - Math.sin(a) * 5;
+    ctx.beginPath();
+    ctx.moveTo(tx, ty);
+    ctx.lineTo(tx - Math.cos(a) * 4 + Math.cos(a + 1.4) * 3, ty - Math.sin(a) * 4 + Math.sin(a + 1.4) * 3);
+    ctx.lineTo(tx - Math.cos(a) * 4 + Math.cos(a - 1.4) * 3, ty - Math.sin(a) * 4 + Math.sin(a - 1.4) * 3);
+    ctx.closePath(); ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.restore();
+  }
+}
+function renderYellowNotepad() {
+  if (!yellowNotepad || yellowNotepad.used) return;
+  const bob = Math.sin(performance.now() / 320) * 1.5;
+  ctx.save();
+  ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 10;
+  ctx.fillStyle = '#ffec80';
+  ctx.fillRect(yellowNotepad.x - 9, yellowNotepad.y - 11 + bob, 18, 20);
+  ctx.fillStyle = '#bda848';
+  ctx.fillRect(yellowNotepad.x - 9, yellowNotepad.y - 11 + bob, 18, 2);
+  // Faux text lines
+  ctx.fillStyle = '#5a4a20';
+  ctx.fillRect(yellowNotepad.x - 6, yellowNotepad.y - 5 + bob, 12, 1);
+  ctx.fillRect(yellowNotepad.x - 6, yellowNotepad.y - 1 + bob, 10, 1);
+  ctx.fillRect(yellowNotepad.x - 6, yellowNotepad.y + 3 + bob, 12, 1);
+  ctx.shadowBlur = 0;
+  ctx.restore();
+}
+function renderForklift() {
+  if (!forklift) return;
+  const f = forklift;
+  // Drop shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.45)';
+  ctx.fillRect(f.x - f.w / 2 + 4, f.y - f.h / 2 + 6, f.w, f.h);
+  // Body
+  ctx.fillStyle = '#ffa83a';
+  ctx.fillRect(f.x - f.w / 2, f.y - f.h / 2, f.w, f.h);
+  // Cab
+  ctx.fillStyle = '#1a1a1a';
+  ctx.fillRect(f.x - f.w / 4, f.y - f.h / 2 + 4, f.w / 2, f.h / 2);
+  // Forks (sticking out front)
+  ctx.fillStyle = '#5a5a5a';
+  ctx.fillRect(f.x + f.w / 2, f.y - 8, 14, 3);
+  ctx.fillRect(f.x + f.w / 2, f.y + 5, 14, 3);
+  // Wheel hubs
+  ctx.fillStyle = '#0a0a0a';
+  ctx.fillRect(f.x - f.w / 2 + 8, f.y + f.h / 2 - 4, 10, 6);
+  ctx.fillRect(f.x + f.w / 2 - 18, f.y + f.h / 2 - 4, 10, 6);
+  // Label
+  ctx.fillStyle = '#5a3a08'; ctx.font = "6px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+  ctx.fillText('FORKLIFT', f.x, f.y - f.h / 2 - 4);
+}
+function renderPoolNoodleItem() {
+  if (!poolNoodleItem) return;
+  const bob = Math.sin(performance.now() / 280) * 1.4;
+  ctx.save();
+  ctx.shadowColor = '#ff8e3c'; ctx.shadowBlur = 8;
+  // Yellow noodle cylinder
+  ctx.fillStyle = '#ffec3c';
+  ctx.fillRect(poolNoodleItem.x - 14, poolNoodleItem.y - 3 + bob, 28, 6);
+  ctx.fillStyle = '#daca20';
+  ctx.fillRect(poolNoodleItem.x - 14, poolNoodleItem.y + 1 + bob, 28, 2);
+  // Hollow centre on each end
+  ctx.fillStyle = '#1a1a08';
+  ctx.fillRect(poolNoodleItem.x - 14, poolNoodleItem.y - 1 + bob, 2, 2);
+  ctx.fillRect(poolNoodleItem.x + 12, poolNoodleItem.y - 1 + bob, 2, 2);
+  ctx.shadowBlur = 0;
+  ctx.restore();
+}
+function renderCarAlarm() {
+  if (!activeCarAlarm) return;
+  const c = activeCarAlarm.car;
+  const t = activeCarAlarm.t;
+  // Flashing red/white pulse at ~6Hz
+  const phase = Math.floor(t * 6) % 2;
+  ctx.save();
+  ctx.fillStyle = phase ? 'rgba(255,40,40,0.55)' : 'rgba(255,255,255,0.45)';
+  ctx.shadowColor = phase ? '#ff3a3a' : '#fff';
+  ctx.shadowBlur = 26;
+  ctx.beginPath();
+  ctx.ellipse(c.x, c.y, c.w * 0.6, c.h * 1.2, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  // Tag
+  ctx.fillStyle = '#ff8080'; ctx.font = "7px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
+  ctx.fillText('ALARM', c.x, c.y - c.h / 2 - 8);
+  ctx.restore();
+}
+
 function drawFurniture(h) {
   if (h.kind === 'sofa') {
     ctx.fillStyle = '#5a2a0c'; ctx.fillRect(h.x - 22, h.y - 8, 44, 16);
@@ -4863,9 +5857,12 @@ function drawFlashlightCone() {
 // Agent C: rebuilt HUD — three zones (vital / objective / resources),
 // 28px-tall bars, plain-language readouts, critical-pulse border on the
 // whole HUD when sanity < 30. Compass arrow appears once all cans are picked.
+// Agent #5: heart icon now SANITY-driven (beat rate scales with low sanity);
+// 5 can-pip icons fill in as cans are collected; battery shows %.
 const _brHud = {
   root:    document.getElementById('hud'),
   cans:    document.getElementById('hud-cans'),
+  canPips: document.getElementById('hud-can-pips'),
   state:   document.getElementById('hud-state'),
   sanBar:  document.getElementById('hud-sanity-bar'),
   sanPct:  document.getElementById('hud-sanity-pct'),
@@ -4880,13 +5877,16 @@ const _brHud = {
   exitHint:document.getElementById('hud-exit-hint'),
   exitDir: document.getElementById('hud-exit-dir'),
 };
+// Cache the 5 can-pip <i> nodes declared in index.html.
+const _brHudCanPipNodes = _brHud.canPips ? Array.from(_brHud.canPips.querySelectorAll('i')) : [];
 let _brHudPrev = {
   cans: -1, cansDone: null, state: '', stateClass: '',
   san: -1, sanColor: '',
   bat: -1, batColor: '', batShadow: null,
-  heart: null, critical: null,
+  critical: null,
   smk: -1, depth: '', notes: '',
   exitShown: null, exitDir: '',
+  gotCans: 0, heartRate: '', heartCrit: null,
 };
 function _exitArrow(dx, dy) {
   const a = Math.atan2(dy, dx);
@@ -4914,6 +5914,25 @@ function updateHud() {
   if (done !== _brHudPrev.cansDone) {
     if (_brHud.cans) _brHud.cans.classList.toggle('is-done', done);
     _brHudPrev.cansDone = done;
+  }
+  // Update 5 can-pip icons: fill in those collected, briefly pop the new one.
+  if (got !== _brHudPrev.gotCans && _brHudCanPipNodes.length) {
+    const justGot = got > _brHudPrev.gotCans;
+    for (let k = 0; k < _brHudCanPipNodes.length; k++) {
+      const pip = _brHudCanPipNodes[k];
+      const filled = k < got;
+      pip.classList.toggle('is-got', filled);
+      // pop only the freshly-collected pip
+      if (justGot && k === got - 1) {
+        pip.classList.remove('is-just-got');
+        // force reflow so the animation restarts
+        void pip.offsetWidth;
+        pip.classList.add('is-just-got');
+      } else {
+        pip.classList.remove('is-just-got');
+      }
+    }
+    _brHudPrev.gotCans = got;
   }
   if (_brHud.exitHint) {
     if (done && exitTile && pug) {
@@ -4970,13 +5989,22 @@ function updateHud() {
       _brHudPrev.batShadow = glow;
     }
   }
-  // VITAL — heartbeat icon when monster < 280px
+  // VITAL — sanity heart. Beat rate scales with low sanity:
+  //   sanity 100 → 1.20s/beat (calm), 50 → 0.75s, 25 → 0.45s, 0 → 0.30s.
+  // Critical class kicks in below 30 (deeper red, larger glow).
   if (_brHud.heart) {
-    const distM = (monster && pug) ? Math.hypot(monster.x - pug.x, monster.y - pug.y) : 9999;
-    const on = distM < 280;
-    if (on !== _brHudPrev.heart) {
-      _brHud.heart.classList.toggle('is-on', on);
-      _brHudPrev.heart = on;
+    const s = Math.max(0, Math.min(100, sanity));
+    // Quantise to 50ms steps so we don't churn the style attribute every frame.
+    const rateMs = Math.round((0.30 + (s / 100) * 0.90) * 1000 / 50) * 50;
+    const rateStr = rateMs + 'ms';
+    if (rateStr !== _brHudPrev.heartRate) {
+      _brHud.heart.style.setProperty('--hb', rateStr);
+      _brHudPrev.heartRate = rateStr;
+    }
+    const heartCrit = s < 30;
+    if (heartCrit !== _brHudPrev.heartCrit) {
+      _brHud.heart.classList.toggle('is-critical', heartCrit);
+      _brHudPrev.heartCrit = heartCrit;
     }
   }
   // CRITICAL — pulsing red border around entire HUD when sanity < 30
@@ -5018,6 +6046,8 @@ function die(cause) {
   document.getElementById('hud').hidden = true;
   const pauseBtn = document.getElementById('pause-btn'); if (pauseBtn) pauseBtn.hidden = true;
   const { isNewBest, current } = submitRun('backrooms-pug', { score: level, level }, (a, b) => b.level - a.level);
+  // Agent #5: replay buffer is offered only if we recorded enough frames.
+  const canReplay = replayBuffer.length >= 30;
   // Agent C: dramatic 2s hold to let camera zoom + jumpscare resolve before
   // popping the death card. catchSlowmoT (set by caller) is ~0.4s.
   const holdMs = 1900;
@@ -5032,9 +6062,18 @@ function die(cause) {
         notesTotal: NOTE_TOTAL,
         best: (current && current.level) || level,
         isNewBest,
-      }, (action) => {
+        canReplay,
+      }, (action, restoreCb) => {
         if (action === 'restart') startRun();
         else if (action === 'select') openLevelSelect();
+        else if (action === 'replay') {
+          // Show overlay HUD then replay; on done, restore the death panel.
+          showReplayOverlayHud();
+          startReplay(() => {
+            hideReplayOverlayHud();
+            try { restoreCb && restoreCb(); } catch {}
+          });
+        }
       });
     } catch {}
   }, holdMs);
@@ -5072,6 +6111,9 @@ function startRun(opts) {
   sanity = 100; battery = 50; flashlightOn = false; smokeCount = 0;
   // Reset jump-scare / ambient state
   gameTime = 0; runStartT = 0; levelStartT = 0;
+  // Agent #5: clear replay buffer + stop any in-progress playback.
+  replayBuffer.length = 0; replayAcc = 0;
+  if (replayActive) { hideReplayOverlayHud(); stopReplay(); }
   jumpScareT = 0; jumpScareLife = 0; jumpScareKind = null;
   jumpScareCooldown = 0; redFlashT = 0;
   firstHoundJump = false; lastSmilerJumpAt = -999;
@@ -5122,6 +6164,16 @@ function startRun(opts) {
   talismanItems = []; mapFragments = []; cigaretteItems = [];
   rooms = []; roomTileMap = []; roomWallpaperIdx = [];
   deadEndRoomIds = new Set();
+  // Round-2 expansion reset
+  almondWaters = []; almondWaterCollected = 0;
+  activeMutator = null; mutatorBannerT = 0;
+  mapSigil = null;
+  partygoers = []; partyAlertedT = 0;
+  yellowNotepad = null; yellowNoteFlashT = 0; yellowNoteText = '';
+  forklift = null; waterDrops = []; nextWaterDropAt = 999999;
+  bioFish = []; poolNoodleItem = null; poolNoodleCharges = 0;
+  nextCarAlarmAt = 999999; activeCarAlarm = null; endExitSign = null;
+  achLevelFlashlightUsed = false; achLevelJumpscareTriggered = false;
   genLevel(level);
   ensureHum();
   ensureMusic();
@@ -5133,6 +6185,9 @@ function startRun(opts) {
   const pauseBtn = document.getElementById('pause-btn');
   if (pauseBtn) pauseBtn.hidden = false;
   sfx.resume();
+  // Agent #5: track the level just entered as "last played" so level-select
+  // can highlight it.
+  try { _cutRecordLastPlayed(level); } catch {}
   // Show level card first; gameplay paused via levelCardShowing flag.
   triggerLevelCard(level, () => {
     if (level === 1 && !_cutHasSeenTutorial()) {
@@ -5186,6 +6241,7 @@ function openLevelSelect() {
   _cutLevelSelect({
     levels: LEVEL_LIST,
     unlocks,
+    lastPlayedLevel: (unlocks && unlocks.lastPlayed) | 0,
     onPick: (lv) => {
       document.getElementById('overlay').hidden = true;
       document.getElementById('overlay').classList.add('is-hidden');
@@ -5225,6 +6281,14 @@ function togglePause() {
   const _resume = document.getElementById('pause-resume');
   if (_resume) _resume.addEventListener('click', () => { paused = false;
     const ov = document.getElementById('pause-overlay'); if (ov) { ov.hidden = true; ov.classList.add('is-hidden'); } });
+  // Agent #5: settings button reuses the shared gear button (createSettingsMenu
+  // appended a global .wg-settings-btn at game init). Clicking it opens the
+  // standard modal; the pause overlay stays underneath.
+  const _pauseSettings = document.getElementById('pause-settings');
+  if (_pauseSettings) _pauseSettings.addEventListener('click', () => {
+    const gear = document.querySelector('.wg-settings-btn');
+    if (gear) gear.click();
+  });
   const _restartLv = document.getElementById('pause-restart');
   if (_restartLv) _restartLv.addEventListener('click', () => {
     paused = false;
@@ -5270,7 +6334,20 @@ let lastT = performance.now();
   // Round 2C: slow-mo final frame on monster catch — drop dt to 25% for the
   // duration of catchSlowmoT so the world freezes briefly with juicy weight.
   if (catchSlowmoT > 0) dt *= 0.25;
-  lastT = now; tick(dt); if (running) render();
+  lastT = now; tick(dt);
+  // Agent #5: while replay is playing back, advance the playback clock and
+  // keep rendering (game is not running anymore but we still need pixels).
+  if (replayActive) {
+    replayElapsed += dt;
+    if (replayElapsed >= REPLAY_SECONDS + 0.2) {
+      hideReplayOverlayHud();
+      stopReplay();
+    } else {
+      render();
+    }
+  } else if (running) {
+    render();
+  }
   requestAnimationFrame(loop);
 })(performance.now());
 
@@ -5288,7 +6365,7 @@ void showTip; // explicit reference so linters don't yell about unused import
     'TIP: Smilers hate light — flash them to scare them off.',
     'TIP: Stand on furniture to HIDE from the giant pug.',
     'LORE: You noclipped through reality and now exist here.',
-    'TIP: 30 notes are scattered across the layers — collect them.',
+    'TIP: 60 notes are scattered across the layers — collect them all.',
     'JOKE: Why is the wallpaper yellow? Don\'t ask.',
   ];
   const GAME_ID = 'backrooms-pug';

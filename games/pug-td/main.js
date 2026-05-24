@@ -158,6 +158,29 @@ const MAPS = {
       [1,9],[2,9],[3,9],[4,9],[5,9],[6,9],[7,9],[8,9],[9,9],[10,9],[11,9],[12,9],[13,9],[14,9],[15,9],[16,9],[17,9],
     ],
   },
+  // ROUND-2 NEW: WINDING — very long S-curve that snakes through almost
+  // every column. Stresses long-range towers + teleport positioning.
+  winding: {
+    name: 'WINDING',
+    desc: 'very long S-curve',
+    path: [
+      [0,1],[1,1],[2,1],[3,1],[4,1],[5,1],[6,1],
+      [6,2],[6,3],
+      [5,3],[4,3],[3,3],[2,3],[1,3],
+      [1,4],[1,5],
+      [2,5],[3,5],[4,5],[5,5],[6,5],[7,5],[8,5],
+      [8,6],[8,7],
+      [7,7],[6,7],[5,7],[4,7],[3,7],[2,7],
+      [2,8],[2,9],
+      [3,9],[4,9],[5,9],[6,9],[7,9],[8,9],[9,9],[10,9],[11,9],
+      [11,8],[11,7],
+      [12,7],[13,7],[14,7],
+      [14,6],[14,5],
+      [13,5],[12,5],
+      [12,4],[12,3],
+      [13,3],[14,3],[15,3],[16,3],[17,3],
+    ],
+  },
 };
 let currentMap = MAPS.classic;
 // Perf: precompute a Set of "c,r" keys so isPath() is O(1) instead of O(N).
@@ -187,6 +210,7 @@ const BIOMES = {
   edge:     { name: 'roof',   ground: '#4a4a4a', groundAlt: '#3a3a3a', path: '#6a4a2a', pathAlt: '#5a3a1a', accent: '#4cc9f0', decor: 'tiles',     ambient: 'pollen',   vault: 'chimney',  spawner: 'door' },
   cross:    { name: 'desert', ground: '#d8a868', groundAlt: '#c89858', path: '#a87838', pathAlt: '#986828', accent: '#ffd23f', decor: 'cacti',     ambient: 'sandswirl',vault: 'pyramid',  spawner: 'cave' },
   funnel:   { name: 'cave',   ground: '#2a2238', groundAlt: '#1a1228', path: '#5a4a3a', pathAlt: '#4a3a2a', accent: '#b055ff', decor: 'stalactites', ambient: 'dust',   vault: 'crystal',  spawner: 'hollow' },
+  winding:  { name: 'meadow', ground: '#3a6a4a', groundAlt: '#2a5a3a', path: '#a08858', pathAlt: '#8a7848', accent: '#ff8ac8', decor: 'flowers',   ambient: 'pollen',  vault: 'chest',   spawner: 'cave' },
 };
 function getBiome() { return BIOMES[chosenMapId] || BIOMES.classic; }
 
@@ -393,12 +417,37 @@ function drawSpawner(x, y, biome, tNow) {
       break;
     }
     case 'portal': {
-      ctx.fillStyle = `rgba(176,85,255,${0.4 + pulse * 0.3})`;
-      ctx.beginPath(); ctx.arc(x, y, TILE * 0.4, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = `rgba(255,58,161,${0.5 + pulse * 0.4})`;
-      ctx.beginPath(); ctx.arc(x, y, TILE * 0.28, 0, Math.PI * 2); ctx.fill();
+      // Round-2 polish: dramatic vortex — multi-layered rotating "arms"
+      // around the core. Each arm is a short eccentric arc that rotates at
+      // a different rate, creating a swirling spiral effect.
+      const rot = tNow * 1.4;
+      // Outer halo
+      ctx.fillStyle = `rgba(176,85,255,${0.25 + pulse * 0.25})`;
+      ctx.beginPath(); ctx.arc(x, y, TILE * 0.52 + pulse * 4, 0, Math.PI * 2); ctx.fill();
+      // 4 swirling arms (alternating colors)
+      for (let i = 0; i < 4; i++) {
+        const a0 = rot + (i / 4) * Math.PI * 2;
+        ctx.strokeStyle = i % 2 === 0 ? `rgba(176,85,255,${0.7})` : `rgba(255,58,161,${0.65})`;
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.arc(x, y, TILE * 0.42, a0, a0 + 0.85);
+        ctx.stroke();
+      }
+      // Counter-rotating inner ring
+      for (let i = 0; i < 6; i++) {
+        const a0 = -rot * 1.6 + (i / 6) * Math.PI * 2;
+        ctx.strokeStyle = `rgba(255,210,63,${0.55})`;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(x, y, TILE * 0.28, a0, a0 + 0.4);
+        ctx.stroke();
+      }
+      // Mid pinkish disc
+      ctx.fillStyle = `rgba(255,58,161,${0.45 + pulse * 0.35})`;
+      ctx.beginPath(); ctx.arc(x, y, TILE * 0.22, 0, Math.PI * 2); ctx.fill();
+      // Bright center pinprick
       ctx.fillStyle = '#fff';
-      ctx.beginPath(); ctx.arc(x, y, TILE * 0.1 + pulse * 2, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x, y, TILE * 0.09 + pulse * 2, 0, Math.PI * 2); ctx.fill();
       break;
     }
     case 'hollow': {
@@ -535,9 +584,13 @@ const TOWERS = {
   // NEW towers
   bone:   { name: 'Bone', icon: '🦴', iconName: 'bone', cost: 110, range: 3.5, dmg: 12, cd: 0.7, color: '#eae0c0', hitsAir: true, projColor: '#eae0c0', boomerang: true, desc: 'Boomerang hits twice' },
   tar:    { name: 'Tar', icon: '🛢', iconName: 'smokeBomb', cost: 95, range: 2.5, dmg: 6,  cd: 0.55, color: '#222228', hitsAir: false, projColor: '#222228', tarPool: true, slow: 0.5, slowDur: 2.2, desc: 'Drops slow-pools on ground' },
-  // TELEPORT tower — warps enemies BACKWARD along path. No damage; pure
-  // path-control utility. Slower fire rate but huge value on long paths.
-  teleport: { name: 'Warp', icon: '🌀', iconName: 'diamond', cost: 140, range: 3.2, dmg: 0, cd: 1.6, color: '#b055ff', hitsAir: true, projColor: '#b055ff', teleport: true, desc: 'Warps enemies BACK on path' },
+  // TELEPORT tower — warps enemies BACKWARD along path. Round-2 tune:
+  // increased cooldown 1.6 → 2.2 + range 3.2 → 2.6 + cost 140 → 160 to reduce dominance.
+  teleport: { name: 'Warp', icon: '🌀', iconName: 'diamond', cost: 160, range: 2.6, dmg: 0, cd: 2.2, color: '#b055ff', hitsAir: true, projColor: '#b055ff', teleport: true, desc: 'Warps enemies BACK on path' },
+  // ROUND-2 NEW: BANNER — buff tower that stacks +25% fire rate AND +30%
+  // range to adjacent towers. No damage. Stronger than BUFF (which only
+  // boosts dmg) — different niche.
+  banner:   { name: 'Banner', icon: '🚩', iconName: 'crown', cost: 100, range: 2.0, dmg: 0, cd: 0.5, color: '#ff8ac8', hitsAir: false, bannerBoost: true, bannerFireRate: 0.25, bannerRange: 0.3, desc: '+25% rate, +30% range to adj' },
 };
 
 const TARGETING_MODES = ['FIRST', 'LAST', 'STRONG', 'CLOSE'];
@@ -587,6 +640,10 @@ const TOWER_PATHS = {
     A: { id: 'BACKWARD', label: 'BACKWARD', blurb: 'warps enemies 4 tiles back', badge: '#b055ff', glyph: '↶', dmgMul: 1.0, rangeMul: 1.0, rateMul: 1.0, warpAmt: 4 },
     B: { id: 'CHAOS',    label: 'CHAOS',    blurb: 'warps random 1-6 tiles back', badge: '#ff3aa1', glyph: '⌘', dmgMul: 1.0, rangeMul: 1.2, rateMul: 0.8, warpAmt: 0, warpChaos: true },
   },
+  banner: {
+    A: { id: 'RALLY',   label: 'RALLY',   blurb: '+50% rate · bigger radius',  badge: '#ff8ac8', glyph: '◆', dmgMul: 1.0, rangeMul: 1.4, rateMul: 1.0, bannerFireBoost: 0.5 },
+    B: { id: 'MARCH',   label: 'MARCH',   blurb: '+50% range · adj towers',    badge: '#5ef38c', glyph: '▲', dmgMul: 1.0, rangeMul: 1.0, rateMul: 1.0, bannerRangeBoost: 0.5 },
+  },
 };
 function getPathDef(tw) {
   if (!tw.path) return null;
@@ -600,6 +657,8 @@ const ENEMIES = {
   tank:     { name: 'tank',     hp: 180, speed: 0.6, gold: 25, color: '#5a3a14', size: 16, air: false },
   bird:     { name: 'bird',     hp: 30, speed: 1.8, gold: 12, color: '#5ef38c', size: 11, air: true },
   boss:     { name: 'BOSS',     hp: 1500, speed: 0.5, gold: 250, color: '#b055ff', size: 22, air: false },
+  // ROUND-2 NEW: PUG ELITE — chunky orange pug-cat. High HP, summons 3 squirrels on death.
+  elite:    { name: 'PUG ELITE', hp: 320, speed: 0.75, gold: 45, color: '#c8854a', size: 17, air: false, summonOnDeath: 3 },
 };
 
 // Track endless-mode state: waves > 15 are procedurally generated and
@@ -608,13 +667,16 @@ const ENEMIES = {
 let endlessMode = false;
 const BOSS_MODIFIERS = ['REGEN', 'SPLITTER', 'SUMMONER'];
 function generateEndlessWave(idx) {
-  // idx is 1-based wave number (16, 17, 18, ...)
+  // idx is 1-based wave number (16, 17, 18, ...). Round-2: gentler ramp +
+  // include PUG ELITE so endless feels distinct from late campaign.
   const base = idx - 15;
   const w = {};
-  w.squirrel = 20 + base * 4;
-  w.cat = 10 + base * 2;
-  w.bird = 6 + Math.floor(base * 1.3);
-  w.tank = Math.floor(base * 0.8);
+  // Soften squirrel/cat ramp so wave 20+ doesn't bury the player.
+  w.squirrel = 18 + Math.floor(base * 3);
+  w.cat = 8 + Math.floor(base * 1.6);
+  w.bird = 5 + Math.floor(base * 1.1);
+  w.tank = Math.max(1, Math.floor(base * 0.6));
+  w.elite = 2 + Math.floor(base * 0.5);
   // Every 5 waves: also queue an extra boss (handled separately by spawn)
   return w;
 }
@@ -625,18 +687,22 @@ const WAVES = [
   { cat: 10, bird: 4 },
   { squirrel: 20, tank: 1 },
   { cat: 12, bird: 8 },
-  { tank: 4, squirrel: 16 },
+  { tank: 4, squirrel: 16, elite: 1 },           // First elite at wave 7
   { bird: 12, cat: 8 },
-  { tank: 8, cat: 8 },
+  { tank: 8, cat: 8, elite: 2 },                 // 2 elites at wave 9
   { squirrel: 30, bird: 6 },
-  { tank: 6, bird: 10, cat: 10 },
+  { tank: 6, bird: 10, cat: 10, elite: 2 },
   { bird: 18, tank: 4 },
-  { tank: 12, squirrel: 25 },
-  { tank: 8, cat: 20, bird: 14 },
-  { boss: 1, tank: 10, bird: 10 },
+  { tank: 12, squirrel: 25, elite: 3 },
+  { tank: 8, cat: 20, bird: 14, elite: 3 },
+  { boss: 1, tank: 10, bird: 10, elite: 4 },
 ];
 
 let money, lives, waveIdx, enemies, towers, projectiles, particles, popups, running, spawnQueue, spawnT, betweenWaveT, inWave, selectedTowerType, selectedTower;
+// ROUND-2 POLISH: wave history (last 5 entries) — { wave, kills, livesLost, gold }.
+let waveHistory = [];
+let _waveStartStats = { money: 100, lives: 10, kills: 0 };
+let _totalKills = 0;
 // Day/night cycle — 0..1, increases per wave (waves 1..15 = day → night)
 function dayNightT() {
   // Endless waves keep night
@@ -711,6 +777,9 @@ function reset() {
   shakeT = 0; shakeMag = 0; waveBannerT = 0; vaultFlashT = 0; _tdHitstopT = 0;
   endlessMode = false;
   _placeMode = false;
+  waveHistory = []; _totalKills = 0;
+  _waveStartStats = { money: 100, lives: 10, kills: 0 };
+  _updateWaveHistoryDom();
   // Apply persistent talent buffs to starting money
   try {
     const t = loadTalents();
@@ -853,18 +922,29 @@ function showTowerPopup(t) {
         </button>
       </div>`;
   }
+  // ROUND-2 POLISH: list any active synergies for this tower.
+  const tIdx = towers.indexOf(t);
+  const tSyns = tIdx >= 0 ? (_synergyCache.get(tIdx) || []) : [];
+  const synergyHtml = tSyns.length
+    ? `<div class="row" style="margin-top:6px;padding-top:6px;border-top:1px dashed var(--border);">
+         <span style="color:var(--neon-pink);">SYNERGY</span>
+         <b style="color:${tSyns[0].color};">${tSyns.map(s => s.label).join(', ')}</b>
+       </div>`
+    : '';
+  const refundAmt = Math.floor(t.totalCost * 0.6);
   el.innerHTML = `
     <div class="row"><b>${def.icon} ${def.name}</b><span>Lv ${t.level + 1} ${pathTag}</span></div>
     <div class="row"><span>DMG</span><b>${dmgNow.toFixed(0)}</b></div>
     <div class="row"><span>RANGE</span><b>${rangeNow.toFixed(1)}</b></div>
     <div class="row"><span>RATE</span><b>${rateNow.toFixed(1)}/s</b></div>
     <div class="row"><span>TARGET</span><b id="targ-label">${t.targeting || 'FIRST'} · ${TARGETING_LABEL[t.targeting || 'FIRST']}</b></div>
+    ${synergyHtml}
     ${upgradePreview}
     <button id="targ-btn">↻ CHANGE TARGETING</button>
     ${needsPathChoice
       ? pathButtons
       : `<button id="up-btn"${isMax || !canAfford ? ' disabled style="opacity:0.5;cursor:not-allowed;"' : ''}>${isMax ? 'MAX LEVEL' : `⬆ UPGRADE — $${upCost}`}</button>`}
-    <button id="sell-btn" class="sell">SELL — $${Math.floor(t.totalCost * 0.6)}</button>
+    <button id="sell-btn" class="sell">SELL · REFUND $${refundAmt}</button>
   `;
   el.style.display = 'block';
   document.getElementById('targ-btn').addEventListener('click', () => {
@@ -1009,11 +1089,13 @@ function startWave() {
   }
   inWave = true; spawnT = 0;
   waveIdx++;
+  // ROUND-2: snapshot stats for wave-history summary
+  _waveStartStats = { money: money, lives: lives, kills: _totalKills };
   waveBannerText = endlessMode || waveIdx > 15 ? `★ ENDLESS WAVE ${waveIdx} ★` : `WAVE ${waveIdx}`;
   waveBannerT = 1.4;
   // Bottom-center "incoming" wave preview (icons + counts + mini-boss flag)
   try {
-    const enemyIcons = { squirrel: '🐿️', cat: '🐱', tank: '🛡️', bird: '🐦', boss: '👹' };
+    const enemyIcons = { squirrel: '🐿️', cat: '🐱', tank: '🛡️', bird: '🐦', boss: '👹', elite: '★' };
     const enemyList = Object.entries(wv).map(([type, count]) => ({
       icon: enemyIcons[type] || '?', count, label: type.toUpperCase(),
     }));
@@ -1029,9 +1111,11 @@ let miniBossBannerT = 0, miniBossBannerText = '';
 function spawnMiniBoss() {
   // 5× scaled cat with crown. Drops big money on kill.
   // Boss modifier rotates every wave: REGEN / SPLITTER / SUMMONER.
+  // Round-2 tune: gentler HP curve (0.5 → 0.35 per wave) so endless waves
+  // 20+ don't have unkillable mini-bosses. Damage scaling kept the same.
   const modifier = BOSS_MODIFIERS[Math.floor(waveIdx / 5) % BOSS_MODIFIERS.length];
   const base = ENEMIES.cat;
-  const hpMul = 5 + waveIdx * 0.5;
+  const hpMul = 5 + waveIdx * 0.35;
   enemies.push({
     type: 'miniboss', def: { ...base, name: 'MINI-BOSS', color: '#ffd23f', size: 18 },
     hp: base.hp * hpMul, maxHp: base.hp * hpMul,
@@ -1074,6 +1158,19 @@ function tick(dt) {
     if (shakeT > 0) shakeT = Math.max(0, shakeT - dt);
     return;
   }
+  // ROUND-2 POLISH: lose-preview slow-mo. When lives==1 and an enemy is
+  // about to reach the vault, slow gameplay to 0.45× so the loss feels
+  // intentional + the player can see it happen.
+  if (lives === 1) {
+    for (const e of enemies) {
+      if (!e.alive) continue;
+      // Within last ~3 path nodes of the vault?
+      if (e.pathIdx >= currentMap.path.length - 4) {
+        dt = dt * 0.45;
+        break;
+      }
+    }
+  }
   // Ambient particles tick (independent of wave state)
   tickAmbient(dt);
   // Wave-banner decay
@@ -1093,12 +1190,28 @@ function tick(dt) {
       // bonus
       const bonus = 25 + waveIdx * 6;
       money += bonus;
+      // ROUND-2: log wave stats into history (last 5 kept)
+      const killsThisWave = _totalKills - _waveStartStats.kills;
+      const livesLost = _waveStartStats.lives - lives;
+      const goldEarned = money - _waveStartStats.money;
+      waveHistory.unshift({ wave: waveIdx, kills: killsThisWave, livesLost, gold: goldEarned });
+      if (waveHistory.length > 5) waveHistory.length = 5;
+      _updateWaveHistoryDom();
       // Wave-complete pop near the vault — bigger celebratory ring + golden burst.
       const vlast = currentMap.path[currentMap.path.length - 1];
       const vx = vlast[0] * TILE + gridOffsetX() + TILE / 2;
       const vy = vlast[1] * TILE + gridOffsetY() - 6;
       spawnPopup(vx, vy, `WAVE CLEAR  +$${bonus}`, '#ffd23f');
       screenShake(4, 0.22);
+      // Round-2 polish: tower-row dance — kick every tower into a small
+      // staggered bounce by setting their placeT back to 0 with offsets.
+      for (let twi = 0; twi < towers.length; twi++) {
+        const tw = towers[twi];
+        tw.placeT = -twi * 0.04;     // negative = delayed start, ripples L→R
+      }
+      // Camera zoom-pan hint — bigger shake + brief vault pulse.
+      vaultFlashT = 0.5;
+      screenShake(7, 0.45);
       // Two expanding rings + sparkle ring of particles
       particles.push({ x: vx, y: vy + 6, t: 0, life: 0.6, ring: true, maxR: 60, color: '#ffd23f' });
       particles.push({ x: vx, y: vy + 6, t: 0, life: 0.7, ring: true, maxR: 90, color: '#5ef38c' });
@@ -1202,11 +1315,14 @@ function tick(dt) {
         spawnPopup((tw.col + 0.5) * TILE + gridOffsetX(), (tw.row + 0.5) * TILE + gridOffsetY() - 6, `+$${path.incomeSec}`, '#5ef38c');
       }
     }
-    if (def.buff) continue; // buff towers don't fire
+    if (def.buff || def.bannerBoost) continue; // buff / banner towers don't fire
     tw.cd -= dt;
     if (tw.cd > 0) continue;
     // find a buff (path-aware: COMMAND path = +60% aura)
     let buffMult = 1;
+    // Round-2: banner-tower bonuses (fire rate + range) stack on top of buffs.
+    let bannerRateMul = 1;
+    let bannerRangeMul = 1;
     for (const b of towers) {
       if (b === tw) continue;
       const bd = TOWERS[b.type];
@@ -1217,9 +1333,18 @@ function tick(dt) {
           const bMul = bp && bp.buffBoost ? bp.buffBoost : bd.buff;
           buffMult = Math.max(buffMult, bMul);
         }
+      } else if (bd.bannerBoost) {
+        const bp = getPathDef(b);
+        const bRange = bd.range * (bp ? bp.rangeMul : 1);
+        if (Math.hypot(b.col - tw.col, b.row - tw.row) <= bRange) {
+          const fireBoost = (bp && bp.bannerFireBoost) || bd.bannerFireRate || 0;
+          const rangeBoost = (bp && bp.bannerRangeBoost) || bd.bannerRange || 0;
+          bannerRateMul = Math.max(bannerRateMul, 1 + fireBoost);
+          bannerRangeMul = Math.max(bannerRangeMul, 1 + rangeBoost);
+        }
       }
     }
-    const range = effRange(tw);
+    const range = effRange(tw) * bannerRangeMul;
     // Targeting selection — FIRST (most progress), LAST, STRONG (highest HP), CLOSE (smallest dist)
     let target = null;
     const inRange = [];
@@ -1235,6 +1360,19 @@ function tick(dt) {
     else if (mode === 'LAST') target = inRange.reduce((a, b) => (a.e.pathIdx < b.e.pathIdx ? a : b)).e;
     else if (mode === 'STRONG') target = inRange.reduce((a, b) => (a.e.hp > b.e.hp ? a : b)).e;
     else target = inRange.reduce((a, b) => (a.d < b.d ? a : b)).e;
+    // Round-2 polish: smoothly rotate the tower's barrel toward the target.
+    // If the angle delta is > 0.4 rad we DON'T fire this tick — barrel keeps
+    // rotating, so the visual aim-then-shoot reads cleanly.
+    const tCx = (tw.col + 0.5);
+    const tCy = (tw.row + 0.5);
+    const aimTarget = Math.atan2(target.y - tCy, target.x - tCx);
+    if (tw.aimAngle == null) tw.aimAngle = aimTarget;
+    let aimDelta = aimTarget - tw.aimAngle;
+    while (aimDelta > Math.PI) aimDelta -= Math.PI * 2;
+    while (aimDelta < -Math.PI) aimDelta += Math.PI * 2;
+    tw.aimAngle += aimDelta * Math.min(1, 12 * dt); // ease rotation
+    // If still aiming too wide, delay the shot one frame.
+    if (Math.abs(aimDelta) > 0.35) { tw.cd = 0.02; continue; }
     // Fire — base dmg/cd from path-aware effective values
     let dmg = effDmg(tw) * buffMult;
     // SYNERGY damage bonuses
@@ -1244,7 +1382,7 @@ function tick(dt) {
     if (towerHasSynergy(tw, 'PACK HUNTER') && tw.type === 'basic')   dmg *= 1.3;
     // Persistent talent: bonus dmg
     try { const tal = loadTalents(); if (tal.bonusDmg) dmg *= (1 + tal.bonusDmg); } catch {}
-    tw.cd = effCd(tw);
+    tw.cd = effCd(tw) / bannerRateMul;
     // CRIT path: random 15% chance ×3
     let isCrit = false;
     if (path && path.crit && Math.random() < path.crit) { dmg *= (path.critMul || 3); isCrit = true; }
@@ -1362,8 +1500,23 @@ function tick(dt) {
             e.dotDps = Math.max(e.dotDps || 0, p.dotPerSec);
           }
           if (p.crit) {
-            // crit ping particle
-            particles.push({ x: e.x * TILE + gridOffsetX(), y: e.y * TILE + gridOffsetY(), t: 0, life: 0.35, ring: true, maxR: 18, color: '#ffd23f' });
+            // Round-2 polish: golden particle burst + ring + popup. Much
+            // splashier than the old single ring so crit is clearly readable.
+            const cx = e.x * TILE + gridOffsetX();
+            const cy = e.y * TILE + gridOffsetY();
+            particles.push({ x: cx, y: cy, t: 0, life: 0.45, ring: true, maxR: 28, color: '#ffd23f' });
+            particles.push({ x: cx, y: cy, t: 0, life: 0.6, ring: true, maxR: 44, color: '#ff8a3a' });
+            for (let bi = 0; bi < 10; bi++) {
+              const ang = (bi / 10) * Math.PI * 2;
+              const sp = 110 + Math.random() * 60;
+              particles.push({
+                x: cx, y: cy,
+                vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp,
+                color: bi % 2 ? '#ffd23f' : '#fff0a8',
+                life: 0.55, t: 0, size: 4,
+              });
+            }
+            spawnPopup(cx, cy - 12, 'CRIT!', '#ffd23f');
           }
           // TELEPORT: warp back along path
           if (p.teleport) {
@@ -1448,13 +1601,30 @@ function tick(dt) {
             }
           }
           money += goldDrop;
+          _totalKills++;
           sfx.tone(660, 'triangle', 0.05, 0.16);
           const ex = e.x * TILE + gridOffsetX();
           const ey = e.y * TILE + gridOffsetY();
           // Floating "+$N" popup
           spawnPopup(ex, ey - 6, `+$${goldDrop}`, e.miniboss ? '#ff8ac8' : '#ffd23f');
-          // Bigger kill burst for bosses/miniboss
-          const burst = e.type === 'boss' ? 18 : (e.miniboss ? 16 : 6);
+          // ROUND-2: PUG ELITE death-summon — spawns 3 squirrels at the elite's
+          // current path position so the player has to clean them up.
+          if (e.type === 'elite') {
+            const n = (e.def.summonOnDeath || 3);
+            for (let k = 0; k < n; k++) {
+              enemies.push({
+                type: 'squirrel', def: ENEMIES.squirrel,
+                hp: ENEMIES.squirrel.hp * 1.2, maxHp: ENEMIES.squirrel.hp * 1.2,
+                speed: ENEMIES.squirrel.speed * 1.1, slowT: 0, slowMul: 1,
+                pathIdx: e.pathIdx, x: e.x + (k - 1) * 0.18, y: e.y + (Math.random() - 0.5) * 0.2, alive: true,
+              });
+            }
+            spawnPopup(ex, ey - 22, 'SPAWN!', '#ff5a8a');
+            screenShake(4, 0.18);
+            sfx.tone(140, 'sine', 0.15, 0.32);
+          }
+          // Bigger kill burst for bosses/miniboss/elite
+          const burst = e.type === 'boss' ? 18 : (e.miniboss ? 16 : (e.type === 'elite' ? 12 : 6));
           if (e.type === 'boss') screenShake(8, 0.32);
           for (let k = 0; k < burst; k++) {
             const a = Math.random() * Math.PI * 2;
@@ -1582,6 +1752,20 @@ function render() {
       ctx.strokeStyle = 'rgba(255,210,63,0.5)';
       ctx.beginPath(); ctx.arc(x, y, def.range * (1 + tw.level * 0.15) * TILE, 0, Math.PI * 2); ctx.stroke();
     }
+    // Round-2 polish: tower AIM rotation — small "barrel" arrow rotates
+    // toward the current target before firing. Uses cached tw.aimAngle.
+    if (!def.buff && !def.bannerBoost && tw.aimAngle != null) {
+      ctx.save();
+      ctx.translate(x, y + 4);
+      ctx.rotate(tw.aimAngle);
+      ctx.fillStyle = def.projColor || def.color || '#ffd23f';
+      // Barrel rectangle (longer than tower body, extends in aim direction)
+      ctx.fillRect(0, -2, TILE * 0.45, 4);
+      // Bright muzzle tip
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(TILE * 0.42, -1, 3, 2);
+      ctx.restore();
+    }
     // Tower body — bob gently
     const bobY = y + Math.sin(performance.now() / 400 + (tw.bob || 0)) * 2;
     // depth3D drop shadow under tower — grounds the pug body on its tile.
@@ -1601,12 +1785,15 @@ function render() {
     // Placement squash-stretch: drop in (scaleY → 0.55 → 1) over 0.3s.
     let _placeY = 0, _scaleX = 1, _scaleY = 1;
     if (tw.placeT != null && tw.placeT < 0.3) {
-      const k = tw.placeT / 0.3;
-      // Ease-out cubic
-      const ek = 1 - Math.pow(1 - k, 3);
-      _scaleY = 0.55 + 0.45 * ek;
-      _scaleX = 1.25 - 0.25 * ek;
-      _placeY = (1 - ek) * -10;
+      // Handle negative placeT (staggered dance) — skip animation until t > 0
+      if (tw.placeT >= 0) {
+        const k = tw.placeT / 0.3;
+        // Ease-out cubic
+        const ek = 1 - Math.pow(1 - k, 3);
+        _scaleY = 0.55 + 0.45 * ek;
+        _scaleX = 1.25 - 0.25 * ek;
+        _placeY = (1 - ek) * -10;
+      }
     }
     if (_scaleX !== 1 || _scaleY !== 1) {
       ctx.save();
@@ -1835,6 +2022,24 @@ const _tdHud = {
 };
 let _tdHudPrev = { money: NaN, lives: NaN, critical: null, wave: '', enemies: -1, best: -1 };
 let _tdBestCache = -1, _tdBestCacheT = 0;
+// ROUND-2 POLISH: wave history sidebar DOM updater.
+function _updateWaveHistoryDom() {
+  const panel = document.getElementById('td-wave-history');
+  const list = document.getElementById('td-wave-history-list');
+  if (!panel || !list) return;
+  // Hidden until first wave completed
+  panel.hidden = !running || waveHistory.length === 0;
+  if (!waveHistory.length) { list.textContent = '—'; return; }
+  list.innerHTML = waveHistory.map((h) => {
+    const livesC = h.livesLost > 0 ? 'var(--crimson)' : 'var(--neon-green)';
+    return `<div style="display:flex;justify-content:space-between;padding:1px 0;">
+      <span>W${h.wave}</span>
+      <span style="color:var(--neon-yellow)">+$${h.gold}</span>
+      <span style="color:var(--text-soft)">${h.kills}k</span>
+      <span style="color:${livesC}">${h.livesLost > 0 ? '-' + h.livesLost : '✓'}</span>
+    </div>`;
+  }).join('');
+}
 function updateHud() {
   if (money !== _tdHudPrev.money) { _tdHud.money.textContent = '$' + money; _tdHudPrev.money = money; }
   if (lives !== _tdHudPrev.lives) { _tdHud.lives.textContent = lives; _tdHudPrev.lives = lives; }
@@ -1887,6 +2092,8 @@ function end(won) {
   }
   document.getElementById('hud').hidden = true;
   document.getElementById('td-bar').hidden = true;
+  const hist = document.getElementById('td-wave-history');
+  if (hist) hist.hidden = true;
   hidePopup();
   document.getElementById('end-overlay').hidden = false;
   document.getElementById('end-overlay').classList.remove('is-hidden');
@@ -1895,7 +2102,7 @@ function end(won) {
 // Map picker — now with per-map difficulty rating (dots)
 let chosenMapId = 'classic';
 const MAP_DIFFICULTY = {
-  classic: 1, spiral: 2, zigzag: 2, corridor: 3, loop: 2, uturn: 2, edge: 3, cross: 3, funnel: 3,
+  classic: 1, spiral: 2, zigzag: 2, corridor: 3, loop: 2, uturn: 2, edge: 3, cross: 3, funnel: 3, winding: 2,
 };
 function renderMapPicker() {
   const el = document.getElementById('map-picker');

@@ -466,6 +466,73 @@ canvas { display: block; image-rendering: pixelated; image-rendering: crisp-edge
 .hud-slot__icon svg { display: block; image-rendering: pixelated; }
 .hud-slot__name { color: var(--text); letter-spacing: 0.05em; }
 .hud-slot__cost { color: var(--muted); font-size: 0.42rem; letter-spacing: 0; }
+/* Round-2 polish: hover tooltip above each hotbar slot listing HP/RANGE/DPS. */
+.hud-slot__tip {
+  position: absolute;
+  bottom: 100%; left: 50%; transform: translateX(-50%) translateY(-6px);
+  background: rgba(8, 5, 18, 0.96);
+  border: 2px solid var(--neon-yellow);
+  border-radius: 6px;
+  padding: 6px 8px;
+  width: 140px;
+  font-family: var(--font-display);
+  font-size: 0.45rem;
+  letter-spacing: 0.04em;
+  color: var(--text);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  z-index: 90;
+  white-space: nowrap;
+  text-align: left;
+}
+.hud-slot__tip b { color: var(--neon-yellow); }
+.hud-slot__tip .row { display: flex; justify-content: space-between; padding: 1px 0; }
+.hud-slot__tip .desc { color: var(--text-soft); font-size: 0.42rem; margin-top: 4px; white-space: normal; line-height: 1.25; }
+.hud-slot:hover .hud-slot__tip { opacity: 1; }
+
+/* Round-2 polish: tiny resource-forecast HUD card. */
+.hud-forecast {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: rgba(8, 5, 18, 0.85);
+  border: 2px solid var(--neon-pink);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-family: var(--font-display);
+  font-size: 0.42rem;
+  letter-spacing: 0.06em;
+  color: var(--text-soft);
+  pointer-events: none;
+  z-index: 60;
+  max-width: 220px;
+}
+.hud-forecast__title { color: var(--neon-pink); font-size: 0.5rem; margin-bottom: 2px; }
+.hud-forecast .row { display: flex; justify-content: space-between; padding: 1px 0; }
+.hud-forecast .row b { color: var(--neon-yellow); }
+.hud-forecast[hidden] { display: none; }
+
+/* Difficulty preview popover under each diff button */
+.diff-btn { position: relative; }
+.diff-btn__hint {
+  position: absolute;
+  top: 100%; left: 50%; transform: translateX(-50%) translateY(4px);
+  background: rgba(8, 5, 18, 0.96);
+  border: 1px solid var(--neon-cyan);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-family: var(--font-display);
+  font-size: 0.40rem;
+  letter-spacing: 0.04em;
+  color: var(--text-soft);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  white-space: nowrap;
+  z-index: 90;
+}
+.diff-btn:hover .diff-btn__hint { opacity: 1; }
 
 .hud-build-hint {
   position: absolute;

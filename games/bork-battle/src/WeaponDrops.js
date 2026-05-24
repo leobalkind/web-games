@@ -60,8 +60,30 @@ export class WeaponDrops {
     }
   }
 
-  // Returns { weapon, skin } if pug picked up a drop, else null
+  // Returns { weapon, skin } if pug picked up a drop, else null.
+  // Polish R2: when `wg:smart-pickup` is enabled (default), we prefer drops
+  // whose weapon matches the pug's current weapon (so the player effectively
+  // gets a "reload" by walking over their own weapon type). Falls back to
+  // any in-range drop if no matching one is available.
   tryPickup(pug) {
+    const smart = (typeof localStorage !== 'undefined')
+      ? (localStorage.getItem('wg:smart-pickup') !== '0')
+      : true;
+    const currentId = pug.weapon && pug.weapon.id;
+    // First pass: prefer matching weapon
+    if (smart && currentId) {
+      for (let i = this.drops.length - 1; i >= 0; i--) {
+        const d = this.drops[i];
+        if (!d.weapon || d.weapon.id !== currentId) continue;
+        const dx = pug.x - d.x, dy = pug.y - d.y;
+        if (dx * dx + dy * dy < (pug.form.radius + 18) * (pug.form.radius + 18)) {
+          d.c.destroy({ children: true });
+          this.drops.splice(i, 1);
+          return { weapon: d.weapon, skin: d.skin };
+        }
+      }
+    }
+    // Second pass: any in-range drop
     for (let i = this.drops.length - 1; i >= 0; i--) {
       const d = this.drops[i];
       const dx = pug.x - d.x, dy = pug.y - d.y;

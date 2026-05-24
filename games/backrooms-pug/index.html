@@ -31,19 +31,35 @@
                        background: #5ef38c; box-shadow: inset 0 0 6px rgba(0,0,0,0.4); }
   .hud-bar2 .bar.is-glow > i { box-shadow: 0 0 12px #ffd23f, inset 0 0 6px rgba(0,0,0,0.4); }
   .hud-bar2 .pct { min-width: 30px; text-align: right; color: #fff; font-size: 0.48rem; }
-  .hud-heart { display: inline-block; margin-left: 6px; color: #ff3a3a; font-size: 0.7rem;
-               opacity: 0; transition: opacity .2s; }
-  .hud-heart.is-on { opacity: 1; animation: brHudHeart 1s ease-in-out infinite; }
-  @keyframes brHudHeart { 0%, 100% { transform: scale(1); } 30% { transform: scale(1.35); } 60% { transform: scale(0.95); } }
-  /* Objective */
+  /* Sanity heart — beats faster as sanity drops (rate set via CSS var --hb) */
+  .hud-heart { display: inline-block; margin-left: 6px; color: #ff3a3a; font-size: 0.75rem;
+               --hb: 1s; animation: brHudHeart var(--hb) ease-in-out infinite;
+               text-shadow: 0 0 6px rgba(255,58,58,0.5); }
+  .hud-heart.is-critical { color: #ff0033; text-shadow: 0 0 10px rgba(255,0,51,0.9); }
+  @keyframes brHudHeart { 0%, 100% { transform: scale(1); } 30% { transform: scale(1.45); } 60% { transform: scale(0.92); } }
+  /* Objective — cans counter with mini-can pip row */
   .hud-obj-cans { font-size: clamp(0.9rem, 3vw, 1.25rem); color: #ffd23f;
                   text-shadow: 0 0 8px rgba(255,210,63,0.55); letter-spacing: 0.06em; }
   .hud-obj-cans.is-done { color: #5ef38c; text-shadow: 0 0 12px rgba(94,243,140,0.7); }
   .hud-obj-label { font-size: 0.45rem; color: #c8c0e8; letter-spacing: 0.18em; margin-bottom: 2px; }
-  .hud-obj-exit { font-size: 0.55rem; color: #5ef38c; margin-top: 4px; letter-spacing: 0.12em;
-                  animation: brHudExitPulse 1.2s ease-in-out infinite; }
+  .hud-can-pips { display: flex; gap: 4px; justify-content: center; margin-top: 4px; }
+  .hud-can-pips i { width: 10px; height: 14px; border-radius: 2px 2px 1px 1px;
+                    background: #1a1424; border: 1.5px solid #5a4a14; display: inline-block;
+                    box-shadow: inset 0 1.5px 0 rgba(255,255,255,0.06); transition: background .25s, border-color .25s, transform .2s; }
+  .hud-can-pips i.is-got { background: linear-gradient(180deg,#ffd23f,#c89020); border-color: #ffefa0;
+                           box-shadow: inset 0 1.5px 0 rgba(255,255,255,0.45), 0 0 6px rgba(255,210,63,0.6); }
+  .hud-can-pips i.is-just-got { animation: brCanPop .5s ease both; }
+  @keyframes brCanPop { 0% { transform: scale(2.2); } 40% { transform: scale(0.85); } 100% { transform: scale(1); } }
+  /* Exit hint — bigger + pulsing gold when all cans collected */
+  .hud-obj-exit { font-size: 0.85rem; color: #ffd23f; margin-top: 8px; letter-spacing: 0.14em;
+                  text-shadow: 0 0 10px rgba(255,210,63,0.85), 0 0 20px rgba(255,210,63,0.5);
+                  animation: brHudExitPulse 0.9s ease-in-out infinite; font-weight: bold; }
   .hud-obj-exit[hidden] { display: none; }
-  @keyframes brHudExitPulse { 50% { color: #ffd23f; } }
+  .hud-obj-exit .hud-exit-arrow { display: inline-block; font-size: 1.2em; margin-left: 4px;
+                                  animation: brHudExitArrow 0.9s ease-in-out infinite; }
+  @keyframes brHudExitPulse { 0%, 100% { color: #ffd23f; text-shadow: 0 0 10px rgba(255,210,63,0.85); }
+                              50% { color: #fff; text-shadow: 0 0 18px rgba(255,255,255,1), 0 0 28px rgba(255,210,63,1); } }
+  @keyframes brHudExitArrow { 50% { transform: scale(1.3) translateX(2px); } }
   /* Resources */
   .hud-res-row { font-size: 0.5rem; color: #c8c0e8; letter-spacing: 0.06em; line-height: 1.7; }
   .hud-res-row b { color: #4cc9f0; font-weight: normal; }
@@ -70,6 +86,13 @@
   #pause-overlay .pause-objective { background: rgba(0,0,0,0.5); border-left: 3px solid var(--neon-yellow);
     padding: 8px 14px; margin-bottom: 14px; font-size: 0.6rem; color: var(--text-soft); text-align: left; letter-spacing: 0.06em; }
   #pause-overlay .pause-objective b { color: var(--neon-yellow); }
+  /* Controls reference card (Agent #5) */
+  .pause-controls { background: rgba(0,0,0,0.5); border-left: 3px solid var(--neon-cyan);
+    padding: 8px 14px; margin: 0 0 14px; font-size: 0.48rem; color: var(--text-soft);
+    text-align: left; letter-spacing: 0.05em; line-height: 1.75; max-height: 26vh; overflow-y: auto; }
+  .pause-controls b { color: var(--neon-cyan); display: inline-block; min-width: 4.5em; }
+  .pause-controls .pause-ctrl-title { color: var(--neon-cyan); font-size: 0.42rem; letter-spacing: 0.18em;
+    margin-bottom: 6px; opacity: 0.85; text-transform: uppercase; }
   /* Level select button row on start screen */
   .start-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: 6px 0; }
   #level-select-btn { background: transparent; color: var(--neon-cyan); border: 2px solid var(--neon-cyan);
@@ -134,18 +157,21 @@
       <span class="lbl">SANITY</span>
       <span class="bar"><i id="hud-sanity-bar"></i></span>
       <span class="pct" id="hud-sanity-pct">100</span>
+      <span class="hud-heart" id="hud-heart" title="Sanity heartbeat" aria-label="Sanity heartbeat">♥</span>
     </div>
     <div class="hud-bar2">
       <span class="lbl">BATT</span>
       <span class="bar" id="hud-battery-bar-wrap"><i id="hud-battery-bar"></i></span>
-      <span class="pct" id="hud-battery-pct">50</span>
-      <span class="hud-heart" id="hud-heart" title="Monster close">♥</span>
+      <span class="pct" id="hud-battery-pct">50<span style="opacity:0.7;font-size:0.85em;">%</span></span>
     </div>
   </div>
   <div class="hud-zone hud-zone--obj">
     <div class="hud-obj-label">ALMOND CANS</div>
     <div class="hud-obj-cans" id="hud-cans">0 / 5</div>
-    <div class="hud-obj-exit" id="hud-exit-hint" hidden>EXIT: <span id="hud-exit-dir">→</span></div>
+    <div class="hud-can-pips" id="hud-can-pips" aria-hidden="true">
+      <i></i><i></i><i></i><i></i><i></i>
+    </div>
+    <div class="hud-obj-exit" id="hud-exit-hint" hidden>EXIT <span class="hud-exit-arrow" id="hud-exit-dir">→</span></div>
   </div>
   <div class="hud-zone hud-zone--res">
     <div class="hud-state" id="hud-state">SAFE</div>
@@ -160,8 +186,18 @@
   <div class="overlay__tag">PAUSED</div>
   <h2 class="overlay__title">PAUSED</h2>
   <div class="pause-objective" id="pause-obj">Find 5 cans · Reach the EXIT</div>
+  <div class="pause-controls" id="pause-controls">
+    <div class="pause-ctrl-title">CONTROLS</div>
+    <div><b>WASD</b> walk</div>
+    <div><b>SHIFT</b> sneak (slower, quieter)</div>
+    <div><b>B</b> toggle flashlight</div>
+    <div><b>F</b> drop smoke bomb</div>
+    <div><b>E</b> interact / open door / noclip at exit</div>
+    <div><b>ESC</b> pause / skip cutscene</div>
+  </div>
   <div class="pause-stack">
     <button id="pause-resume" class="overlay__btn" type="button">RESUME</button>
+    <button id="pause-settings" class="overlay__btn overlay__btn--small" type="button">⚙ SETTINGS</button>
     <button id="pause-restart" class="overlay__btn overlay__btn--small" type="button">RESTART LEVEL</button>
     <button id="pause-select" class="overlay__btn overlay__btn--small" type="button">LEVEL SELECT</button>
     <a class="overlay__btn overlay__btn--small" href="../../index.html">← QUIT TO HUB</a>

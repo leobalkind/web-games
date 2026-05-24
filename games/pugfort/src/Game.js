@@ -93,9 +93,11 @@ export class Game {
     this._endless = endless;
     // Different maps scale differently — ROOFTOP is smaller (vertical), UNDERGROUND
     // is wider/taller-ratio with smaller-feeling FOV; COURTYARD is the default.
+    // ARENA is round (square map but the world draws a sand-circle inside).
     let mapW = 3600, mapH = 2700;
     if (mapId === 'rooftop') { mapW = 3200; mapH = 2400; }
     else if (mapId === 'underground') { mapW = 3000; mapH = 2400; }
+    else if (mapId === 'arena') { mapW = 2800; mapH = 2800; }       // square = round arena
     this.mapId = mapId;
     // Bigger map
     this.world = new World({ width: mapW, height: mapH, mapId });
@@ -198,6 +200,26 @@ export class Game {
     this._updateCamera();
     this._updateHud();
     this._checkEndConditions();
+    // Boss-flash decay (uses raw frame dt so it animates during hit-pause too)
+    if (this._bossFlashT && this._bossFlashT > 0) {
+      this._bossFlashT -= Math.min(ticker.deltaMS / 1000, 1 / 30);
+      this._ensureBossFlashEl();
+      if (this._bossFlashEl) {
+        const k = Math.max(0, this._bossFlashT) / 0.7;
+        this._bossFlashEl.style.opacity = (k * 0.95).toFixed(3);
+      }
+    } else if (this._bossFlashEl && this._bossFlashEl.style.opacity !== '0') {
+      this._bossFlashEl.style.opacity = '0';
+    }
+    // Visual ninja-dash poof — Game owns scene access; zombies set flag.
+    for (const z of this.zombies) {
+      if (z.wantsToDashPoof) {
+        z.wantsToDashPoof = false;
+        if (z._dashFromX != null) this._spawnRing(z._dashFromX, z._dashFromY, 24, 0xff3a3a);
+        this._spawnRing(z.x, z.y, 22, 0xff3a3a);
+        Sfx.zombieDeath?.();
+      }
+    }
 
     this.input.postFrame();
   }
@@ -534,6 +556,15 @@ export class Game {
     else if (t === 'screamer') { drops.wood = 2; drops.scrap = 1 + Math.floor(r() * 2); if (r() < 0.55) drops.explosives = 1; }
     else if (t === 'digger')   { drops.wood = 2; drops.scrap = 1 + Math.floor(r() * 2); if (r() < 0.30) drops.electronics = 1; }
     else if (t === 'cloaker')  { drops.wood = 1; if (r() < 0.80) drops.electronics = 1; if (r() < 0.30) drops.scrap = 1; }
+    // Round-2 new zombie types
+    else if (t === 'ninja')    { drops.wood = 1; if (r() < 0.65) drops.scrap = 1 + Math.floor(r() * 2); if (r() < 0.4) drops.electronics = 1; }
+    else if (t === 'jester')   { drops.wood = 2; if (r() < 0.55) drops.scrap = 1; if (r() < 0.3) drops.explosives = 1; }
+    // Endless-mode boost: nights past 3 give +1 of a random non-wood material per kill
+    // to keep the player resourced enough to use unlocked late-game buildables.
+    if (this._endless && (this.nightIdx || 0) >= 4) {
+      const bonusKey = ['scrap', 'explosives', 'electronics'][Math.floor(Math.random() * 3)];
+      drops[bonusKey] = (drops[bonusKey] || 0) + 1;
+    }
     return drops;
   }
 
@@ -565,12 +596,34 @@ export class Game {
     this.boss = new Boss({ x: bx, y: by });
     this.world.entitiesLayer.addChild(this.boss.container);
     this.hud.showBoss(this.boss);
-    // CINEMATIC INTRO — big toast, screen flash, sound
+    // CINEMATIC INTRO — round-2 polish: massive screen shake + double full-screen
+    // flash + hit-pause. Then the toast lands so it doesn't get drowned out.
+    this._screenShake(14, 0.85);
+    this._hitstopT = 0.18;
+    this._bossFlashT = 0.7;       // drives the full-screen red flash overlay
+    // Spawn 2 expanding ground rings at the boss's feet for spatial drama
+    this._spawnRing(bx, by, 240, COLORS.zombieEye);
+    setTimeout(() => this._spawnRing(bx, by, 380, 0xff8a3a), 120);
+    setTimeout(() => this._spawnRing(bx, by, 520, COLORS.neonYellow), 260);
     this.hud.toastMessage(`👑 THE KENNEL KING HAS RISEN 👑`, 'warn');
     Sfx.lose(); // dramatic descending tone as intro stinger
     setTimeout(() => Sfx.phaseNight(), 600);
     // multiple screen-shake style toasts spread over a beat
     setTimeout(() => this.hud.toastMessage('PROTECT THE GENERATOR', 'warn'), 800);
+  }
+
+  // Renders a full-screen red flash overlay during boss intro / similar events.
+  // Decays over `_bossFlashT` seconds. Uses CSS DOM element so it sits on top
+  // of HUD + canvas — no Pixi z-ordering involved.
+  _ensureBossFlashEl() {
+    if (this._bossFlashEl) return;
+    const el = document.createElement('div');
+    el.id = 'pugfort-boss-flash';
+    el.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:50;'
+      + 'background:radial-gradient(circle at center,rgba(255,58,58,0.55) 0%,rgba(120,0,0,0.4) 50%,rgba(0,0,0,0.0) 100%);'
+      + 'opacity:0;mix-blend-mode:screen;';
+    document.body.appendChild(el);
+    this._bossFlashEl = el;
   }
 
   _bossStomp(x, y) {
@@ -718,6 +771,33 @@ export class Game {
         other.takeDamage(dmg * k * 0.5);
       }
     }
+  }
+
+  // Tier-2 wall smoke — single rising-and-fading puff. Each call adds ONE
+  // puff (caller throttles total count). Drifts up + sideways with tiny
+  // turbulence; uses Pixi Graphics so it batches with other effects.
+  _spawnSmokePuff(x, y) {
+    const puff = new Graphics();
+    puff.x = x + (Math.random() - 0.5) * 8;
+    puff.y = y;
+    this.world.effectsLayer.addChildAt(puff, 0);
+    const sway = (Math.random() - 0.5) * 16;
+    let t = 0, life = 1.2 + Math.random() * 0.4;
+    const startR = 3 + Math.random() * 2;
+    const endR = 10 + Math.random() * 4;
+    const baseGrey = [0x444444, 0x555555, 0x333333][Math.floor(Math.random() * 3)];
+    const tick = () => {
+      t += 1 / 60;
+      if (t >= life) { puff.destroy(); return; }
+      const k = t / life;
+      puff.y -= 22 * (1 / 60);
+      puff.x += sway * (1 / 60);
+      puff.clear();
+      const r = startR + (endR - startR) * k;
+      puff.circle(0, 0, r).fill({ color: baseGrey, alpha: (1 - k) * 0.55 });
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
   }
 
   // Tiny brown rectangular splinters fly outward — used on every wall-chew tick.
@@ -873,12 +953,29 @@ export class Game {
 
   // ---------- Turret AI ----------
   _updateTurrets(dt) {
+    // Precompute the set of platform positions so each turret can detect a
+    // nearby platform without scanning all build.placed twice per frame.
+    const platforms = [];
+    for (const p of this.build.placed) {
+      if (p.def.isPlatform) platforms.push(p);
+    }
     for (const t of this.build.placed) {
       // turret/sniper handled below — also acidTurret and flamethrower share
       // the auto-rotating-target-and-fire shape.
       if (t.id !== 'turret' && t.id !== 'sniperTurret' && t.id !== 'acidTurret' && t.id !== 'flamethrower') continue;
+      // Platform bonus: +50% range if a turretPlatform is within platformRadius.
+      let rangeMul = 1;
+      for (const pl of platforms) {
+        const dx = pl.cx - t.cx, dy = pl.cy - t.cy;
+        if (dx * dx + dy * dy < (pl.def.platformRadius || 80) ** 2) {
+          rangeMul = 1 + (pl.def.platformRangeBonus || 0.5);
+          break;
+        }
+      }
+      t._rangeMul = rangeMul; // cached for the build-menu hover preview
       // find nearest alive zombie in range
-      let nearest = null, nearestD2 = (t.def.range || 280) ** 2;
+      const effRange = (t.def.range || 280) * rangeMul;
+      let nearest = null, nearestD2 = effRange * effRange;
       for (const z of this.zombies) {
         if (!z.alive) continue;
         const dx = z.x - t.cx, dy = z.y - t.cy;
@@ -1049,7 +1146,8 @@ export class Game {
 
   // ---------- Build ----------
   _updateBuild() {
-    const buildHotkeys = ['wall', 'sandbag', 'spike', 'mine', 'turret', 'sniperTurret', 'repair', 'acidTurret', 'genShield', 'flamethrower'];
+    // Hotkeys 1..0 then Minus / Equal for the 2 new round-2 buildables.
+    const buildHotkeys = ['wall', 'sandbag', 'spike', 'mine', 'turret', 'sniperTurret', 'repair', 'acidTurret', 'genShield', 'flamethrower', 'barbedWire', 'turretPlatform'];
     if (this.input.takeOnePress())   { this.build.toggle(buildHotkeys[0]); this.hud.setBuildActive(!!this.build.selected, this.build.selected); }
     if (this.input.takeTwoPress())   { this.build.toggle(buildHotkeys[1]); this.hud.setBuildActive(!!this.build.selected, this.build.selected); }
     if (this.input.takeThreePress()) { this.build.toggle(buildHotkeys[2]); this.hud.setBuildActive(!!this.build.selected, this.build.selected); }
@@ -1060,6 +1158,8 @@ export class Game {
     if (this.input.takeEightPress?.()) { this.build.toggle(buildHotkeys[7]); this.hud.setBuildActive(!!this.build.selected, this.build.selected); }
     if (this.input.takeNinePress?.())  { this.build.toggle(buildHotkeys[8]); this.hud.setBuildActive(!!this.build.selected, this.build.selected); }
     if (this.input.takeZeroPress?.())  { this.build.toggle(buildHotkeys[9]); this.hud.setBuildActive(!!this.build.selected, this.build.selected); }
+    if (this.input.takeMinusPress?.()) { this.build.toggle(buildHotkeys[10]); this.hud.setBuildActive(!!this.build.selected, this.build.selected); }
+    if (this.input.takeEqualPress?.()) { this.build.toggle(buildHotkeys[11]); this.hud.setBuildActive(!!this.build.selected, this.build.selected); }
     if (this.input.takeBPress())     { this.build.toggle('wall'); this.hud.setBuildActive(!!this.build.selected, this.build.selected); }
     if (this.input.takeEscPress())   { this.build.cancel(); this.hud.setBuildActive(false); }
     if (this.input.takeQPress()) this.build.rotate(-Math.PI / 8);
@@ -1102,11 +1202,20 @@ export class Game {
 
   // Per-frame logic for spike traps, mines, repair bays
   _updateBuildables(dt) {
+    // Throttle smoke spawn so we don't lag with many tier-2 walls.
+    this._smokeT = (this._smokeT || 0) + dt;
+    const canSmoke = this._smokeT > 0.18;
+    if (canSmoke) this._smokeT = 0;
     for (let i = this.build.placed.length - 1; i >= 0; i--) {
       const p = this.build.placed[i];
       // HP-tier visual refresh (clean / cracked / smoking) — early-outs if
       // tier didn't change since last frame.
       this.build.refreshDamage(p);
+      // Tier-2 smoke particles — rises from the top of any burning wall.
+      // Cheap: 1 puff per damaged building per ~0.18s.
+      if (canSmoke && p.hpTier >= 2 && !p.def.isMine) {
+        this._spawnSmokePuff(p.cx ?? (p.x + (p.width || 0) / 2), p.y);
+      }
       // Auto-cull buildings that fall below 0 HP from any damage source.
       if (p.hp != null && p.hp <= 0) {
         this.build.removePlaced(p);
@@ -1142,11 +1251,16 @@ export class Game {
         }
       }
       if (p.def.isTrap) {
-        // damage zombies standing on it
+        // damage zombies standing on it (+ optional wire-slow effect)
         for (const z of this.zombies) {
           if (!z.alive) continue;
           if (z.x >= p.x && z.x <= p.x + p.width && z.y >= p.y && z.y <= p.y + p.height) {
             z.takeDamage(p.def.trapDps * dt);
+            if (p.def.isWire) {
+              // Apply a short-lived speed nerf — refresh while standing on wire
+              z._wireSlowT = 0.25;
+              z._wireSlowMul = p.def.wireSlowMul || 0.5;
+            }
           }
         }
       } else if (p.def.isMine) {
@@ -1240,7 +1354,8 @@ export class Game {
       this.hud.toastMessage(`Foraging ${d.kind}...`, 'good');
     }
     this._depotProgressT = (this._depotProgressT || 0) + dt;
-    if (this._depotProgressT >= 1.5) {
+    // Round-2 tune: dropped from 1.5s → 1.0s — was punishing under fire.
+    if (this._depotProgressT >= 1.0) {
       const result = this.world.drainDepot(d);
       if (result) {
         const key = result.kind;

@@ -71,6 +71,12 @@ export function recordLevelReached(level) {
   }
   return u;
 }
+export function recordLastPlayed(level) {
+  const u = loadLevelUnlocks();
+  u.lastPlayed = (level | 0) || 1;
+  saveLevelUnlocks(u);
+  return u;
+}
 export function recordLevelBestTime(levelIdx, seconds) {
   const u = loadLevelUnlocks();
   if (!u.bestTimes) u.bestTimes = {};
@@ -110,6 +116,9 @@ function ensureStyles() {
                     background: rgba(0,0,0,0.65); color: #c8c0e8; border: 2px solid #2a2540; padding: 8px 14px;
                     font-family: inherit; font-size: 0.55rem; letter-spacing: 0.1em; border-radius: 4px; cursor: pointer; z-index: 2; }
     .br-cut__skip:hover { color: #4cc9f0; border-color: #4cc9f0; }
+    .br-cut__skip-hint { position: absolute; left: 50%; transform: translateX(-50%);
+                         bottom: max(12px, env(safe-area-inset-bottom)); color: #6f6a88; font-size: 0.45rem;
+                         letter-spacing: 0.18em; opacity: 0.7; pointer-events: none; text-align: center; }
     .br-cut__title { font-size: clamp(1.1rem, 4.5vw, 1.9rem); letter-spacing: 0.08em; color: #ffd23f;
                      text-shadow: 0 0 12px rgba(255,210,63,0.55), 0 0 30px rgba(255,210,63,0.25); margin: 0 0 8px; }
     .br-cut__sub { font-size: clamp(0.55rem, 2.5vw, 0.78rem); color: #c8c0e8; line-height: 1.7; margin: 12px 0; }
@@ -161,7 +170,16 @@ function ensureStyles() {
     .br-cut__stats { list-style: none; padding: 14px 18px; margin: 18px 0 10px;
                      background: rgba(40,20,20,0.5); border-left: 3px solid #ff3a3a;
                      border-radius: 4px; text-align: left; font-size: clamp(0.5rem, 2vw, 0.7rem); line-height: 2.0; }
-    .br-cut__stats.win-stats { border-color: #5ef38c; background: rgba(20,40,30,0.5); }
+    .br-cut__stats.win-stats { border-color: #5ef38c; background: rgba(20,40,30,0.5);
+                               border-left: none; border-top: 3px solid #5ef38c;
+                               display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px 14px;
+                               text-align: center; line-height: 1.4; padding: 16px 14px; }
+    .br-cut__stats.win-stats li { padding: 6px 4px; background: rgba(0,0,0,0.18); border-radius: 3px; }
+    .br-cut__stats.win-stats li b { display: block; margin: 6px 0 0; color: #5ef38c;
+                                    font-size: clamp(0.75rem, 2.8vw, 1.05rem); }
+    @media (max-width: 520px) {
+      .br-cut__stats.win-stats { grid-template-columns: repeat(2, 1fr); }
+    }
     .br-cut__stats b { color: #ffd23f; margin-left: 6px; }
     .br-cut__btn { background: linear-gradient(180deg, #ff3aa1, #c01884); color: #fff;
                    border: 3px solid #ff8fc8; padding: 12px 22px; font-family: inherit;
@@ -171,14 +189,21 @@ function ensureStyles() {
     .br-cut__btn--ghost { background: transparent; border-color: #2a2540; color: #c8c0e8; box-shadow: none; }
     .br-cut__btn--ghost:hover { border-color: #4cc9f0; color: #4cc9f0; }
     .br-cut__btn-row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 8px; }
-    /* Tutorial bubbles */
-    .br-tip { position: fixed; left: 50%; bottom: clamp(120px, 20vh, 200px); transform: translateX(-50%);
-              background: rgba(10,7,22,0.94); border: 2px solid #4cc9f0; border-radius: 6px; padding: 14px 22px;
-              color: #f8f5ff; font-family: 'Press Start 2P', monospace; font-size: clamp(0.55rem, 2.4vw, 0.8rem);
-              letter-spacing: 0.08em; text-align: center; max-width: 88vw; z-index: 170;
+    /* Tutorial bubbles — positioned per-step to avoid blocking the player.
+       Default anchor at top so the player (centered on screen) stays visible. */
+    .br-tip { position: fixed; left: 50%; top: clamp(80px, 12vh, 140px); transform: translateX(-50%);
+              background: rgba(10,7,22,0.94); border: 2px solid #4cc9f0; border-radius: 6px; padding: 12px 20px;
+              color: #f8f5ff; font-family: 'Press Start 2P', monospace; font-size: clamp(0.52rem, 2.2vw, 0.75rem);
+              letter-spacing: 0.06em; text-align: center; max-width: min(560px, 88vw); z-index: 170;
               box-shadow: 0 0 16px rgba(76,201,240,0.6); animation: brTipPop .35s cubic-bezier(.22,1,.36,1) both; }
     .br-tip::before { content: '★'; color: #ffd23f; margin-right: 8px; }
-    @keyframes brTipPop { from { opacity: 0; transform: translate(-50%, 10px); } to { opacity: 1; transform: translateX(-50%); } }
+    .br-tip.br-tip--bottom { top: auto; bottom: clamp(140px, 22vh, 220px); }
+    .br-tip.br-tip--top-left  { left: max(12px, env(safe-area-inset-left, 0)); transform: none; max-width: min(360px, 50vw); }
+    .br-tip.br-tip--top-right { left: auto; right: max(12px, env(safe-area-inset-right, 0)); transform: none; max-width: min(360px, 50vw); }
+    .br-tip .br-tip-dots { display: block; margin-top: 8px; font-size: 0.5em; letter-spacing: 0.4em; color: #4cc9f0; opacity: 0.6; }
+    @keyframes brTipPop { from { opacity: 0; transform: translate(-50%, -10px); } to { opacity: 1; transform: translateX(-50%); } }
+    .br-tip.br-tip--top-left, .br-tip.br-tip--top-right { animation: brTipPopSide .35s cubic-bezier(.22,1,.36,1) both; }
+    @keyframes brTipPopSide { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
     .br-tip[hidden] { display: none !important; }
     /* Level select */
     .br-select { position: fixed; inset: 0; z-index: 160; background: rgba(10,7,22,0.92);
@@ -193,18 +218,35 @@ function ensureStyles() {
     .br-select__title { font-size: 1.2rem; margin: 0 0 6px; color: #ffd23f;
                         text-shadow: 0 0 10px rgba(255,210,63,0.5); letter-spacing: 0.08em; }
     .br-select__sub { color: #c8c0e8; font-size: 0.6rem; margin: 0 0 16px; letter-spacing: 0.06em; }
-    .br-select__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-                       gap: 12px; margin: 14px 0; }
+    .br-select__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+                       gap: 14px; margin: 14px 0; }
     .br-select__card { background: rgba(0,0,0,0.5); border: 2px solid #2a2540; border-radius: 6px;
-                       padding: 10px; cursor: pointer; transition: transform .12s, border-color .12s;
-                       text-align: center; font-family: inherit; color: #f8f5ff; }
-    .br-select__card:hover:not(.locked) { transform: translateY(-3px); border-color: #4cc9f0; box-shadow: 0 0 14px rgba(76,201,240,0.4); }
+                       padding: 10px; cursor: pointer; transition: transform .14s, border-color .14s, box-shadow .14s;
+                       text-align: center; font-family: inherit; color: #f8f5ff; position: relative; }
+    .br-select__card:hover:not(.locked) { transform: translateY(-3px); border-color: #4cc9f0; box-shadow: 0 0 18px rgba(76,201,240,0.5); }
     .br-select__card.locked { opacity: 0.55; cursor: not-allowed; }
-    .br-select__card canvas { width: 100%; height: 90px; image-rendering: pixelated; border-radius: 3px; background: #000; }
-    .br-select__card .name { font-size: 0.6rem; color: #ffd23f; margin-top: 8px; letter-spacing: 0.06em; }
-    .br-select__card .stars { font-size: 0.55rem; color: #ff8e3c; margin-top: 4px; letter-spacing: 0.18em; }
-    .br-select__card .best { font-size: 0.45rem; color: #5ef38c; margin-top: 4px; letter-spacing: 0.06em; }
-    .br-select__card .lock { font-size: 0.45rem; color: #ff3a3a; margin-top: 4px; letter-spacing: 0.04em; line-height: 1.4; }
+    .br-select__card.is-last-played { border-color: #ffd23f; box-shadow: 0 0 14px rgba(255,210,63,0.45); }
+    .br-select__card.is-last-played::before { content: 'LAST PLAYED'; position: absolute;
+                                              top: -10px; left: 50%; transform: translateX(-50%);
+                                              font-size: 0.4rem; letter-spacing: 0.16em; color: #1a0f2e;
+                                              background: #ffd23f; padding: 2px 8px; border-radius: 3px;
+                                              box-shadow: 0 0 6px rgba(255,210,63,0.6); }
+    .br-select__card canvas { width: 100%; height: 110px; image-rendering: pixelated; border-radius: 3px; background: #000; display: block; }
+    .br-select__card .name { font-size: 0.65rem; color: #ffd23f; margin-top: 10px; letter-spacing: 0.06em; }
+    .br-select__card .stars { font-size: 0.7rem; color: #ffb030; margin-top: 6px; letter-spacing: 0.2em;
+                              text-shadow: 0 0 6px rgba(255,176,48,0.55); }
+    .br-select__card .stars .s-off { color: #3a342a; text-shadow: none; opacity: 0.6; }
+    .br-select__card .best { font-size: 0.45rem; color: #5ef38c; margin-top: 5px; letter-spacing: 0.06em; }
+    .br-select__card .lock { font-size: 0.45rem; color: #ff3a3a; margin-top: 5px; letter-spacing: 0.04em; line-height: 1.4; }
+    /* Subtle animated preview shimmer on each thumbnail */
+    .br-select__card .br-thumb-wrap { position: relative; overflow: hidden; border-radius: 3px; }
+    .br-select__card:not(.locked) .br-thumb-wrap::after {
+      content: ''; position: absolute; inset: 0; background:
+        linear-gradient(115deg, transparent 35%, rgba(255,255,255,0.18) 50%, transparent 65%);
+      transform: translateX(-100%); animation: brThumbShine 3.6s ease-in-out infinite;
+    }
+    @keyframes brThumbShine { 0% { transform: translateX(-100%); } 55% { transform: translateX(100%); } 100% { transform: translateX(100%); } }
+    .br-cut.no-anim .br-select__card .br-thumb-wrap::after { animation: none !important; }
     .br-select__close { margin-top: 14px; }
   `;
   document.head.appendChild(s);
@@ -229,7 +271,7 @@ function mkOverlay(extraClass = '') {
   if (reducedMotion()) o.classList.add('no-anim');
   return o;
 }
-function addSkipBtn(overlay, onSkipCb) {
+function addSkipBtn(overlay, onSkipCb, hintLabel) {
   const b = document.createElement('button');
   b.className = 'br-cut__skip';
   b.type = 'button';
@@ -237,6 +279,11 @@ function addSkipBtn(overlay, onSkipCb) {
   b.setAttribute('aria-label', 'Skip cutscene');
   b.addEventListener('click', (e) => { e.stopPropagation(); onSkipCb(); });
   overlay.appendChild(b);
+  // ESC-to-skip hint at the bottom of the cutscene (Agent #5).
+  const hint = document.createElement('div');
+  hint.className = 'br-cut__skip-hint';
+  hint.textContent = hintLabel || 'ESC · SPACE · TAP TO SKIP';
+  overlay.appendChild(hint);
   return b;
 }
 
@@ -297,7 +344,10 @@ export function showIntro(cb) {
   if (reduced) {
     showAll();
   } else {
-    let delay = 350;
+    // Agent #5: faster typewriter (was 38ms/char + 700ms gap → painful).
+    // Now 22ms/char + 360ms gap. Total intro ~3.7s vs old ~6.3s. Skip still works.
+    const CHAR_MS = 22, LINE_GAP = 360;
+    let delay = 250;
     for (let i = 0; i < lines.length; i++) {
       const el = lines[i];
       const txt = el.dataset.full;
@@ -308,12 +358,12 @@ export function showIntro(cb) {
           n++;
           el.textContent = txt.slice(0, n);
           if (n >= txt.length) clearInterval(tickId);
-        }, 38);
+        }, CHAR_MS);
         timeouts.push({ clear: () => clearInterval(tickId) });
       }, delay));
-      delay += 700 + txt.length * 38;
+      delay += LINE_GAP + txt.length * CHAR_MS;
     }
-    timeouts.push(setTimeout(() => { prompt.style.visibility = 'visible'; done = true; }, delay + 200));
+    timeouts.push(setTimeout(() => { prompt.style.visibility = 'visible'; done = true; }, delay + 150));
   }
   function cleanup() {
     timeouts.forEach(t => { if (typeof t === 'object' && t.clear) t.clear(); else clearTimeout(t); });
@@ -335,7 +385,7 @@ export function showIntro(cb) {
     }
   }
   function onPtr() { dismiss(); }
-  addSkipBtn(o, dismiss);
+  addSkipBtn(o, dismiss, 'ESC · SPACE · ENTER · TAP TO SKIP');
   document.addEventListener('keydown', onKey, true);
   o.addEventListener('pointerdown', onPtr, true);
 }
@@ -533,7 +583,7 @@ export function showLevelCard(info, cb) {
       e.preventDefault(); e.stopPropagation(); close();
     }
   }
-  addSkipBtn(o, close);
+  addSkipBtn(o, close, 'ESC · SPACE · TAP TO SKIP');
   o.addEventListener('pointerdown', close, { once: true });
   document.addEventListener('keydown', onKey, true);
   rafId = requestAnimationFrame(step);
@@ -591,6 +641,23 @@ export function showDeath(stats, cb) {
   tryBtn.textContent = 'TRY AGAIN';
   tryBtn.addEventListener('click', () => { close(); try { cb && cb('restart'); } catch {} });
   row.appendChild(tryBtn);
+  // REPLAY LAST 5s — only if host registered a replay buffer with frames.
+  let replayBtn = null;
+  if (stats.canReplay) {
+    replayBtn = document.createElement('button');
+    replayBtn.className = 'br-cut__btn br-cut__btn--ghost'; replayBtn.type = 'button';
+    replayBtn.textContent = '▶ REPLAY LAST 5s';
+    replayBtn.addEventListener('click', () => {
+      // Don't close — fade the whole overlay so the player can watch the
+      // ghost recap playing on the gameplay canvas underneath, then fade back.
+      o.style.transition = 'opacity .25s'; o.style.opacity = '0';
+      o.style.pointerEvents = 'none';
+      try { cb && cb('replay', () => {
+        o.style.opacity = '1'; o.style.pointerEvents = 'auto';
+      }); } catch {}
+    });
+    row.appendChild(replayBtn);
+  }
   const selBtn = document.createElement('button');
   selBtn.className = 'br-cut__btn br-cut__btn--ghost'; selBtn.type = 'button';
   selBtn.textContent = 'LEVEL SELECT';
@@ -607,12 +674,13 @@ export function showDeath(stats, cb) {
   try { window.__backroomsPlayScareSting && window.__backroomsPlayScareSting('death'); } catch {}
   // 2s hold before buttons get focus styling (visual drama)
   if (!reducedMotion()) {
-    tryBtn.style.opacity = '0';
-    selBtn.style.opacity = '0';
-    hubA.style.opacity = '0';
+    const fadeBtns = [tryBtn];
+    if (replayBtn) fadeBtns.push(replayBtn);
+    fadeBtns.push(selBtn, hubA);
+    fadeBtns.forEach(b => { b.style.opacity = '0'; });
     setTimeout(() => {
-      [tryBtn, selBtn, hubA].forEach((b, i) => {
-        setTimeout(() => { b.style.transition = 'opacity .4s'; b.style.opacity = '1'; }, i * 120);
+      fadeBtns.forEach((b, i) => {
+        setTimeout(() => { b.style.transition = 'opacity .4s'; b.style.opacity = '1'; }, i * 110);
       });
     }, 1600);
   }
@@ -650,17 +718,20 @@ export function showWin(stats, cb) {
   panel.appendChild(sub);
   const ul = document.createElement('ul');
   ul.className = 'br-cut__stats win-stats';
+  // Agent #5: 4-column grid. Label sits above the value (formatted via CSS
+  // `.win-stats li b { display:block; font-size:bigger }`), so we drop the
+  // ": " separator from the inline HTML.
   const items = [
-    ['LEVELS BEATEN', stats.level || 1],
-    ['CANS COLLECTED', stats.cans || 0],
+    ['LEVELS', stats.level || 1],
+    ['CANS', stats.cans || 0],
     ['TIME', fmtTime(stats.time)],
-    ['NOTES FOUND', `${stats.notesFound || 0} / ${stats.notesTotal || 30}`],
-    ['DEATHS AVOIDED', stats.deathsAvoided || 0],
+    ['NOTES', `${stats.notesFound || 0}/${stats.notesTotal || 30}`],
+    ['CHAINS', stats.deathsAvoided || 0],
   ];
-  if (stats.isNewBest) items.push(['STATUS', '★ NEW BEST']);
+  if (stats.isNewBest) items.push(['★', 'NEW BEST']);
   items.forEach(([k, v]) => {
     const li = document.createElement('li');
-    li.innerHTML = `${k}: <b>${v}</b>`;
+    li.innerHTML = `${k}<b>${v}</b>`;
     ul.appendChild(li);
   });
   panel.appendChild(ul);
@@ -704,12 +775,20 @@ export function showWin(stats, cb) {
 // =========================================================================
 // TUTORIAL — 4 sequential hint bubbles after first level card.
 // =========================================================================
+// Agent #5: 7 sequential tutorial bubbles with per-step positions so they
+// don't sit on top of the player (centered on screen). Pos values:
+//   'top'        — above the player, anchored ~12vh from the top
+//   'bottom'     — below the player, anchored ~22vh from the bottom
+//   'top-left'   — top-left corner card (won't block view)
+//   'top-right'  — top-right corner card (won't block view)
 const TUTORIAL_STEPS = [
-  'WASD or DPad to move',
-  'B or LIGHT to toggle flashlight',
-  'HOLD SHIFT to sneak (slower but quieter)',
-  'F or SMOKE to drop a smoke bomb',
-  'PICK UP CANS, REACH THE YELLOW EXIT',
+  { text: 'WASD or DPad to move', pos: 'top' },
+  { text: 'HOLD SHIFT to sneak — slower but quieter', pos: 'bottom' },
+  { text: 'B or LIGHT to toggle flashlight', pos: 'top-left' },
+  { text: 'F or SMOKE to drop a smoke bomb', pos: 'top-right' },
+  { text: 'PICK UP 5 ALMOND CANS each floor', pos: 'top' },
+  { text: 'REACH THE YELLOW EXIT TILE when done', pos: 'bottom' },
+  { text: 'AT THE EXIT, PRESS E TO NOCLIP TO THE NEXT LEVEL', pos: 'top' },
 ];
 export function showTutorial(cb) {
   ensureStyles();
@@ -724,12 +803,18 @@ export function showTutorial(cb) {
       try { cb && cb(); } catch {}
       return;
     }
+    const step = TUTORIAL_STEPS[i];
     bubble = document.createElement('div');
-    bubble.className = 'br-tip';
-    bubble.textContent = TUTORIAL_STEPS[i];
+    let cls = 'br-tip';
+    if (step.pos === 'bottom') cls += ' br-tip--bottom';
+    else if (step.pos === 'top-left') cls += ' br-tip--top-left';
+    else if (step.pos === 'top-right') cls += ' br-tip--top-right';
+    bubble.className = cls;
+    bubble.innerHTML = (step.text || '') +
+      `<span class="br-tip-dots">${i + 1} / ${TUTORIAL_STEPS.length}</span>`;
     document.body.appendChild(bubble);
     i++;
-    const dur = reducedMotion() ? 2500 : 4200;
+    const dur = reducedMotion() ? 2300 : 3600;
     timer = setTimeout(next, dur);
   }
   next();
@@ -739,11 +824,12 @@ export function showTutorial(cb) {
 // LEVEL SELECT MODAL
 // =========================================================================
 // Each level: { idx, key, name, theme, diff (1..5) }
-export function showLevelSelect({ levels, unlocks, onPick, onClose }) {
+export function showLevelSelect({ levels, unlocks, onPick, onClose, lastPlayedLevel }) {
   ensureStyles();
   _enter();
   const o = document.createElement('div');
   o.className = 'br-select';
+  if (reducedMotion()) o.classList.add('br-cut'); // reuse no-anim flag rules
   const panel = document.createElement('div');
   panel.className = 'br-select__panel';
   const title = document.createElement('h2');
@@ -758,13 +844,20 @@ export function showLevelSelect({ levels, unlocks, onPick, onClose }) {
   grid.className = 'br-select__grid';
   const maxReached = (unlocks && unlocks.maxReached) || 1;
   const bestTimes = (unlocks && unlocks.bestTimes) || {};
+  // Last-played is read from unlocks.lastPlayed (set in main.js) or arg.
+  const lastPlayed = (lastPlayedLevel | 0) || (unlocks && (unlocks.lastPlayed | 0)) || 0;
   levels.forEach((lv) => {
     const locked = lv.idx > maxReached;
     const card = document.createElement('button');
     card.type = 'button';
-    card.className = 'br-select__card' + (locked ? ' locked' : '');
+    let cls = 'br-select__card';
+    if (locked) cls += ' locked';
+    if (!locked && lv.idx === lastPlayed) cls += ' is-last-played';
+    card.className = cls;
+    const thumbWrap = document.createElement('div');
+    thumbWrap.className = 'br-thumb-wrap';
     const thumb = document.createElement('canvas');
-    thumb.width = 180; thumb.height = 90;
+    thumb.width = 220; thumb.height = 110;
     const pal = ATMOS_THEMES[lv.theme] || ATMOS_THEMES.lobby;
     paintLevelThumb(thumb, pal, lv);
     if (locked) {
@@ -772,15 +865,20 @@ export function showLevelSelect({ levels, unlocks, onPick, onClose }) {
       c2.fillStyle = 'rgba(0,0,0,0.7)';
       c2.fillRect(0, 0, thumb.width, thumb.height);
     }
-    card.appendChild(thumb);
+    thumbWrap.appendChild(thumb);
+    card.appendChild(thumbWrap);
     const nm = document.createElement('div');
     nm.className = 'name';
     nm.textContent = `LV ${lv.idx} · ${lv.name}`;
     card.appendChild(nm);
     const stars = document.createElement('div');
     stars.className = 'stars';
+    stars.setAttribute('aria-label', `Difficulty ${lv.diff || 1} of 5`);
     const s = lv.diff || 1;
-    stars.textContent = '★'.repeat(s) + '☆'.repeat(5 - s);
+    // Split filled/empty so CSS can de-emphasise the empty ones distinctly.
+    let starHtml = '';
+    for (let k = 0; k < 5; k++) starHtml += (k < s ? '<span>★</span>' : '<span class="s-off">★</span>');
+    stars.innerHTML = starHtml;
     card.appendChild(stars);
     if (locked) {
       const lk = document.createElement('div');
