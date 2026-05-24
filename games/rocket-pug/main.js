@@ -76,7 +76,13 @@ function resize() {
   canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
 }
-window.addEventListener('resize', () => { resize(); if (crowd && crowd.length) buildCrowd(); if (stove) { buildStove(); buildObstacles(); buildPuddles(); buildGoalPosts(); buildPedestal(); } }); resize();
+window.addEventListener('resize', () => {
+  resize();
+  // Only rebuild decorative crowd silhouettes (cheap, no gameplay impact).
+  // Skip rebuilding stove/obstacles/puddles/pedestal mid-match — that would
+  // randomize positions and reset the pedestal cooldown, breaking the run.
+  if (crowd && crowd.length) buildCrowd();
+}); resize();
 
 const WEAPONS = [
   { id: 'tennis',   name: 'Tennis', drawIconFn: drawIcon.tennisBall, cooldown: 0.4, speed: 480, dmg: 14, color: '#5ef38c', shape: 'ball' },
@@ -85,7 +91,8 @@ const WEAPONS = [
   { id: 'bubble',   name: 'Bubble', drawIconFn: drawBubble, cooldown: 0.3, speed: 240, dmg: 8, color: '#4cc9f0', shape: 'bubble' },
 ];
 
-let pug, bots, projectiles, particles, popups, sparks, kills, running, mouse;
+let pug, bots, projectiles, particles, popups, sparks, kills, running;
+let mouse = { x: 0, y: 0 };
 let shakeT = 0, shakeAmp = 0;
 let comboT = 0, comboN = 0, comboBannerT = 0;
 let lastHitT = 0; // for player hit-flash
@@ -294,7 +301,7 @@ function spawnWeaponPickup() {
 const keys = new Set();
 window.addEventListener('keydown', (e) => {
   keys.add(e.key.toLowerCase());
-  if (e.key === ' ') doJet();
+  if (e.key === ' ' && !e.repeat) doJet();
 });
 window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 canvas.addEventListener('mousemove', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; });
@@ -1053,7 +1060,7 @@ function updateHud() {
   }
   document.getElementById('hud-kills').textContent = kills;
   document.getElementById('hud-left').textContent = bots.filter((b) => b.hp > 0).length;
-  document.getElementById('hud-weapon').textContent = pug.weapon.name;
+  document.getElementById('hud-weapon').textContent = pug.weapon.name.toUpperCase();
   document.getElementById('hud-jet').textContent = pug.jetCd > 0 ? pug.jetCd.toFixed(1) + 's' : 'READY';
   const best = loadBest('rocket-pug');
   document.getElementById('hud-best').textContent = best ? best.kills : 0;
@@ -1100,6 +1107,8 @@ document.getElementById('start-btn').addEventListener('click', start);
 document.getElementById('end-restart').addEventListener('click', start);
 function start() {
   reset(); running = true;
+  firing = false; // safety: don't auto-fire if mouse was held during restart click
+  keys.clear();   // wipe any stuck keys from prior match
   // Wipe stale kill-feed lines from a previous match so they don't bleed into
   // the new round (otherwise the ticker shows "you killed X" from last run).
   try { __rocketFeed.clear(); } catch (e) { /* */ }

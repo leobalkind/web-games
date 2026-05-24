@@ -43,7 +43,8 @@
           <button class="hub__cat" data-cat="management" type="button">MANAGEMENT</button>
           <button class="hub__cat" data-cat="horror" type="button">HORROR</button>
         </div>
-        <div id="hub-empty" class="hub__empty" hidden>No games match that search.</div>
+        <!-- Empty-state node is built lazily by setupSearchAndCats() when needed,
+             so web scrapers / screen-readers don't see "No games match" on initial load. -->
       </header>
 
       <section class="hub__grid">
@@ -3113,8 +3114,17 @@
 
       // Per-card BEST badges — read each game's saved high score from localStorage
       // and overlay a small "BEST: N" chip on its card art. Games store under wg:hs:<gameId>.
+      // Also reads the active profile's scoped key so per-profile bests show on the hub.
       // gameId is the folder name in /games/<id>/index.html.
       (function decorateCardsWithBest() {
+        // Resolve the storage key the same way highScores.js does so the hub
+        // shows the player's CURRENT profile's best (not just the legacy guest key).
+        const activeId = (() => { try { return localStorage.getItem('wg:profiles:active'); } catch { return null; } })();
+        const resolveKey = (gid) => {
+          if (!activeId) return 'wg:hs:' + gid;
+          if (String(activeId).startsWith('c_')) return 'wg:c:' + String(activeId).slice(2) + ':hs:' + gid;
+          return 'wg:p:' + activeId + ':hs:' + gid;
+        };
         const cards = document.querySelectorAll('.hub__grid .card[href*="/games/"]');
         for (const card of cards) {
           const href = card.getAttribute('href') || '';
@@ -3122,7 +3132,12 @@
           if (!m) continue;
           const gameId = m[1];
           let raw = null;
-          try { raw = localStorage.getItem('wg:hs:' + gameId); } catch { continue; }
+          try {
+            raw = localStorage.getItem(resolveKey(gameId));
+            // Fall back to legacy guest key so newly-created profiles still
+            // see their prior runs while the migration catches up.
+            if (!raw) raw = localStorage.getItem('wg:hs:' + gameId);
+          } catch { continue; }
           if (!raw) continue;
           let data; try { data = JSON.parse(raw); } catch { continue; }
           if (!data || typeof data !== 'object') continue;
@@ -3134,8 +3149,15 @@
           if (val === null) continue;
           const art = card.querySelector('.card__art');
           if (!art) continue;
+          // "Just improved" hint: compare to the last value the hub saw and
+          // toggle a pulse animation if it changed upward.
+          const seenKey = 'wg:bestSeen:' + gameId;
+          let prevSeen = NaN;
+          try { prevSeen = Number(localStorage.getItem(seenKey)); } catch {}
+          const isImproved = Number.isFinite(prevSeen) && val > prevSeen;
+          try { localStorage.setItem(seenKey, String(val)); } catch {}
           const chip = document.createElement('span');
-          chip.className = 'card__best';
+          chip.className = 'card__best' + (isImproved ? ' is-new' : '');
           chip.textContent = `★ ${label} ${val}`;
           art.appendChild(chip);
         }
@@ -3157,7 +3179,6 @@
       // Hub search + category filter — combined filter on cards
       (function setupSearchAndCats() {
         const input = $('hub-search');
-        const empty = $('hub-empty');
         if (!input) return;
         // Map game folder id to its category tag(s). Multi-tag allowed.
         const CAT_MAP = {
@@ -3176,25 +3197,52 @@
           'pug-td':          ['defense'],
         };
         const cards = [...document.querySelectorAll('.hub__grid .card, .hub__grid .card--coming')];
+        // Pre-compute a SEARCH HAYSTACK per card from the title + description
+        // ONLY (NOT runtime-added stuff like card__best badges, which would
+        // otherwise match queries like "best" or "level 5").
         for (const c of cards) {
           const m = (c.getAttribute('href') || '').match(/\/games\/([^/]+)/);
           c.dataset.cats = (m && CAT_MAP[m[1]] ? CAT_MAP[m[1]].join(' ') : '');
+          const title = c.querySelector('.card__title')?.textContent?.trim() || '';
+          const desc = c.querySelector('.card__desc')?.textContent?.trim() || '';
+          c.dataset.search = (title + ' ' + desc).toLowerCase();
         }
         let activeCat = 'all';
+        let emptyEl = null;  // built lazily on first miss
+        const header = document.querySelector('.hub__header');
         const apply = () => {
           const q = input.value.trim().toLowerCase();
           let visible = 0;
           for (const c of cards) {
-            const txt = (c.textContent || '').toLowerCase();
-            const matchQ = !q || txt.includes(q);
+            const matchQ = !q || (c.dataset.search || '').includes(q);
             const matchCat = activeCat === 'all' || (c.dataset.cats || '').includes(activeCat);
             const match = matchQ && matchCat;
             c.style.display = match ? '' : 'none';
             if (match) visible++;
           }
-          if (empty) empty.hidden = visible > 0;
+          // Toggle the clear-button affordance + lazily build the empty state
+          input.classList.toggle('has-text', !!q);
+          if (visible === 0) {
+            if (!emptyEl) {
+              emptyEl = document.createElement('div');
+              emptyEl.id = 'hub-empty';
+              emptyEl.className = 'hub__empty';
+              emptyEl.textContent = 'No games match that search.';
+              (header || document.body).appendChild(emptyEl);
+            }
+            emptyEl.hidden = false;
+          } else if (emptyEl) {
+            emptyEl.hidden = true;
+          }
         };
         input.addEventListener('input', apply);
+        // ESC inside the search box clears + blurs (escape elsewhere closes modals)
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape' && input.value) {
+            e.stopPropagation();
+            input.value = ''; apply(); input.blur();
+          }
+        });
         apply();
         // "/" focuses the search anywhere
         window.addEventListener('keydown', (e) => {
@@ -3207,6 +3255,11 @@
           btn.addEventListener('click', () => {
             activeCat = btn.dataset.cat || 'all';
             document.querySelectorAll('.hub__cat').forEach((b) => b.classList.toggle('is-active', b === btn));
+            // Brief active-state spring/bounce
+            btn.classList.remove('was-pressed');
+            // force reflow then re-add to retrigger animation
+            void btn.offsetWidth;
+            btn.classList.add('was-pressed');
             apply();
           });
         });

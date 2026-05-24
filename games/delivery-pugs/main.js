@@ -629,7 +629,10 @@ function tick(dt) {
       achievementsSeen.add(deliveries);
       sfx.arp([880, 1320, 1760], 'triangle', 0.1, 0.25, 0.3);
     }
-    if (combo >= 3) toasts.push({ text: `COMBO ×${combo}!`, t: 0 });
+    // Only toast on milestone combo entries (3, 5, 10, 20) to avoid spam.
+    if (combo === 3 || combo === 5 || combo === 10 || combo === 20) {
+      toasts.push({ text: `COMBO ×${combo}!`, t: 0 });
+    }
     // Maybe upgrade vehicle (every 5 deliveries)
     if (deliveries % 5 === 0) {
       const keys2 = Object.keys(VEHICLES);
@@ -1427,6 +1430,8 @@ function drawObstacle(o) {
 }
 
 function end() {
+  // Idempotent: avoid double-submit if end() called from both damage() and tick().
+  if (!running) return;
   running = false;
   sfx.sweep(330, 80, 'sawtooth', 0.5, 0.25);
   document.getElementById('end-title').textContent = pug.hp <= 0 ? 'WIPED OUT' : 'PIZZA COLD';
@@ -1473,7 +1478,7 @@ function updateHud() {
   const fuelEl = document.getElementById('hud-fuel');
   fuelEl.textContent = Math.floor(fuel);
   fuelEl.parentElement.classList.toggle('is-low', fuel < 25);
-  document.getElementById('hud-vehicle').textContent = vehicle.name;
+  document.getElementById('hud-vehicle').textContent = vehicle.name.toUpperCase();
   const best = loadBest('delivery-pugs');
   document.getElementById('hud-best').textContent = best ? best.score : 0;
 }
@@ -1482,6 +1487,7 @@ document.getElementById('start-btn').addEventListener('click', start);
 document.getElementById('end-restart').addEventListener('click', start);
 function start() {
   reset(); running = true;
+  keys.clear(); touchAim = null; invuln = 0; // wipe stuck inputs / invuln from prior match
   // Wipe stale delivery-feed lines from a previous match.
   try { __deliveryFeed.clear(); } catch (e) { /* */ }
   document.getElementById('overlay').hidden = true; document.getElementById('overlay').classList.add('is-hidden');

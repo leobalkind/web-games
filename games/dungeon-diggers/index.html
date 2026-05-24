@@ -3,6 +3,16 @@
 <meta name="theme-color" content="#0a0716"><title>PUG DUNGEON DIGGERS</title>
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="../../src/shared/gameBase.css">
+<style>
+  @keyframes dd-shop-fade { from { background: rgba(0,0,0,0); } to { background: rgba(0,0,0,0.6); } }
+  @keyframes dd-shop-pop  { from { transform: scale(0.85); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  /* Overlay panels lift in on open for that arcade feel. */
+  .overlay__panel { animation: dd-panel-in 0.35s cubic-bezier(0.34, 1.56, 0.64, 1); }
+  @keyframes dd-panel-in {
+    from { opacity: 0; transform: translateY(20px) scale(0.96); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+  }
+</style>
 </head><body>
 <canvas id="game-canvas"></canvas>
 <button id="mute-btn" class="mute-btn">🔊</button>
@@ -31,8 +41,8 @@
   <div class="hud-row hud-row--small"><b>BEST</b> <span id="hud-best">0</span></div>
 </div></div>
 <button id="beam-btn" type="button" style="position:fixed;right:20px;bottom:200px;width:72px;height:72px;border-radius:50%;background:linear-gradient(180deg,#a87a4a,#6a4a28);color:#fff;border:3px solid #d0a878;font-family:var(--font-display);font-size:0.55rem;cursor:pointer;display:none;z-index:150;-webkit-tap-highlight-color:transparent;box-shadow:0 6px 0 rgba(60,40,20,0.8);">BEAM</button>
-<div id="shop-modal" hidden style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:2100;background:rgba(0,0,0,0.6);">
-  <div style="background:linear-gradient(180deg,#2a1a14,#1a0d05);border:3px solid #d0a878;border-radius:10px;padding:18px 22px;min-width:320px;max-width:90vw;box-shadow:0 0 32px rgba(208,168,120,0.5);">
+<div id="shop-modal" hidden style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:2100;background:rgba(0,0,0,0.6);animation:dd-shop-fade 0.18s ease-out;">
+  <div style="background:linear-gradient(180deg,#2a1a14,#1a0d05);border:3px solid #d0a878;border-radius:10px;padding:18px 22px;min-width:320px;max-width:90vw;box-shadow:0 0 32px rgba(208,168,120,0.5);animation:dd-shop-pop 0.22s cubic-bezier(0.34,1.56,0.64,1);">
     <div style="font-family:var(--font-display);font-size:0.7rem;color:#ffd23f;text-align:center;margin-bottom:6px;letter-spacing:0.1em;">SHOPKEEPER</div>
     <div id="shop-greet" style="font-family:var(--font-display);font-size:0.45rem;color:#fffbe6;text-align:center;margin-bottom:14px;letter-spacing:0.06em;">Welcome, friend!</div>
     <div id="shop-items" style="display:flex;flex-direction:column;gap:8px;"></div>

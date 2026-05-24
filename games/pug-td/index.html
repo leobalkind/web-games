@@ -31,7 +31,8 @@
 #tower-popup .upgrade-preview { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--border); }
 #tower-popup .upgrade-preview .row { font-size: 0.45rem; padding: 1px 0; }
 #tower-popup .upgrade-preview .row .delta { color: var(--neon-green); }
-#tower-popup { position: fixed; top: 80px; left: 50%; transform: translateX(-50%); background: rgba(10,7,22,0.95); border: 2px solid var(--neon-yellow); border-radius: 8px; padding: 10px 12px; z-index: 70; display: none; min-width: 200px; }
+#tower-popup { position: fixed; top: 80px; left: 50%; transform: translateX(-50%); background: rgba(10,7,22,0.95); border: 2px solid var(--neon-yellow); border-radius: 8px; padding: 10px 12px; z-index: 70; display: none; min-width: 200px; animation: tdPopupIn 0.16s ease-out; }
+@keyframes tdPopupIn { from { transform: translate(-50%, -6px); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
 #tower-popup .row { display: flex; gap: 8px; justify-content: space-between; font-size: 0.5rem; color: var(--text-soft); padding: 2px 0; }
 #tower-popup .row b { color: var(--neon-yellow); }
 #tower-popup button { margin-top: 6px; width: 100%; padding: 6px; background: rgba(0,0,0,0.4); color: var(--text); border: 2px solid var(--border); border-radius: 4px; font-family: var(--font-display); font-size: 0.45rem; cursor: pointer; }

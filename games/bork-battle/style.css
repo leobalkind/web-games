@@ -372,8 +372,11 @@ canvas {
   justify-content: center;
   z-index: 180;
   backdrop-filter: blur(4px);
+  animation: pauseFadeIn 0.18s ease-out;
 }
 .pause-overlay[hidden] { display: none !important; }
+@keyframes pauseFadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pausePop { from { transform: scale(0.94); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 .pause-panel {
   background: linear-gradient(135deg, #1a0f2e, #2a1255);
   border: 3px solid var(--neon-cyan);
@@ -381,6 +384,7 @@ canvas {
   padding: 32px 44px;
   text-align: center;
   box-shadow: 0 0 40px rgba(76,201,240,0.5);
+  animation: pausePop 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.2);
 }
 .pause-panel h2 {
   font-family: var(--font-display);
@@ -1261,8 +1265,17 @@ body:not(.is-touch) .touch-ability-extra { display: none !important; }
   justify-content: center;
   background: rgba(0, 0, 0, 0.78);
   padding: 16px;
+  animation: borkShopFade 0.18s ease-out;
 }
 .bork-shop-modal[hidden] { display: none; }
+@keyframes borkShopFade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes borkShopPop {
+  from { transform: translateY(12px) scale(0.96); opacity: 0; }
+  to   { transform: translateY(0)    scale(1);    opacity: 1; }
+}
 .bork-shop-modal__panel {
   background: linear-gradient(180deg, #1a0f2e, #0a0716);
   border: 3px solid var(--neon-yellow);
@@ -1271,6 +1284,7 @@ body:not(.is-touch) .touch-ability-extra { display: none !important; }
   max-width: 440px;
   width: 100%;
   box-shadow: 0 0 40px rgba(255, 210, 63, 0.4);
+  animation: borkShopPop 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.2);
 }
 .bork-shop-modal__title {
   font-family: var(--font-display);

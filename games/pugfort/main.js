@@ -60,21 +60,30 @@ game.gamepad = gp;
 function hide(el) { el.hidden = true; el.classList.add('is-hidden'); }
 function show(el) { el.hidden = false; el.classList.remove('is-hidden'); }
 
+let _playInFlight = false;
 async function play() {
-  hide(startOverlay);
-  hide(endOverlay);
-  // 4-5s cinematic intro before the game starts. Skippable via SKIP / click / space.
-  // Plays every match (including REMATCH) — the user explicitly asked for that.
+  // Re-entry guard — the cutscene + game.start() are async and a fast
+  // double-click on REMATCH would overlap two boots.
+  if (_playInFlight) return;
+  _playInFlight = true;
   try {
-    await playIntroCutscene();
-  } catch (e) {
-    // never let the cutscene block the game
-    console.warn('[pugfort] cutscene error', e);
+    hide(startOverlay);
+    hide(endOverlay);
+    // 4-5s cinematic intro before the game starts. Skippable via SKIP / click / space.
+    // Plays every match (including REMATCH) — the user explicitly asked for that.
+    try {
+      await playIntroCutscene();
+    } catch (e) {
+      // never let the cutscene block the game
+      console.warn('[pugfort] cutscene error', e);
+    }
+    await game.start();
+    // Repaint locked-state on hotbar slots — must happen AFTER hud is wired by start().
+    refreshLockedSlots();
+    if (localStorage.getItem('wg:music') !== '0') Sfx.startMusic?.();
+  } finally {
+    _playInFlight = false;
   }
-  await game.start();
-  // Repaint locked-state on hotbar slots — must happen AFTER hud is wired by start().
-  refreshLockedSlots();
-  if (localStorage.getItem('wg:music') !== '0') Sfx.startMusic?.();
 }
 
 // ============ Pause menu ============
@@ -107,7 +116,12 @@ pauseLarge?.addEventListener('click', () => {
   localStorage.setItem('wg:large-text', on ? '1' : '0');
   pauseLarge.textContent = on ? 'LARGE TEXT: ON' : 'LARGE TEXT: OFF';
 });
-pauseQuit?.addEventListener('click', () => { window.location.href = '../../index.html'; });
+pauseQuit?.addEventListener('click', () => {
+  // Stop music + freeze ticker so audio doesn't bleed into the hub.
+  try { Sfx.stopMusic?.(); } catch (e) { /* */ }
+  try { if (game?.app?.ticker?.started) game.app.ticker.stop(); } catch (e) { /* */ }
+  window.location.href = '../../index.html';
+});
 document.getElementById('pause-photo')?.addEventListener('click', () => {
   const canvas = document.querySelector('canvas');
   if (!canvas) return;
@@ -136,13 +150,15 @@ document.getElementById('end-share')?.addEventListener('click', async () => {
   }
 });
 window.addEventListener('keydown', (e) => {
-  if ((e.key === 'Escape' || e.key === 'p' || e.key === 'P') && startOverlay.classList.contains('is-hidden') && endOverlay.classList.contains('is-hidden')) {
+  // Pause only during actual gameplay — not during cutscene / start / end overlay.
+  if ((e.key === 'Escape' || e.key === 'p' || e.key === 'P') && game?.running
+      && startOverlay.classList.contains('is-hidden') && endOverlay.classList.contains('is-hidden')) {
     e.preventDefault();
     setPaused(!paused);
   }
 });
-// Difficulty buttons
-const savedDiff = localStorage.getItem('pugfort:difficulty') || 'easy';
+// Difficulty buttons — default matches the HTML's pre-active button (NORMAL).
+const savedDiff = localStorage.getItem('pugfort:difficulty') || 'normal';
 document.querySelectorAll('.diff-btn').forEach((btn) => {
   if (btn.dataset.diff === savedDiff) btn.classList.add('diff-btn--active');
   else btn.classList.remove('diff-btn--active');
@@ -212,9 +228,16 @@ if (localStorage.getItem('wg:colorblind') === '1') document.body.classList.add('
 
 // ============ High score on end screen ============
 import('../../src/persistence/highScores.js').then(({ submitRun, loadBest }) => {
-  // Hook end-screen submission via observing the end overlay being shown
+  // Hook end-screen submission via observing the end overlay being shown.
+  // _endMatch toggles BOTH the `hidden` attribute and the `is-hidden` class in
+  // quick succession; without a guard the observer fires twice per match and
+  // submits the run twice (inflating cumulative-nights for meta-unlocks).
+  let _lastSubmitT = 0;
   const obs = new MutationObserver(() => {
     if (endOverlay.hidden || endOverlay.classList.contains('is-hidden')) return;
+    const now = performance.now();
+    if (now - _lastSubmitT < 1500) return; // de-dupe rapid attribute flips
+    _lastSubmitT = now;
     const kills = parseInt(document.getElementById('end-kills')?.textContent || '0', 10);
     const nights = parseInt(document.getElementById('end-nights')?.textContent || '0', 10);
     const walls = parseInt(document.getElementById('end-walls')?.textContent || '0', 10);

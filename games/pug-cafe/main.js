@@ -141,10 +141,11 @@ const VISUAL_CSS = `
   box-shadow: 0 4px 0 rgba(0,0,0,0.6), inset 0 0 20px rgba(0,0,0,0.5);
   padding: 6px 8px; font-family: 'Press Start 2P', monospace; font-size: 0.4rem;
   color: #f4ecd2; pointer-events: none; line-height: 1.5; }
-.cafe-chalk__title { color: #ffd23f; font-size: 0.45rem; letter-spacing: 0.1em;
-  border-bottom: 1px dashed #f4ecd2; padding-bottom: 3px; margin-bottom: 4px; text-align: center; }
-.cafe-chalk__line { font-size: 0.36rem; color: rgba(244,236,210,0.85); padding: 1px 0;
-  text-shadow: 0 0 1px rgba(244,236,210,0.4); }
+.cafe-chalk__title { color: #ffd23f; font-size: 0.5rem; letter-spacing: 0.12em;
+  border-bottom: 1px dashed #f4ecd2; padding-bottom: 3px; margin-bottom: 5px; text-align: center;
+  text-shadow: 0 0 6px rgba(255,210,63,0.45); }
+.cafe-chalk__line { font-size: 0.4rem; color: rgba(244,236,210,0.92); padding: 2px 0;
+  text-shadow: 0 0 1px rgba(244,236,210,0.4); letter-spacing: 0.04em; }
 .cafe-chalk__line.crit { color: #ff8a8a; }
 .cafe-chalk__line.warn { color: #ffd23f; }
 .cafe-chalk__empty { color: rgba(244,236,210,0.5); font-size: 0.34rem; font-style: italic; text-align: center; padding-top: 12px; }
@@ -749,7 +750,7 @@ function serve(idx) {
   if (served === 10) showEvent('🪑 BENCH UPGRADED! +1 slot');
   if (served === 20) showEvent('🪑 BENCH UPGRADED! +1 slot');
   if (served === 30) showEvent('🪑 BENCH UPGRADED! +1 slot');
-  if (served === 40) showEvent('🪑 BENCH UPGRADED! +1 slot (max 8)');
+  if (served === 40) showEvent('🪑 BENCH UPGRADED! +1 slot (max 10)');
   if (served % 25 === 0 && served > 0) {
     money += 50; showEvent(`💰 $50 BONUS for ${served} served!`);
     popup(window.innerWidth / 2, window.innerHeight / 2, '+$50 BONUS', '#ffd23f');
@@ -855,7 +856,11 @@ function tick(dt) {
 }
 
 function chaosEvent() {
-  const which = Math.floor(Math.random() * 4);
+  let which = Math.floor(Math.random() * 4);
+  // If the random-bench-steal branch fires but bench is empty, slide to the
+  // next branch — otherwise `msg` would stay undefined and a literal
+  // "undefined" would appear in the staff-events feed.
+  if (which === 0 && bench.length === 0) which = 1;
   let msg;
   if (which === 0 && bench.length > 0) {
     bench.splice(Math.floor(Math.random() * bench.length), 1);
@@ -966,6 +971,9 @@ document.getElementById('start-btn').addEventListener('click', start);
 document.getElementById('end-restart').addEventListener('click', start);
 function start() {
   reset(); running = true;
+  // Close any stale modal/shop overlay from a previous match so the second
+  // start doesn't load over an open shop panel.
+  if (_shopModal) _shopModal.classList.remove('is-open');
   // Wipe stale serve-feed lines from a previous match.
   try { __cafeFeed && __cafeFeed.clear(); } catch (e) { /* */ }
   document.getElementById('overlay').hidden = true; document.getElementById('overlay').classList.add('is-hidden');

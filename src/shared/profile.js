@@ -104,9 +104,12 @@ export function getActive() {
   return listProfiles().find((p) => p.id === id) || null;
 }
 export function setActive(id) {
+  const current = localStorage.getItem(ACTIVE_KEY);
   if (!id) {
+    if (current == null) return; // nothing to do — already in guest mode
     localStorage.removeItem(ACTIVE_KEY);
   } else {
+    if (current === id) return;  // no-op — already active, skip the listener storm
     const exists = listProfiles().some((p) => p.id === id);
     if (!exists) throw new Error('Profile not found: ' + id);
     localStorage.setItem(ACTIVE_KEY, id);
@@ -156,20 +159,42 @@ export function forgetCloudProfile(userId) {
   }
   _emit();
 }
+// Hard cap on local profiles to keep the picker UI usable and the localStorage
+// quota safe (each profile multiplies high-score/achievement footprint).
+const MAX_LOCAL_PROFILES = 20;
+// Optional PIN validation: digits 3..6 only (matches the inputmode="numeric"
+// field) — keeps the hash space large enough to be casually useful.
+function _normalizePin(pin) {
+  if (pin == null || pin === '') return null;
+  const s = String(pin).trim();
+  if (!s) return null;
+  if (!/^\d{3,6}$/.test(s)) throw new Error('PIN must be 3-6 digits (numbers only)');
+  return s;
+}
 export function createProfile(name, pin) {
   name = (name || '').trim();
   if (!name) throw new Error('Name required');
   if (name.length > 24) throw new Error('Name too long (max 24)');
+  // Reject all-whitespace / pure-punctuation names that survive .trim() oddities.
+  if (!/[\p{L}\p{N}]/u.test(name)) throw new Error('Name must include at least one letter or number');
+  // Only consider LOCAL profiles toward the cap — cloud profiles live in
+  // Supabase and don't pile up local storage in the same way.
+  const localOnly = _readJson(LIST_KEY, []);
+  if (localOnly.length >= MAX_LOCAL_PROFILES) {
+    throw new Error('Too many local profiles (max ' + MAX_LOCAL_PROFILES + ') — delete one first');
+  }
   const list = listProfiles();
   if (list.some((p) => p.name.toLowerCase() === name.toLowerCase())) {
     throw new Error('A profile with that name already exists');
   }
+  // Validate PIN format BEFORE we persist anything.
+  const normalizedPin = _normalizePin(pin);
   const id = 'p_' + Math.random().toString(36).slice(2, 10);
-  const profile = { id, name, pin: _hashPin(pin), createdAt: Date.now() };
-  list.push(profile);
-  _writeJson(LIST_KEY, list);
+  const profile = { id, name, pin: _hashPin(normalizedPin), createdAt: Date.now() };
+  localOnly.push(profile);
+  _writeJson(LIST_KEY, localOnly);
   // If this is the first profile, also migrate existing legacy data under it.
-  if (list.length === 1) _migrateLegacyTo(id);
+  if (localOnly.length === 1) _migrateLegacyTo(id);
   setActive(id);
   return profile;
 }

@@ -391,7 +391,7 @@ function syncXY() { pug.x = pug.col * TILE + TILE / 2; pug.y = pug.row * TILE + 
 const keys = new Set();
 window.addEventListener('keydown', (e) => {
   keys.add(e.key.toLowerCase());
-  if (e.key === 'b' || e.key === 'B') placeBeam();
+  if ((e.key === 'b' || e.key === 'B') && !e.repeat) placeBeam();
 });
 window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 function placeBeam() {
@@ -450,6 +450,14 @@ function tryMove(dc, dr) {
     const info = TILE_TYPES[t];
     const tileX = nc * TILE + TILE / 2;
     const tileY = nr * TILE + TILE / 2;
+    // Compute stam cost up-front so we can bail before any feedback fires.
+    let cost = info.stam;
+    if (t === 'stone' && upgrades.helmet > 0) cost = Math.max(1, cost - upgrades.helmet);
+    if (stam < cost) {
+      popup(tileX, tileY - 8, 'TOO TIRED', '#ff3a3a');
+      sfx.tone(220, 'sawtooth', 0.06, 0.15);
+      return;
+    }
     if (info.isLoot) {
       // Treasure
       if (bag < maxBag) {
@@ -469,9 +477,6 @@ function tryMove(dc, dr) {
       const dustC = t === 'stone' ? '#8a8aa0' : (t === 'cheese' ? '#ffd23f' : '#8a5a2c');
       spawnDust(tileX, tileY, dustC, 6 + Math.floor(nr / 12));
     }
-    let cost = info.stam;
-    if (t === 'stone' && upgrades.helmet > 0) cost = Math.max(1, cost - upgrades.helmet);
-    if (stam < cost) return;
     stam -= cost;
     grid[nr][nc] = 'air';
     // CRACKED wall reveal — opens a 3-wide x 2-tall bonus chamber around the
@@ -539,7 +544,7 @@ function tryMove(dc, dr) {
   } else {
     document.getElementById('upgrades').style.display = 'none';
   }
-  if (stam <= 0) end();
+  if (stam <= 0 && running) { running = false; end(); }
   updateHud();
 }
 
@@ -569,6 +574,7 @@ function renderUpgrades() {
 
 function tick(dt) {
   if (!running) return;
+  if (shopOpenWith) return; // pause world while shop modal is open
   drillCd = Math.max(0, drillCd - dt);
   moveT += dt;
   // Shopkeeper proximity → open shop if not already open.
@@ -614,7 +620,7 @@ function tick(dt) {
         shake(9, 0.35);
         sfx.sweep(440, 110, 'sawtooth', 0.25, 0.25);
         resetCombo();
-        if (stam <= 0) { setTimeout(end, 50); return; }
+        if (stam <= 0 && running) { running = false; setTimeout(end, 50); return; }
       }
     }
   }
@@ -709,7 +715,7 @@ function tick(dt) {
           sfx.tone(110, 'sawtooth', 0.2, 0.22);
           // Combo break on damage (Downwell rule)
           resetCombo();
-          if (stam <= 0) { setTimeout(end, 50); }
+          if (stam <= 0 && running) { running = false; setTimeout(end, 50); }
         }
       } else if (b.blocked) {
         popup(b.x, stopY - 14, 'BLOCKED!', '#5ef38c');
@@ -1073,13 +1079,14 @@ function render() {
     ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 8;
     ctx.fillText('$', sx, sy - 22 + bob);
     ctx.shadowBlur = 0;
-    // "TAP TO SHOP" hint when player is nearby
+    // Hint when player is nearby — walk into the shopkeeper to open the shop.
     if (Math.hypot(sx - pug.x, sy - pug.y) < TILE * 3) {
-      ctx.fillStyle = 'rgba(0,0,0,0.7)';
-      ctx.fillRect(sx - 50, sy - 50, 100, 14);
+      ctx.fillStyle = 'rgba(0,0,0,0.78)';
+      ctx.fillRect(sx - 52, sy - 50, 104, 14);
       ctx.fillStyle = '#5ef38c';
       ctx.font = "8px 'Press Start 2P', monospace";
-      ctx.fillText('WALK TO SHOP', sx, sy - 40);
+      ctx.textAlign = 'center';
+      ctx.fillText('▶ DIG TO SHOP ◀', sx, sy - 40);
     }
   }
   // RAGED HUNTER — glowing-red eyes, fast chaser, phases through walls
@@ -1215,11 +1222,15 @@ function updateHud() {
     hud.style.filter = '';
   }
   const best = loadBest('dungeon-diggers');
-  document.getElementById('hud-best').textContent = best ? '$' + best.money : '$0';
+  const bestMoney = best && (best.money != null ? best.money : best.score);
+  document.getElementById('hud-best').textContent = bestMoney != null ? '$' + bestMoney : '$0';
   renderUpgrades();
 }
 
 function end() {
+  // Idempotent: if end() already ran (end-overlay shown), don't double-submit.
+  const _endOv = document.getElementById('end-overlay');
+  if (_endOv && !_endOv.hidden) { running = false; return; }
   running = false;
   sfx.sweep(330, 80, 'sawtooth', 0.5, 0.22);
   document.getElementById('end-money').textContent = '$' + money;
@@ -1228,7 +1239,8 @@ function end() {
   const bestEl = document.getElementById('end-best');
   if (bestEl) {
     const b = current || { money };
-    bestEl.innerHTML = `Best: <b>$${b.money}</b>${isNewBest ? ' <span style="color:var(--neon-yellow)">★ NEW</span>' : ''}`;
+    const moneyShown = (b.money != null) ? b.money : (b.score || 0);
+    bestEl.innerHTML = `Best: <b>$${moneyShown}</b>${isNewBest ? ' <span style="color:var(--neon-yellow)">★ NEW</span>' : ''}`;
   }
   document.getElementById('hud').hidden = true;
   document.getElementById('upgrades').style.display = 'none';
@@ -1258,6 +1270,11 @@ document.getElementById('start-btn').addEventListener('click', start);
 document.getElementById('end-restart').addEventListener('click', start);
 function start() {
   reset(); running = true;
+  keys.clear(); touchAt = null; // wipe stuck inputs from prior match
+  // Force-close any leftover shop modal from a previous run
+  const _sm = document.getElementById('shop-modal');
+  if (_sm) _sm.hidden = true;
+  shopOpenWith = null;
   document.getElementById('overlay').hidden = true; document.getElementById('overlay').classList.add('is-hidden');
   document.getElementById('end-overlay').hidden = true; document.getElementById('end-overlay').classList.add('is-hidden');
   document.getElementById('hud').hidden = false;

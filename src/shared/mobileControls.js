@@ -147,7 +147,7 @@ function bindPress(el, onDown, onUp) {
   };
 }
 
-function buildJoystick(root, state, onMove, syncKeysRef) {
+function buildJoystick(root, state, onMove, syncKeysRef, cleanupBag) {
   const wrap = document.createElement('div');
   wrap.className = 'mc-stick';
   wrap.innerHTML = '<div class="mc-stick__base"></div><div class="mc-stick__thumb"></div>';
@@ -240,6 +240,12 @@ function buildJoystick(root, state, onMove, syncKeysRef) {
   document.addEventListener('touchmove', move, { passive: false });
   document.addEventListener('touchend', end, { passive: false });
   document.addEventListener('touchcancel', end, { passive: false });
+  // Record removers so destroy() can untie these document-level listeners.
+  if (cleanupBag) {
+    cleanupBag.push(() => document.removeEventListener('touchmove', move));
+    cleanupBag.push(() => document.removeEventListener('touchend', end));
+    cleanupBag.push(() => document.removeEventListener('touchcancel', end));
+  }
   return wrap;
 }
 
@@ -367,7 +373,7 @@ function buildActions(root, buttons, syncKeysRef, onButton) {
   root.appendChild(wrap);
 }
 
-function buildFireButton(root, state, onFire, getCanvas, onAim) {
+function buildFireButton(root, state, onFire, getCanvas, onAim, cleanupBag) {
   // Big round FIRE — held = continuous fire
   const btn = document.createElement('button');
   btn.type = 'button';
@@ -402,17 +408,23 @@ function buildFireButton(root, state, onFire, getCanvas, onAim) {
       canvas.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX, clientY }));
     }
   };
-  document.addEventListener('touchstart', (e) => {
+  const onTouchStart = (e) => {
     // Ignore touches on our UI elements
     if (e.target.closest && e.target.closest('.mc-root')) return;
     const t = e.touches[0];
-    handle(t.clientX, t.clientY);
-  }, { passive: true });
-  document.addEventListener('touchmove', (e) => {
+    if (t) handle(t.clientX, t.clientY);
+  };
+  const onTouchMove = (e) => {
     if (e.target.closest && e.target.closest('.mc-root')) return;
     const t = e.touches[0];
     if (t) handle(t.clientX, t.clientY);
-  }, { passive: true });
+  };
+  document.addEventListener('touchstart', onTouchStart, { passive: true });
+  document.addEventListener('touchmove', onTouchMove, { passive: true });
+  if (cleanupBag) {
+    cleanupBag.push(() => document.removeEventListener('touchstart', onTouchStart));
+    cleanupBag.push(() => document.removeEventListener('touchmove', onTouchMove));
+  }
 }
 
 function buildMuteButton(root) {
@@ -482,12 +494,15 @@ export function createMobileControls(opts = {}) {
 
   // Allow callers (and our internal builders) to mutate the keys Set later.
   const syncKeysRef = { current: opts.keys || null };
+  // Collect every document-level event listener and observer we add so the
+  // destroy() pass can untie them without leaking after a game restart.
+  const cleanupBag = [];
 
   // Build layout
   if (layout === 'wasd-mouse' || layout === 'wasd-only' || layout === 'aim-fire') {
     if (layout !== 'aim-fire') {
       // joystick on left
-      buildJoystick(root, state, onMove, syncKeysRef);
+      buildJoystick(root, state, onMove, syncKeysRef, cleanupBag);
     }
   } else if (layout === 'dpad-buttons') {
     buildDpad(root, state, syncKeysRef, onButton);
@@ -502,8 +517,8 @@ export function createMobileControls(opts = {}) {
 
   // Fire button + drag-to-aim
   if (layout === 'aim-fire') {
-    buildJoystick(root, state, onMove, syncKeysRef);  // joystick too — most aim-fire games still move w/ wasd
-    buildFireButton(root, state, onFire, getCanvas, onAim);
+    buildJoystick(root, state, onMove, syncKeysRef, cleanupBag);  // joystick too — most aim-fire games still move w/ wasd
+    buildFireButton(root, state, onFire, getCanvas, onAim, cleanupBag);
   }
 
   buildMuteButton(root);
@@ -538,6 +553,28 @@ export function createMobileControls(opts = {}) {
     }
   };
   window.addEventListener('resize', onResize);
+  // Release any held synthetic key when the window loses focus (alt-tab, dock
+  // pull, push notification banner) so the player isn't left walking forever.
+  const onBlur = () => {
+    if (!syncKeysRef.current) return;
+    const ks = syncKeysRef.current;
+    for (const k of ['w','a','s','d','arrowup','arrowleft','arrowdown','arrowright',' ','shift','e','q','r','b','t','f','g','x','c']) {
+      try {
+        if (ks.delete) ks.delete(k);
+        else if (ks[k] != null) ks[k] = false;
+      } catch {}
+    }
+    // Also dispatch keyup for the common direction keys so listeners de-pre-press.
+    for (const spec of [KEY_MAP.W, KEY_MAP.A, KEY_MAP.S, KEY_MAP.D,
+                        KEY_MAP.ArrowUp, KEY_MAP.ArrowLeft, KEY_MAP.ArrowDown, KEY_MAP.ArrowRight,
+                        KEY_MAP.Space]) {
+      try { dispatchKey('keyup', spec); } catch {}
+    }
+    // Visually un-press any depressed buttons.
+    root.querySelectorAll('.is-active').forEach((el) => el.classList.remove('is-active'));
+  };
+  window.addEventListener('blur', onBlur);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) onBlur(); });
 
   return {
     enabled: showByDefault,
@@ -553,6 +590,10 @@ export function createMobileControls(opts = {}) {
     destroy() {
       mo?.disconnect();
       window.removeEventListener('resize', onResize);
+      window.removeEventListener('blur', onBlur);
+      // Untie every document-level listener we added (joystick + fire/aim).
+      for (const fn of cleanupBag) { try { fn(); } catch {} }
+      cleanupBag.length = 0;
       root.remove();
     },
   };

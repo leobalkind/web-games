@@ -297,7 +297,7 @@ function form() { return FORMS[formIdx]; }
 const keys = new Set();
 window.addEventListener('keydown', (e) => {
   keys.add(e.key.toLowerCase());
-  if (e.key === ' ' || e.code === 'Space') doBork();
+  if ((e.key === ' ' || e.code === 'Space') && !e.repeat) doBork();
 });
 window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 // Mobile controls — joystick + bork/shop buttons. The fire-tap is handled by
@@ -311,9 +311,13 @@ createMobileControls({
   getCanvas: () => canvas,
 });
 canvas.addEventListener('mousemove', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; });
-canvas.addEventListener('mousedown', () => smashAt(mouse.x + cam.x - W / 2, mouse.y + cam.y - H / 2));
+canvas.addEventListener('mousedown', () => {
+  if (!running || shopOpen) return; // ignore taps while paused / shopping
+  smashAt(mouse.x + cam.x - W / 2, mouse.y + cam.y - H / 2);
+});
 canvas.addEventListener('touchstart', (e) => {
   const t = e.touches[0]; mouse.x = t.clientX; mouse.y = t.clientY;
+  if (!running || shopOpen) { e.preventDefault(); return; }
   smashAt(t.clientX + cam.x - W / 2, t.clientY + cam.y - H / 2);
   e.preventDefault();
 }, { passive: false });
@@ -410,7 +414,7 @@ function spawnReplacementBuilding() {
 }
 
 function doBork() {
-  if (!running || borkCd > 0) return;
+  if (!running || shopOpen || borkCd > 0) return;
   borkCd = 4;
   sfx.sweep(220, 80, 'sawtooth', 0.5, 0.3);
   addShake(8, 0.32);
@@ -1358,7 +1362,7 @@ function updateHud() {
   hpEl.textContent = Math.max(0, Math.ceil(hp));
   hpEl.parentElement.classList.toggle('is-low', hp < 30);
   document.getElementById('hud-smashed').textContent = smashed;
-  document.getElementById('hud-eaten').textContent = `${eaten}/5`;
+  document.getElementById('hud-eaten').textContent = formIdx >= FORMS.length - 1 ? 'MAX' : `${eaten}/5`;
   document.getElementById('hud-cd').textContent = borkCd > 0 ? borkCd.toFixed(1) + 's' : 'READY';
   const best = loadBest('pugzilla');
   document.getElementById('hud-best').textContent = best ? best.score : 0;
@@ -1437,6 +1441,7 @@ document.getElementById('start-btn').addEventListener('click', start);
 document.getElementById('end-restart').addEventListener('click', start);
 function start() {
   reset(); running = true;
+  keys.clear(); // wipe any stuck keys from prior match
   // Wipe stale kill-feed lines from a previous match.
   try { __pugzillaFeed.clear(); } catch (e) { /* */ }
   document.getElementById('overlay').hidden = true; document.getElementById('overlay').classList.add('is-hidden');
@@ -1467,11 +1472,15 @@ const SHOP_CSS = `
   letter-spacing: 0.05em; padding: 3px 5px; border-radius: 3px;
   text-shadow: 0 0 4px var(--neon-purple); }
 .pz-shop-modal { position: fixed; inset: 0; z-index: 300; display: none;
-  align-items: center; justify-content: center; background: rgba(0,0,0,0.75); padding: 16px; }
+  align-items: center; justify-content: center; background: rgba(0,0,0,0.75); padding: 16px;
+  animation: pz-fade-in 0.18s ease-out; }
 .pz-shop-modal.is-open { display: flex; }
 .pz-shop-modal__panel { background: linear-gradient(180deg, #1a0f2e, #0a0716);
   border: 3px solid var(--neon-purple); border-radius: 10px; padding: 20px;
-  max-width: 440px; width: 100%; box-shadow: 0 0 40px rgba(176,85,255,0.5); }
+  max-width: 440px; width: 100%; box-shadow: 0 0 40px rgba(176,85,255,0.5);
+  animation: pz-pop-in 0.22s cubic-bezier(0.34, 1.56, 0.64, 1); }
+@keyframes pz-fade-in { from { background: rgba(0,0,0,0); } to { background: rgba(0,0,0,0.75); } }
+@keyframes pz-pop-in { from { transform: scale(0.85); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 .pz-shop-modal__title { font-family: var(--font-display); font-size: 0.85rem;
   letter-spacing: 0.1em; color: var(--neon-purple); text-align: center; margin: 0 0 14px;
   text-shadow: 0 0 12px var(--neon-purple); }
@@ -1504,7 +1513,7 @@ document.head.appendChild(_pzStyle);
 const _pzShopBtn = document.createElement('button');
 _pzShopBtn.className = 'pz-shop-btn';
 _pzShopBtn.id = 'pz-shop-btn';
-_pzShopBtn.textContent = '🛒 EVOLVE $0';
+_pzShopBtn.textContent = '🛒 SHOP · $0';
 _pzShopBtn.style.display = 'none';
 document.body.appendChild(_pzShopBtn);
 
@@ -1597,7 +1606,7 @@ function renderShopChips() {
 function updateShopBtn() {
   if (!_pzShopBtn) return;
   _pzShopBtn.style.display = running ? 'block' : 'none';
-  _pzShopBtn.textContent = `🛒 EVOLVE $${score}`;
+  _pzShopBtn.textContent = `🛒 SHOP · $${score}`;
   if (_pzShopChips) _pzShopChips.style.display = running ? 'flex' : 'none';
 }
 // Poll the shop-btn label via rAF (avoids monkey-patching updateHud).
@@ -1609,7 +1618,7 @@ _shopBtnLoop();
 
 // Keyboard shortcut: B opens shop
 window.addEventListener('keydown', (e) => {
-  if (e.key === 'b' || e.key === 'B') {
+  if ((e.key === 'b' || e.key === 'B') && !e.repeat) {
     if (shopOpen) closeShop(); else if (running) openShop();
   }
 });

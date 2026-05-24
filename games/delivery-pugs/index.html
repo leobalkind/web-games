@@ -6,6 +6,12 @@
 <style>
   .hud-row.is-low { color: #ff5a5a; animation: dpulse 0.5s ease-in-out infinite alternate; }
   @keyframes dpulse { from { text-shadow: 0 0 0 #ff5a5a; } to { text-shadow: 0 0 10px #ff5a5a; } }
+  /* Overlay panels lift in on open for that arcade feel. */
+  .overlay__panel { animation: dp-panel-in 0.35s cubic-bezier(0.34, 1.56, 0.64, 1); }
+  @keyframes dp-panel-in {
+    from { opacity: 0; transform: translateY(20px) scale(0.96); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+  }
 </style>
 </head><body>
 <canvas id="game-canvas"></canvas>
@@ -27,7 +33,7 @@
   <div class="hud-row"><b>DELIVERIES</b> <span id="hud-del">0</span></div>
   <div class="hud-row"><b>TIME</b> <span id="hud-time">30</span></div>
   <div class="hud-row"><b>FUEL</b> <span id="hud-fuel">100</span></div>
-  <div class="hud-row hud-row--small"><b>VEHICLE</b> <span id="hud-vehicle">skateboard</span></div>
+  <div class="hud-row hud-row--small"><b>VEHICLE</b> <span id="hud-vehicle">SKATEBOARD</span></div>
   <div class="hud-row hud-row--small"><b>BEST</b> <span id="hud-best">0</span></div>
 </div></div>
 <div id="end-overlay" class="overlay is-hidden" hidden><div class="overlay__panel">

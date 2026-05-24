@@ -329,7 +329,10 @@ function tick(dt) {
     b.y += b.vy * dt;
     b.life -= dt;
     if (b.life <= 0 || b.y < -200) { blobs.splice(i, 1); continue; }
-    if (Math.abs(b.x - pug.x) < 18 && Math.abs(b.y - pug.y) < 18) return die();
+    // Honour shrink powerup — smaller pug = tighter hit box, matching
+    // platform/treat collision feel.
+    const hitR = shrinkT > 0 ? 12 : 18;
+    if (Math.abs(b.x - pug.x) < hitR && Math.abs(b.y - pug.y) < hitR) return die();
   }
   // ===== Doodle Jump-style flying enemies (height-gated spawns) =====
   // Above 500m: bats cross horizontally; can be jumped on (vy>0 stomp = kill
@@ -382,7 +385,8 @@ function tick(dt) {
     b.ampT += dt * 3;
     b.y = b.baseY + Math.sin(b.ampT) * 14;
     if (b.x < -40 || b.x > W + 40) { bats.splice(i, 1); continue; }
-    if (Math.abs(b.x - pug.x) < 22 && Math.abs(b.y - pug.y) < 22) {
+    const batR = shrinkT > 0 ? 14 : 22;
+    if (Math.abs(b.x - pug.x) < batR && Math.abs(b.y - pug.y) < batR) {
       // Stomp = pug falling onto bat from above (vy>0 and pug center above bat center)
       if (pug.vy > 50 && pug.y < b.y - 4) {
         b.alive = false;
@@ -405,7 +409,8 @@ function tick(dt) {
     f.x += f.vx * dt; f.y += f.vy * dt;
     f.life += dt;
     if (f.life >= f.max || f.x < -30 || f.x > W + 30) { fireballs.splice(i, 1); continue; }
-    if (Math.abs(f.x - pug.x) < 18 && Math.abs(f.y - pug.y) < 18) return die();
+    const fR = shrinkT > 0 ? 11 : 18;
+    if (Math.abs(f.x - pug.x) < fR && Math.abs(f.y - pug.y) < fR) return die();
   }
 
   // Lava rises — accelerating (paused if freeze powerup active)
@@ -415,6 +420,8 @@ function tick(dt) {
   if (pug.onGround) {
     comboRestT += dt;
     if (comboRestT > 0.7 && comboJumps > 0) {
+      // Tiny "chain broken" tick so the player feels the loss without a banner.
+      if (comboJumps >= 5) pop(pug.x, pug.y - 18, '✕ CHAIN', '#a0a0b0');
       comboJumps = 0; lastPlat = null; comboRestT = 0;
     }
   } else {
@@ -449,8 +456,12 @@ function tick(dt) {
     for (const s of caveSpikes) s.y += dy;
     for (const b of strataBands) b.y += dy;
     lastPlatY += dy;
-    // Seed new cave decor as we scroll up
-    if (caveSpikes.length && caveSpikes[caveSpikes.length - 1].y > -200) seedCaveSpikes(caveSpikes[caveSpikes.length - 1].y - 120);
+    // Seed new cave decor as we scroll up. Fall back to player y when the
+    // array has been fully spliced so spawning never silently stops.
+    {
+      const topY = caveSpikes.length ? caveSpikes[caveSpikes.length - 1].y : pug.y;
+      if (topY > -200) seedCaveSpikes(topY - 120);
+    }
     // New strata bands
     while (strataBands.length === 0 || strataBands[strataBands.length - 1].y > -200) {
       const lastY = strataBands.length ? strataBands[strataBands.length - 1].y : H;
@@ -777,7 +788,10 @@ function render() {
       ctx.fillStyle = '#ff3a3a';
       ctx.fillRect(-3, -1, 2, 2); ctx.fillRect(1, -1, 2, 2);
     } else {
+      // Dead bat: white "x"s for eyes — use a tiny readable font instead of
+      // relying on whatever previous ctx.font was leaked in.
       ctx.fillStyle = '#fff';
+      ctx.font = "6px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
       ctx.fillText('x', -2, 1); ctx.fillText('x', 2, 1);
     }
     // Tiny pointy ears
@@ -865,10 +879,11 @@ function render() {
   let py = H - 30;
   const chip = (label, t, color, iconDraw) => {
     if (t <= 0) return;
-    ctx.fillStyle = 'rgba(0,0,0,0.75)';
-    ctx.fillRect(12, py - 16, 130, 22);
+    const cw = 140;
+    ctx.fillStyle = 'rgba(0,0,0,0.78)';
+    ctx.fillRect(12, py - 16, cw, 22);
     ctx.fillStyle = color;
-    ctx.fillRect(12, py - 16, 130 * Math.min(1, t / 5), 4);
+    ctx.fillRect(12, py - 16, cw * Math.min(1, t / 5), 4);
     if (iconDraw) iconDraw(22, py - 6);
     ctx.fillStyle = '#fff'; ctx.font = "10px 'Press Start 2P', monospace"; ctx.textAlign = 'left';
     ctx.fillText(`${label} ${t.toFixed(1)}s`, 32, py);
@@ -901,13 +916,20 @@ function render() {
     ctx.font = "10px 'Press Start 2P', monospace"; ctx.textAlign = 'center';
     ctx.fillText(`COMBO ×${comboJumps}`, W / 2, cy + 18);
   }
-  // Biome tag (top-right small chip)
+  // Biome tag (top-right small chip) — pulse the border during a shift so
+  // the player notices the palette is mid-transition.
   {
-    ctx.fillStyle = 'rgba(0,0,0,0.6)';
-    ctx.fillRect(W - 108, 36, 96, 18);
+    ctx.fillStyle = 'rgba(0,0,0,0.65)';
+    ctx.fillRect(W - 108, 36, 96, 20);
+    if (biomeShiftT > 0) {
+      const k = 0.5 + 0.5 * Math.sin(performance.now() * 0.012);
+      ctx.strokeStyle = `rgba(255,58,58,${0.5 + 0.5 * k})`;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(W - 108, 36, 96, 20);
+    }
     ctx.fillStyle = biomeShiftT > 0 ? '#ff3a3a' : '#c8c8d8';
     ctx.font = "9px 'Press Start 2P', monospace"; ctx.textAlign = 'right';
-    ctx.fillText(biome.name, W - 14, 49);
+    ctx.fillText(biome.name, W - 14, 50);
   }
   // Score popups
   ctx.textAlign = 'center';
@@ -970,6 +992,9 @@ document.getElementById('start-btn').addEventListener('click', start);
 document.getElementById('end-restart').addEventListener('click', start);
 function start() {
   reset(); running = true;
+  // Clear any stale keys (e.g., user held a key during the end-overlay) so
+  // the pug doesn't auto-walk into lava on restart.
+  keys.clear(); touchX = null;
   document.getElementById('overlay').hidden = true; document.getElementById('overlay').classList.add('is-hidden');
   document.getElementById('end-overlay').hidden = true; document.getElementById('end-overlay').classList.add('is-hidden');
   document.getElementById('hud').hidden = false;

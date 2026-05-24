@@ -250,7 +250,13 @@ function showErr(msg) {
   el2.hidden = !msg;
 }
 
+let _loginEventsBound = false;
 function bindLoginOverlayEvents() {
+  // Guard against duplicate bindings — `forceShowLoginOverlay()` may be called
+  // many times in a single session (sign-out → log back in → sign-out → …).
+  // Without this guard, every click would fire all stacked handlers.
+  if (_loginEventsBound) return;
+  _loginEventsBound = true;
   $('login-ov-new')?.addEventListener('click', () => {
     $('login-ov-create').hidden = false;
     $('login-ov-name')?.focus();

@@ -148,7 +148,7 @@ function reset() {
   popups = []; aisles = []; lights = []; cameras = []; decorCarts = []; pallets = [];
   saleSigns = []; priceFlags = []; breathPuffs = [];
   cleanerBot = null; counter = null;
-  alarm = { on: false, T: 0, escaped: false, bonus: 0 };
+  alarm = { on: false, T: 0, escaped: false, bonus: 0, timeoutFired: false };
   shakeT = 0; shakeAmp = 0;
   haul = 0; bag = 0; maxBag = 8; heat = 0; shelvesKnocked = 0;
   // Generate shelf grid
@@ -269,6 +269,7 @@ function checkObjectives(opts) {
 const keys = new Set();
 window.addEventListener('keydown', (e) => {
   keys.add(e.key.toLowerCase());
+  if (e.repeat) return;
   if (e.key === 'e' || e.key === 'E') grabNear();
   if (e.key === ' ' || e.code === 'Space') ram();
   if (e.key === 'c' || e.key === 'C') toggleCart();
@@ -392,6 +393,7 @@ function ram() {
 }
 
 function toggleCart() {
+  if (!running) return;
   inCart = !inCart;
   heat = Math.min(1, heat + 0.1);
   sfx.tone(550, 'square', 0.06, 0.16);
@@ -521,7 +523,7 @@ function tick(dt) {
       g.alertT = 3;
       if (cameraBlinkT <= 0) heat = Math.min(1, heat + 0.4 * dt);
     }
-    if (heat > 0.7) g.alertT = Math.max(g.alertT, 1.5);
+    if (heat > 0.7) g.alertT = Math.max(g.alertT || 0, 1.5);
     if (alarm.on) g.alertT = 5; // always know
     if (g.alertT > 0) {
       g.alertT -= dt;
@@ -1017,7 +1019,8 @@ function updateHud() {
     hud.style.filter = '';
   }
   const best = loadBest('supermarket-pug');
-  document.getElementById('hud-best').textContent = best ? '$' + best.haul : '$0';
+  const bestHaul = best && (best.haul != null ? best.haul : best.score);
+  document.getElementById('hud-best').textContent = bestHaul != null ? '$' + bestHaul : '$0';
 }
 
 function caught() { shake(8, 0.3); end(false); }
@@ -1027,7 +1030,7 @@ function end(escaped) {
   running = false;
   sfx.sweep(escaped ? 880 : 220, escaped ? 1320 : 80, escaped ? 'triangle' : 'sawtooth', 0.5, 0.25);
   document.getElementById('end-title').textContent = escaped ? (alarm.escaped ? 'CLOSE CALL!' : 'CLEAN GETAWAY') : 'CAUGHT';
-  document.getElementById('end-sub').textContent = escaped ? (alarm.escaped ? `Escaped the alarm! +50% bonus ($${alarm.bonus})` : 'You made it to the parking lot.') : 'Security got you. The snacks are gone.';
+  document.getElementById('end-sub').textContent = escaped ? (alarm.escaped ? `Escaped the alarm! +50% bonus (+$${alarm.bonus})` : 'You made it to the parking lot.') : 'Security got you. The snacks are gone.';
   // Apply alarm bonus to haul before recording
   if (escaped && alarm.escaped) haul += alarm.bonus;
   document.getElementById('end-haul').textContent = '$' + haul;
@@ -1037,7 +1040,8 @@ function end(escaped) {
   const bestEl = document.getElementById('end-best');
   if (bestEl) {
     const b = current || { haul };
-    bestEl.innerHTML = `Best: <b>$${b.haul}</b>${isNewBest ? ' <span style="color:var(--neon-yellow)">★ NEW</span>' : ''}`;
+    const haulShown = (b.haul != null) ? b.haul : (b.score || 0);
+    bestEl.innerHTML = `Best: <b>$${haulShown}</b>${isNewBest ? ' <span style="color:var(--neon-yellow)">★ NEW</span>' : ''}`;
   }
   document.getElementById('hud').hidden = true;
   document.getElementById('end-overlay').hidden = false;
@@ -1070,6 +1074,7 @@ document.getElementById('start-btn').addEventListener('click', start);
 document.getElementById('end-restart').addEventListener('click', start);
 function start() {
   reset(); running = true;
+  keys.clear(); touchAt = null; // wipe stuck inputs from prior match
   document.getElementById('overlay').hidden = true; document.getElementById('overlay').classList.add('is-hidden');
   document.getElementById('end-overlay').hidden = true; document.getElementById('end-overlay').classList.add('is-hidden');
   document.getElementById('hud').hidden = false;
@@ -1098,11 +1103,15 @@ const BRIBE_CSS = `
   letter-spacing: 0.05em; padding: 3px 5px; border-radius: 3px;
   text-shadow: 0 0 4px var(--neon-yellow); }
 .bribe-modal { position: fixed; inset: 0; z-index: 300; display: none;
-  align-items: center; justify-content: center; background: rgba(0,0,0,0.78); padding: 16px; }
+  align-items: center; justify-content: center; background: rgba(0,0,0,0.78); padding: 16px;
+  animation: bribe-fade-in 0.18s ease-out; }
 .bribe-modal.is-open { display: flex; }
 .bribe-modal__panel { background: linear-gradient(180deg, #1a0f2e, #0a0716);
   border: 3px solid var(--neon-yellow); border-radius: 10px; padding: 20px;
-  max-width: 440px; width: 100%; box-shadow: 0 0 40px rgba(255,210,63,0.4); }
+  max-width: 440px; width: 100%; box-shadow: 0 0 40px rgba(255,210,63,0.4);
+  animation: bribe-pop-in 0.22s cubic-bezier(0.34, 1.56, 0.64, 1); }
+@keyframes bribe-fade-in { from { background: rgba(0,0,0,0); } to { background: rgba(0,0,0,0.78); } }
+@keyframes bribe-pop-in { from { transform: scale(0.85); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 .bribe-modal__title { font-family: var(--font-display); font-size: 0.8rem;
   letter-spacing: 0.1em; color: var(--neon-yellow); text-align: center; margin: 0 0 6px;
   text-shadow: 0 0 12px var(--neon-yellow); }
@@ -1256,7 +1265,7 @@ function _bribeBtnLoop() {
 _bribeBtnLoop();
 
 window.addEventListener('keydown', (e) => {
-  if (e.key === 'b' || e.key === 'B') {
+  if ((e.key === 'b' || e.key === 'B') && !e.repeat) {
     if (bribeOpen) closeBribe(); else if (running) openBribe();
   }
 });
@@ -1267,7 +1276,12 @@ const _objCss = `
   background: rgba(10,7,22,0.78); border: 2px solid rgba(94,243,140,0.45);
   border-radius: 6px; padding: 8px 10px 8px 10px; min-width: 180px; max-width: 240px;
   font-family: var(--font-display); font-size: 0.42rem; letter-spacing: 0.04em;
-  box-shadow: 0 4px 0 rgba(0,0,0,0.4); pointer-events: none; }
+  box-shadow: 0 4px 0 rgba(0,0,0,0.4); pointer-events: none;
+  animation: mart-obj-slide 0.4s ease-out; }
+@keyframes mart-obj-slide {
+  from { opacity: 0; transform: translateX(-12px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
 .mart-objectives__title { color: var(--neon-yellow); font-size: 0.5rem;
   text-shadow: 0 0 6px var(--neon-yellow); margin-bottom: 6px; }
 .mart-objectives__row { display: flex; gap: 6px; align-items: center;

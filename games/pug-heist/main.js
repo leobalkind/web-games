@@ -49,6 +49,10 @@ const LOOT_TYPES = [
   { iconName: 'camera',    val: 120, rare: true },   // was remote — camera is the closest jackpot tech icon
 ];
 let pug, humans, walls, loot, exitZ, floor, barkCd, fartCd, running;
+// Last-shown grade-card handle so start() can dismiss it (otherwise a CAUGHT
+// grade card lingers on top of the new floor when the user clicks REMATCH
+// on the end overlay before the grade-card RESTART button).
+let _activeGradeCard = null;
 let smokeCd = 0, tongueCd = 0, decoyCd = 0;
 let smokeBombs = []; // {x,y,t}
 let particles = [];  // loot pickup particles
@@ -373,13 +377,18 @@ function move(e, dx, dy, r) {
 
 const keys = new Set();
 window.addEventListener('keydown', (e) => {
-  keys.add(e.key.toLowerCase());
+  // Skip when typing in a text field (e.g. profile-rename modal).
+  if (e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
+  const k = e.key.toLowerCase();
+  keys.add(k);
+  // Block browser shortcuts (e.g. Quick Find on /, scroll on space) for keys we own.
+  if (e.code === 'Space' || ['q','g','t','x','w','a','s','d'].includes(k)) e.preventDefault();
   if (e.key === ' ' || e.code === 'Space') doBark();
-  if (e.key === 'Shift' || e.key.toLowerCase() === 'shift') doFart();
-  if (e.key === 'q' || e.key === 'Q') doSmoke();
-  if (e.key === 'g' || e.key === 'G') doTongue();
-  if (e.key === 't' || e.key === 'T') doDecoy();
-  if (e.key === 'x' || e.key === 'X') doThrow();
+  if (e.key === 'Shift' || k === 'shift') doFart();
+  if (k === 'q') doSmoke();
+  if (k === 'g') doTongue();
+  if (k === 't') doDecoy();
+  if (k === 'x') doThrow();
 });
 window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 // Mobile controls — wasd-only joystick + action buttons. Buttons synth keys so
@@ -1394,7 +1403,7 @@ function showFloorGrade(escaped) {
   const timePct = escaped ? Math.max(40, Math.min(100, 100 - elapsed * 1.2)) : 30;
   const lootPct = (floorTaken / lootMax) * 100;
   const stealthPct = alertedThisFloor ? 0 : 100;
-  showGradeCard({
+  _activeGradeCard = showGradeCard({
     title: escaped ? `FLOOR ${floor} CLEARED` : `CAUGHT ON FLOOR ${floor}`,
     subtitle: escaped ? 'Spend your haul before the next floor.' : 'Restart from floor 1.',
     stats: [
@@ -1409,6 +1418,7 @@ function showFloorGrade(escaped) {
     ],
     restartLabel: escaped ? 'CONTINUE' : 'RESTART',
     onRestart: () => {
+      _activeGradeCard = null;
       if (escaped) { openHeistShop(); }
       else { start(); }
     },
@@ -1423,6 +1433,9 @@ function start() {
   runUpgrades = {}; shopPending = false; pendingFloor = 0;
   closeHeistShop();
   renderHeistShopChips();
+  // Dismiss any lingering grade card from the previous run.
+  try { _activeGradeCard?.close?.(); } catch (e) { /* */ }
+  _activeGradeCard = null;
   genFloor(floor);
   document.getElementById('overlay').hidden = true; document.getElementById('overlay').classList.add('is-hidden');
   document.getElementById('end-overlay').hidden = true; document.getElementById('end-overlay').classList.add('is-hidden');
@@ -1446,10 +1459,14 @@ const HEIST_SHOP_CSS = `
   text-shadow: 0 0 4px var(--neon-green); }
 .heist-shop-modal { position: fixed; inset: 0; z-index: 300; display: none;
   align-items: center; justify-content: center; background: rgba(0,0,0,0.75); padding: 16px; }
-.heist-shop-modal.is-open { display: flex; }
+.heist-shop-modal.is-open { display: flex; animation: heistShopFade 0.18s ease-out; }
+@keyframes heistShopFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes heistShopPop { from { transform: translateY(12px) scale(0.96); opacity: 0; }
+  to { transform: translateY(0) scale(1); opacity: 1; } }
 .heist-shop-modal__panel { background: linear-gradient(180deg, #1a0f2e, #0a0716);
   border: 3px solid var(--neon-green); border-radius: 10px; padding: 20px;
-  max-width: 460px; width: 100%; box-shadow: 0 0 40px rgba(94,243,140,0.4); }
+  max-width: 460px; width: 100%; box-shadow: 0 0 40px rgba(94,243,140,0.4);
+  animation: heistShopPop 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.2); }
 .heist-shop-modal__title { font-family: var(--font-display); font-size: 0.85rem;
   letter-spacing: 0.1em; color: var(--neon-green); text-align: center; margin: 0 0 6px;
   text-shadow: 0 0 12px var(--neon-green); }

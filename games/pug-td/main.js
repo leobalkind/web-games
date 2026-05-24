@@ -593,6 +593,7 @@ const WAVES = [
 
 let money, lives, waveIdx, enemies, towers, projectiles, particles, popups, running, spawnQueue, spawnT, betweenWaveT, inWave, selectedTowerType, selectedTower;
 let runId = 0;
+let _lastFireSfxT = 0;
 // Shared speed-toggle multiplier — set by createSpeedToggle (1/2/3)
 let __speedMult = 1;
 // Screen-shake state (canvas translate during render) + wave banner
@@ -675,11 +676,13 @@ function showTowerPopup(t) {
     const dmgDelta   = dmgNext   - dmgNow;
     const rangeDelta = rangeNext - rangeNow;
     const rateDelta  = rateNext  - rateNow;
+    // Hide delta when there's no change (e.g. BUFF tower) for cleaner UI.
+    const _fmtDelta = (d, places) => d > 0.05 ? ` <span class="delta">+${d.toFixed(places)}</span>` : '';
     upgradePreview = `<div class="upgrade-preview">
         <div class="row" style="justify-content:center;"><b style="color:var(--neon-cyan)">NEXT: Lv ${nextLvl + 1}</b></div>
-        <div class="row"><span>DMG</span><b>${dmgNext.toFixed(0)} <span class="delta">+${dmgDelta.toFixed(0)}</span></b></div>
-        <div class="row"><span>RANGE</span><b>${rangeNext.toFixed(1)} <span class="delta">+${rangeDelta.toFixed(1)}</span></b></div>
-        <div class="row"><span>RATE</span><b>${rateNext.toFixed(1)}/s <span class="delta">+${rateDelta.toFixed(1)}</span></b></div>
+        <div class="row"><span>DMG</span><b>${dmgNext.toFixed(0)}${_fmtDelta(dmgDelta, 0)}</b></div>
+        <div class="row"><span>RANGE</span><b>${rangeNext.toFixed(1)}${_fmtDelta(rangeDelta, 1)}</b></div>
+        <div class="row"><span>RATE</span><b>${rateNext.toFixed(1)}/s${_fmtDelta(rateDelta, 1)}</b></div>
       </div>`;
   }
   const canAfford = money >= upCost;
@@ -1068,7 +1071,13 @@ function tick(dt) {
         y: (tw.row + 0.5) * TILE + gridOffsetY(),
       });
     }
-    sfx.tone(440 + Math.random() * 200, def.cannon ? 'sawtooth' : 'square', 0.04, 0.12);
+    // Splash-tower (cannon) gets a meatier sawtooth; everything else stays light.
+    // Throttle to ~12 fire-tones per second total so 8 gatling towers don't
+    // saturate the audio context.
+    if (!_lastFireSfxT || performance.now() - _lastFireSfxT > 80) {
+      sfx.tone(440 + Math.random() * 200, def.splash ? 'sawtooth' : 'square', 0.04, 0.12);
+      _lastFireSfxT = performance.now();
+    }
   }
   // Projectiles
   for (const p of projectiles) {
@@ -1450,6 +1459,9 @@ function updateHud() {
 }
 
 function end(won) {
+  // Idempotent — end() can in theory be reached twice in one frame if both the
+  // life-loss and wave-clear conditions trigger on the same enemy update.
+  if (!running) return;
   running = false;
   sfx.sweep(won ? 1320 : 220, won ? 880 : 60, won ? 'triangle' : 'sawtooth', 0.8, 0.25);
   document.getElementById('end-title').textContent = won ? 'VAULT SAFE!' : 'VAULT EMPTY';

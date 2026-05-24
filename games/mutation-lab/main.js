@@ -124,9 +124,9 @@ const LAB_CSS = `
   border-radius: 4px; transition: transform 0.4s cubic-bezier(0.4, 1.6, 0.6, 1);
   box-shadow: 0 0 8px rgba(255,58,58,0.7); }
 .lab-lever.is-down .lab-lever__handle { transform: translateX(-50%) rotate(30deg); }
-.lab-lever__label { position: absolute; bottom: -8px; left: 50%; transform: translateX(-50%);
-  font-family: var(--font-display); font-size: 0.34rem; color: var(--neon-yellow);
-  letter-spacing: 0.06em; white-space: nowrap; text-shadow: 0 0 4px #000; }
+.lab-lever__label { position: absolute; bottom: -10px; left: 50%; transform: translateX(-50%);
+  font-family: var(--font-display); font-size: 0.4rem; color: var(--neon-yellow);
+  letter-spacing: 0.08em; white-space: nowrap; text-shadow: 0 0 4px #000, 0 0 2px #000; }
 
 /* === CHEMISTRY POSTERS on back wall === */
 .lab-posters { position: absolute; top: 8%; left: 0; right: 0; height: 130px;
@@ -240,7 +240,7 @@ const LAB_CSS = `
 .lab-codex-cell__icon { font-size: 22px; line-height: 1; }
 .lab-codex-cell__name { font-family: var(--font-display); font-size: 0.34rem; margin-top: 4px;
   letter-spacing: 0.03em; }
-.lab-codex-cell__unk { font-size: 30px; opacity: 0.3; }
+.lab-codex-cell__unk { font-size: 30px; opacity: 0.45; color: #7a7a8a; }
 .lab-codex-close { background: rgba(0,0,0,0.6); color: var(--text); border: 2px solid var(--border);
   border-radius: 4px; font-family: var(--font-display); font-size: 0.5rem;
   padding: 8px 14px; cursor: pointer; display: block; margin: 16px auto 0; }
@@ -1167,7 +1167,12 @@ function openCodex() {
 // player tries to re-fuse a combo they've already done).
 function pingCodexCell(key) {
   if (!_codexModal || !_codexModal.classList.contains('is-open')) return;
-  const cell = _codexModal.querySelector(`.lab-codex-cell[data-combo-key="${CSS.escape(key)}"]`);
+  // CSS.escape is not present in some older WebViews — fall back to a manual
+  // attribute-selector friendly escape so the codex ping never throws.
+  const esc = (typeof CSS !== 'undefined' && CSS.escape)
+    ? CSS.escape(key)
+    : String(key).replace(/[^a-zA-Z0-9_\-]/g, (c) => '\\' + c);
+  const cell = _codexModal.querySelector(`.lab-codex-cell[data-combo-key="${esc}"]`);
   if (!cell) return;
   cell.classList.remove('is-ping');
   void cell.offsetWidth;
@@ -1177,7 +1182,12 @@ function pingCodexCell(key) {
   setTimeout(() => cell && cell.classList.remove('is-ping'), 1000);
 }
 
+let _labStarted = false;
 document.getElementById('start-btn').addEventListener('click', () => {
+  // Guard against double-clicks that would re-load+re-render and could
+  // momentarily glitch the codex/badges.
+  if (_labStarted) return;
+  _labStarted = true;
   document.getElementById('overlay').hidden = true;
   document.getElementById('overlay').classList.add('is-hidden');
   document.getElementById('hud').hidden = false;
@@ -1198,7 +1208,7 @@ const _startOv = document.getElementById('overlay');
 if (_startOv) {
   const _showOnHide = () => {
     if (_startOv.classList.contains('is-hidden') || _startOv.hidden) {
-      showTip('Tap 3 ingredients → ⚗ FUSE. Each unique combo only works ONCE — get creative! 1140 combos exist. 📖 CODEX tracks all species.', 7500);
+      showTip(`Tap 3 ingredients → ⚗ FUSE. Each unique combo only works ONCE — get creative! ${TOTAL_COMBOS} combos exist. 📖 CODEX tracks all species.`, 7500);
     }
   };
   new MutationObserver(_showOnHide).observe(_startOv, { attributes: true, attributeFilter: ['hidden', 'class'] });

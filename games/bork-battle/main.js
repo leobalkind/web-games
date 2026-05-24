@@ -188,19 +188,28 @@ renderStarters();
 function hide(el) { el.hidden = true; el.classList.add('is-hidden'); }
 function show(el) { el.hidden = false; el.classList.remove('is-hidden'); }
 
+let _playInFlight = false;
 async function play() {
-  hide(startOverlay);
-  hide(endOverlay);
-  // Wipe stale kill-feed lines + zone-warn flags from a previous match.
-  try { __borkFeed.clear(); } catch (e) { /* */ }
-  __zoneWarnSent = false; __zoneFinalSent = false;
-  await game.start(chosenStarter, chosenWeapon, chosenSkin, chosenDifficulty);
-  // Defensively unpause + restart ticker (in case any prior interaction stopped it)
-  if (typeof paused !== 'undefined' && paused) setPaused(false);
-  if (game?.app?.ticker && !game.app.ticker.started) game.app.ticker.start();
-  if (pauseOverlay) pauseOverlay.hidden = true;
-  // Background music starts when match starts
-  if (localStorage.getItem('wg:music') !== '0') Sfx.startMusic?.();
+  // Guard against rapid double-click / Enter-spam — start() is async so two
+  // overlapping calls could leak Pixi containers from the first match.
+  if (_playInFlight) return;
+  _playInFlight = true;
+  try {
+    hide(startOverlay);
+    hide(endOverlay);
+    // Wipe stale kill-feed lines + zone-warn flags from a previous match.
+    try { __borkFeed.clear(); } catch (e) { /* */ }
+    __zoneWarnSent = false; __zoneFinalSent = false;
+    await game.start(chosenStarter, chosenWeapon, chosenSkin, chosenDifficulty);
+    // Defensively unpause + restart ticker (in case any prior interaction stopped it)
+    if (typeof paused !== 'undefined' && paused) setPaused(false);
+    if (game?.app?.ticker && !game.app.ticker.started) game.app.ticker.start();
+    if (pauseOverlay) pauseOverlay.hidden = true;
+    // Background music starts when match starts
+    if (localStorage.getItem('wg:music') !== '0') Sfx.startMusic?.();
+  } finally {
+    _playInFlight = false;
+  }
 }
 
 // REMATCH — replay same loadout instantly
@@ -266,7 +275,12 @@ pauseLarge?.addEventListener('click', () => {
   localStorage.setItem('wg:large-text', on ? '1' : '0');
   pauseLarge.textContent = on ? 'LARGE TEXT: ON' : 'LARGE TEXT: OFF';
 });
-pauseQuit?.addEventListener('click', () => { window.location.href = '../../index.html'; });
+pauseQuit?.addEventListener('click', () => {
+  // Stop music / freeze ticker before nav so audio doesn't echo over the hub.
+  try { Sfx.stopMusic?.(); } catch (e) { /* */ }
+  try { if (game?.app?.ticker?.started) game.app.ticker.stop(); } catch (e) { /* */ }
+  window.location.href = '../../index.html';
+});
 
 // ===== MID-MATCH ARMOURY SHOP =====
 const shopBtn = document.getElementById('bork-shop-btn');
@@ -320,10 +334,11 @@ shopBtn?.addEventListener('click', openShopModal);
 shopClose?.addEventListener('click', closeShopModal);
 shopModal?.addEventListener('click', (e) => { if (e.target === shopModal) closeShopModal(); });
 
-// Keyboard shortcut: B opens shop (mirrors pug-cafe / pugzilla / supermarket)
+// Keyboard shortcut: B opens shop (mirrors pug-cafe / pugzilla / supermarket).
+// Guarded against evolve-menu / pause overlay so the shop can't stack on top.
 window.addEventListener('keydown', (e) => {
   if (e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
-  if ((e.key === 'b' || e.key === 'B') && game?.running) {
+  if ((e.key === 'b' || e.key === 'B') && game?.running && !game?.evolving && !paused) {
     e.preventDefault();
     if (shopOpen) closeShopModal(); else openShopModal();
   }
@@ -455,13 +470,18 @@ const __borkFeed = createKillFeed({ maxLines: 5, lifespan: 5000 });
 
 game.onKillFeed = ({ killer, victim, byZone, weaponName, weaponIcon }) => {
   // Surviv.io-style: "{icon} Killer borked Victim · WEAPON"
-  // Zone deaths skip the weapon tag and use the skull marker.
+  // Zone / tornado deaths skip the weapon tag and use a hazard marker.
   const v = victim?.name || '?';
   if (!killer && byZone) {
     __borkFeed.push(`☣ THE ZONE ▶ ${v}`, '#ff3aa1');
     return;
   }
-  const k = killer?.name || '?';
+  if (!killer) {
+    // Tornado / environmental kill — no shooter, not byZone.
+    __borkFeed.push(`🌪 THE TORNADO ▶ ${v}`, '#b055ff');
+    return;
+  }
+  const k = killer.name || '?';
   const color = killer === game.player ? '#5ef38c'
               : victim === game.player ? '#ff3a3a'
               : '#c8c0e8';

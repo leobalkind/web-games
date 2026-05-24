@@ -1093,10 +1093,19 @@ function tick(dt) {
       noclipTransitionT = 0;
       noclipSwapped = false;
     }
+    // Keep the hum/music ducking smoothly during the cinematic — without
+    // these calls the gain freezes at its pre-transition value and "pops"
+    // when tick resumes.
+    silenceHum(0.2);
+    updateHum(dt);
+    updateMusic(dt, 9999);
     return;
   }
   // Lore-note modal pauses gameplay too — player can read at their pace.
   if (activeNoteText) {
+    // Still drive ambient hum/music so the reading scene isn't dead-silent.
+    updateHum(dt);
+    updateMusic(dt, Math.hypot((monster?.x ?? 0) - pug.x, (monster?.y ?? 0) - pug.y));
     return;
   }
   let mx = 0, my = 0;
@@ -1139,8 +1148,10 @@ function tick(dt) {
     const n = noteCollectibles[i];
     if (Math.hypot(n.x - pug.x, n.y - pug.y) < 22) {
       noteCollectibles.splice(i, 1);
-      const wasNew = markNoteFound(n.id);
-      activeNoteText = LORE_NOTES[n.id] || '...';
+      // Defensive: a degenerate spawn with no id should still pick up cleanly.
+      const id = (typeof n.id === 'number' && n.id >= 0 && n.id < NOTE_TOTAL) ? n.id : 0;
+      const wasNew = markNoteFound(id);
+      activeNoteText = LORE_NOTES[id] || '...';
       try { sfx.tone(440, 'sine', 0.18, 0.10); } catch {}
       if (wasNew) {
         pop(n.x, n.y - 14, `+NOTE ${notesFoundCount()}/${NOTE_TOTAL}`, '#ffd23f');
@@ -1241,7 +1252,11 @@ function tick(dt) {
   monster.chase = monsterChaseT > 0;
   if (monsterChaseT > 0) monsterChaseT -= dt;
   // JUMP SCARE TRIGGER — first transition into chase while monster is close.
+  // Also re-trigger if the monster has been chasing for a while and suddenly
+  // closes inside 70px (panic spike). Cooldown still gates real scares.
   if (monster.chase && !prevChase && distToPug < 280) {
+    jumpScare('monster');
+  } else if (monster.chase && distToPug < 70 && jumpScareCooldown <= 0) {
     jumpScare('monster');
   }
 
@@ -2586,6 +2601,12 @@ function start() {
   noclipFromLabel = ''; noclipToLabel = '';
   noclipsChained = 0;
   activeNoteText = null;
+  // Reset accumulators/Sets so a fresh run isn't tainted by the previous one
+  // (held keys carrying over auto-walked the pug into a wall).
+  keys.clear(); touchSneak = false;
+  monsterWiggle = 0; lightFlicker = 0; heartBeatT = 0; breathT = 0;
+  firstSeenScreamed = false; lastSanityTick = 0;
+  popups = []; chaseVignetteT = 0; hitFlashT = 0; shakeT = 0; shakeMag = 0;
   scheduleAmbient(); scheduleDoorSlam(); scheduleWhisper();
   genLevel(level);
   ensureHum();

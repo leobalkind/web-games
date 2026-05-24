@@ -74,8 +74,11 @@ html, body {
   background: rgba(10,7,22,0.85);
   display: flex; align-items: center; justify-content: center;
   z-index: 180; backdrop-filter: blur(4px);
+  animation: pfPauseFade 0.18s ease-out;
 }
 .pause-overlay[hidden] { display: none !important; }
+@keyframes pfPauseFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pfPausePop  { from { transform: scale(0.94); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 .pause-panel {
   background: linear-gradient(135deg, #0e1c1a, #1a2030);
   border: 3px solid var(--neon-green);
@@ -83,6 +86,7 @@ html, body {
   padding: 32px 44px;
   text-align: center;
   box-shadow: 0 0 40px rgba(94,243,140,0.5);
+  animation: pfPausePop 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.2);
 }
 .pause-panel h2 {
   font-family: var(--font-display);

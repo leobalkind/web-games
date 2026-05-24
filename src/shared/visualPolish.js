@@ -130,10 +130,13 @@ function attachAmbience(panel) {
     _ambRaf = requestAnimationFrame(loop);
   };
   _ambRaf = requestAnimationFrame(loop);
-  // Clean up if panel removed from DOM
+  // Clean up if panel removed from DOM. We use one observer per ambient panel,
+  // disconnect + cancel the raf + drop the resize listener the moment the panel
+  // leaves the document — keeps memory flat across many start/restart cycles.
   const obs = new MutationObserver(() => {
     if (!document.body.contains(panel)) {
       running = false;
+      try { cancelAnimationFrame(_ambRaf); } catch {}
       window.removeEventListener('resize', onResize);
       obs.disconnect();
     }
