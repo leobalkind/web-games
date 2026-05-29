@@ -2252,7 +2252,7 @@ let _origMaxBag = null;
 (function _injectGetawayUI() {
   const ov = document.getElementById('overlay');
   const startBtn = document.getElementById('start-btn');
-  if (!ov || !startBtn) return;
+  if (!ov || !startBtn || !startBtn.parentNode) return;
   const wrap = document.createElement('div');
   wrap.id = 'mart-getaway-pick';
   wrap.style.cssText = 'margin:8px auto 6px;padding:8px;background:rgba(0,0,0,0.4);border:1px solid var(--border);border-radius:6px;max-width:520px;';

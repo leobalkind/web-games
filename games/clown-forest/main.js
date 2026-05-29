@@ -119,6 +119,12 @@ const TOUCH_SENS_KEY = (() => {
   try { return profileKey('clown-forest:touchSens'); }
   catch { return 'wg:clown-forest:touchSens'; }
 })();
+// Hoisted above _loadTouchSens/applyTouchSens (and the load-time call below)
+// to avoid a temporal-dead-zone crash — these were declared ~60 lines later.
+const TOUCH_SENS_PRESETS  = [0.0030, 0.0050, 0.0075]; // LOW / MED / HIGH
+const TOUCH_SENS_LABELS   = ['LOW', 'MED', 'HIGH'];
+let   touchSensIdx        = 1;     // 0..2
+let   TOUCH_SENS          = TOUCH_SENS_PRESETS[1];
 function _loadTouchSens() {
   let idx = 1;
   try {
@@ -185,10 +191,7 @@ const STAMINA_REGEN       = 1.4;   // per sec when not sprinting
 const MOUSE_SENS          = 0.0022;
 // Touch sensitivity is a runtime preference (cycled via the TURN button on
 // mobile). Persisted per-profile so the player's choice survives reloads.
-const TOUCH_SENS_PRESETS  = [0.0030, 0.0050, 0.0075]; // LOW / MED / HIGH
-const TOUCH_SENS_LABELS   = ['LOW', 'MED', 'HIGH'];
-let   touchSensIdx        = 1;     // 0..2 — written by initTouchSensFromStorage()
-let   TOUCH_SENS          = TOUCH_SENS_PRESETS[1];
+// (TOUCH_SENS_PRESETS / LABELS / touchSensIdx / TOUCH_SENS hoisted earlier.)
 
 const FLASHLIGHT_DRAIN    = 0.3;   // % per second
 const ITEMS_TO_ESCAPE     = 5;

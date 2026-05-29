@@ -648,6 +648,17 @@ const _CUSTOMER_COLORS = [
 ];
 // Wave 1F: bump from 6 to 8 customer slots — booths/bar/patio variety.
 // We rotate through type badges so the crowd visibly reads as varied.
+// CUSTOMER_TYPES is hoisted here (was declared ~line 1183) because the
+// customer-slot DOM is built at module load and reads it — declaring it
+// later caused a temporal-dead-zone ReferenceError that broke the whole game.
+const CUSTOMER_TYPES = {
+  NORMAL:  { id: 'NORMAL',  icon: '🐶', patience: 1.0,  tipMult: 1.0, color: '#c8854a', name: 'NORMAL' },
+  HUNGRY:  { id: 'HUNGRY',  icon: '😋', patience: 0.75, tipMult: 1.5, color: '#ff8e3c', name: 'HUNGRY' },
+  VIP:     { id: 'VIP',     icon: '👔', patience: 1.6,  tipMult: 2.5, color: '#ffd23f', name: 'VIP' },
+  KAREN:   { id: 'KAREN',   icon: '😤', patience: 0.65, tipMult: 0.6, color: '#ff3a3a', name: 'KAREN' },
+  TOURIST: { id: 'TOURIST', icon: '🧳', patience: 1.2,  tipMult: 1.1, color: '#4cc9f0', name: 'TOURIST' },
+  CRITIC:  { id: 'CRITIC',  icon: '📝', patience: 1.35, tipMult: 1.8, color: '#b055ff', name: 'CRITIC' },
+};
 const _CUSTOMER_BADGE_TYPES = ['NORMAL', 'HUNGRY', 'VIP', 'KAREN', 'TOURIST', 'NORMAL', 'HUNGRY', 'CRITIC'];
 // v1.8 sprite polish — rotate through 5 cosmetic accessories so the crowd
 // looks distinctly varied (beret/glasses/bowtie/flower/pearls). Slot 0 + 5
@@ -1180,16 +1191,8 @@ function currentCafe() { return CAFE_TYPES[currentCafeId]; }
 // Each new order gets a customerType. Type drives tip multiplier, patience,
 // behavior (KARENs decrease tips, VIPs require perfect timing for max bonus,
 // HUNGRY tip extra for fast service, TOURISTs have hidden / scrambled orders).
-const CUSTOMER_TYPES = {
-  NORMAL:  { id: 'NORMAL',  icon: '🐶', patience: 1.0,  tipMult: 1.0, color: '#c8854a', name: 'NORMAL' },
-  HUNGRY:  { id: 'HUNGRY',  icon: '😋', patience: 0.75, tipMult: 1.5, color: '#ff8e3c', name: 'HUNGRY' },
-  VIP:     { id: 'VIP',     icon: '👔', patience: 1.6,  tipMult: 2.5, color: '#ffd23f', name: 'VIP' },
-  // POLISH ROUND 2 — KAREN slightly less harsh (patience 0.55 -> 0.65)
-  KAREN:   { id: 'KAREN',   icon: '😤', patience: 0.65, tipMult: 0.6, color: '#ff3a3a', name: 'KAREN' },
-  TOURIST: { id: 'TOURIST', icon: '🧳', patience: 1.2,  tipMult: 1.1, color: '#4cc9f0', name: 'TOURIST' },
-  // POLISH ROUND 2 — NEW: CRITIC. Rare. Takes notes. Perfect serve = CRITIC AWARD bonus.
-  CRITIC:  { id: 'CRITIC',  icon: '📝', patience: 1.35, tipMult: 1.8, color: '#b055ff', name: 'CRITIC' },
-};
+// CUSTOMER_TYPES is now declared earlier (hoisted near the customer-slot
+// builder) to avoid a temporal-dead-zone crash at module load.
 function pickCustomerType() {
   const w = currentCafe().customerWeights || { NORMAL: 100 };
   let total = 0;
